@@ -1,0 +1,68 @@
+# The Docker build context. This repo is PUBLIC and the image may be shared: nothing private,
+# no local data and no build output from the dev PC goes in (the image builds its own).
+
+# Private material (mirrors .gitignore: only the public brand assets in reference/ are kept)
+reference/*
+!reference/brand
+docs/private
+**/fixtures/private
+.env
+.env.*
+**/.env
+**/.env.*
+*.xlsx
+*.xlsm
+*.xls
+**/*.xlsx
+**/*.xlsm
+**/*.xls
+
+# Local data and databases
+data
+**/data
+*.db
+*.db-*
+**/*.db
+**/*.db-*
+*.sqlite*
+**/*.sqlite*
+# database copies (finance.db.bak …); code and notes about a DB stay in
+*.db.*
+**/*.db.*
+!**/*.db.md
+!**/*.db.ts
+!**/*.db.tsx
+!**/*.db.js
+!**/*.db.mjs
+!**/*.db.cjs
+!**/*.db.json
+*.bak
+**/*.bak
+
+# VCS, editor and agent folders
+.git
+.githooks
+.claude
+.vscode
+.idea
+
+# Dependencies and build output (rebuilt inside the image)
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.vite
+**/.vite
+
+# Scratch, test and report output
+artifacts
+coverage
+**/coverage
+playwright-report
+test-results
+*.log
+**/*.log
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml

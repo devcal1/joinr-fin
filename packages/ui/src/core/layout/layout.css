@@ -1,0 +1,166 @@
+/* Page header, grid and icon (STYLE_GUIDE §2–3). */
+@layer core {
+  .jf-icon {
+    flex: none;
+    vertical-align: middle;
+  }
+
+  /* ── Page header: H1 31px uppercase + teal sub-line; 36px to the next block ── */
+  .jf-page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4) var(--space-6);
+    min-width: 0;
+    padding-bottom: var(--space-3);
+  }
+
+  .jf-page-header__text {
+    min-width: 0;
+  }
+
+  .jf-page-header__title {
+    color: var(--text-bright);
+    font-size: var(--fs-h1);
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    line-height: 1.15;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+
+  .jf-page-header__subtitle {
+    margin-top: var(--space-2);
+    color: var(--teal);
+    font-size: var(--fs-subline);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+
+  .jf-page-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* ── Grid: 1 column on phone, 6 on tablet, 12 on desktop; 12px gutters ── */
+  .jf-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .jf-grid__item {
+    min-width: 0;
+  }
+
+  @media (min-width: 768px) {
+    .jf-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .jf-grid__item--t6 {
+      grid-column: span 6;
+    }
+
+    .jf-grid__item--t3 {
+      grid-column: span 3;
+    }
+
+    .jf-grid__item--t2 {
+      grid-column: span 2;
+    }
+  }
+
+  @media (min-width: 1200px) {
+    .jf-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .jf-grid__item--12 {
+      grid-column: span 12;
+    }
+
+    .jf-grid__item--6 {
+      grid-column: span 6;
+    }
+
+    .jf-grid__item--4 {
+      grid-column: span 4;
+    }
+
+    .jf-grid__item--3 {
+      grid-column: span 3;
+    }
+
+    .jf-grid__item--2 {
+      grid-column: span 2;
+    }
+  }
+}
+
+/* Stack and cluster: spacing without margins. */
+@layer core {
+  .jf-stack {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .jf-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .jf-cluster--start {
+    align-items: flex-start;
+  }
+
+  .jf-cluster--center {
+    align-items: center;
+  }
+
+  .jf-cluster--baseline {
+    align-items: baseline;
+  }
+
+  .jf-cluster--end {
+    align-items: flex-end;
+  }
+
+  .jf-stack--gap-1,
+  .jf-cluster--gap-1 {
+    gap: var(--space-1);
+  }
+
+  .jf-stack--gap-2,
+  .jf-cluster--gap-2 {
+    gap: var(--space-2);
+  }
+
+  .jf-stack--gap-3,
+  .jf-cluster--gap-3 {
+    gap: var(--space-3);
+  }
+
+  .jf-stack--gap-4,
+  .jf-cluster--gap-4 {
+    gap: var(--space-4);
+  }
+
+  .jf-stack--gap-6,
+  .jf-cluster--gap-6 {
+    gap: var(--space-6);
+  }
+
+  .jf-stack--gap-9,
+  .jf-cluster--gap-9 {
+    gap: var(--space-9);
+  }
+}

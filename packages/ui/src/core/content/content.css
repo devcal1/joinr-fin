@@ -1,0 +1,419 @@
+/* Content components (STYLE_GUIDE §5). Depth comes from surface steps only: no shadows. */
+@layer core {
+  /* ── Section bar ── */
+  .jf-section-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+    min-width: 0;
+    padding: var(--space-2) var(--space-4);
+    border-left: 4px solid var(--orange);
+    border-radius: var(--radius-bar);
+    background: var(--raised);
+  }
+
+  .jf-section-bar--supporting {
+    border-left-color: var(--teal);
+  }
+
+  .jf-section-bar--reference {
+    border-left-color: var(--violet);
+  }
+
+  .jf-section-bar__title {
+    min-width: 0;
+    color: var(--text-bright);
+    font-size: var(--fs-h2);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.35;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+
+  .jf-section-bar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* ── Card ── */
+  .jf-card {
+    min-width: 0;
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .jf-card--flush {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .jf-card__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .jf-card--flush > .jf-card__head {
+    margin-bottom: 0;
+    padding: var(--space-4) var(--space-4) var(--space-3);
+  }
+
+  .jf-card__heading {
+    min-width: 0;
+  }
+
+  .jf-card__title {
+    color: var(--teal);
+    font-size: var(--fs-h3);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    line-height: 1.35;
+    text-transform: uppercase;
+  }
+
+  .jf-card__subtitle {
+    margin-top: 2px;
+    color: var(--text-secondary);
+    font-size: var(--fs-dense);
+  }
+
+  .jf-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .jf-card__body {
+    min-width: 0;
+  }
+
+  /* ── Callout ── */
+  .jf-callout {
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border-left: 4px solid var(--teal);
+    border-radius: var(--radius-bar);
+    background: var(--surface);
+  }
+
+  .jf-callout--important {
+    border-left-color: var(--orange);
+  }
+
+  .jf-callout--do-not {
+    border-left-color: var(--stop);
+  }
+
+  .jf-callout__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: var(--space-1);
+    color: var(--teal-tint);
+    font-size: var(--fs-h3);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    line-height: 1.35;
+    text-transform: uppercase;
+  }
+
+  .jf-callout--important .jf-callout__title {
+    color: var(--orange-tint);
+  }
+
+  .jf-callout--do-not .jf-callout__title {
+    color: var(--stop-tint);
+  }
+
+  .jf-callout__body {
+    color: var(--text);
+  }
+
+  /* ── Key–value table ── */
+  .jf-kv {
+    min-width: 0;
+    overflow: hidden;
+    border-radius: var(--radius-card);
+  }
+
+  .jf-kv__table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .jf-kv__label,
+  .jf-kv__value {
+    padding: var(--space-2) var(--space-3);
+    vertical-align: baseline;
+    text-align: left;
+  }
+
+  .jf-kv__label {
+    width: 38%;
+    background: var(--raised);
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.5;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+
+  .jf-kv__value {
+    background: var(--surface);
+    color: var(--text);
+    font-size: var(--fs-dense);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .jf-kv__value--num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .jf-kv__row + .jf-kv__row > * {
+    border-top: 1px solid var(--hairline);
+  }
+
+  /* ── Stat tile ── */
+  .jf-stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    height: 100%;
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .jf-stat-tile__label {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .jf-stat-tile__value {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: var(--fs-kpi);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .jf-stat-tile--key .jf-stat-tile__value {
+    color: var(--teal);
+  }
+
+  .jf-stat-tile__delta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 6px;
+    font-size: var(--fs-dense);
+    line-height: 1.4;
+  }
+
+  .jf-stat-tile__delta--go {
+    color: var(--go-tint);
+  }
+
+  .jf-stat-tile__delta--stop {
+    color: var(--stop-tint);
+  }
+
+  .jf-stat-tile__delta--neutral {
+    color: var(--text-secondary);
+  }
+
+  .jf-stat-tile__delta-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+
+  .jf-stat-tile__hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  /* ── Status badge: 16% fill, full-strength border, light-tint text, 12px uppercase 0.08em ── */
+  .jf-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px var(--space-2);
+    border: 1px solid;
+    border-radius: var(--radius-bar);
+    font-size: var(--fs-badge);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1.5;
+    text-transform: uppercase;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .jf-badge--go {
+    border-color: var(--go);
+    background: color-mix(in srgb, var(--go) 16%, transparent);
+    color: var(--go-tint);
+  }
+
+  .jf-badge--check {
+    border-color: var(--orange);
+    background: color-mix(in srgb, var(--orange) 16%, transparent);
+    color: var(--orange-tint);
+  }
+
+  .jf-badge--stop {
+    border-color: var(--stop);
+    background: color-mix(in srgb, var(--stop) 16%, transparent);
+    color: var(--stop-tint);
+  }
+
+  /* ── Pill: fully round, 1px border, no fill, 11px ── */
+  .jf-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 10px;
+    border: 1px solid var(--teal);
+    border-radius: var(--radius-pill);
+    color: var(--teal-tint);
+    font-size: var(--fs-small);
+    line-height: 1.6;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .jf-pill--violet {
+    border-color: var(--violet);
+    color: var(--violet-tint);
+  }
+
+  .jf-pill--fuchsia {
+    border-color: var(--fuchsia);
+    color: var(--fuchsia);
+  }
+
+  .jf-pill--na {
+    border-color: var(--pill-na);
+    color: var(--text-secondary);
+  }
+
+  /* ── Numbered step card ── */
+  .jf-step {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .jf-step__disc {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--violet), var(--fuchsia));
+    color: var(--text-bright);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .jf-step__body {
+    min-width: 0;
+    padding-top: 4px;
+  }
+
+  .jf-step__title {
+    color: var(--text-bright);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .jf-step__subtitle {
+    margin-top: 2px;
+    color: var(--violet-tint);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .jf-step__content {
+    margin-top: var(--space-2);
+    color: var(--text);
+  }
+
+  /* ── Image frame: 1px hairline, radius 6, full or exactly half width ── */
+  .jf-image-frame {
+    min-width: 0;
+  }
+
+  .jf-image-frame--half {
+    width: calc(50% - var(--space-3) / 2);
+  }
+
+  .jf-image-frame__frame {
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+  }
+
+  .jf-image-frame__img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .jf-image-frame__caption {
+    margin-top: var(--space-2);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-image-frame--half {
+      width: 100%;
+    }
+  }
+
+  /* ── Amount ── */
+  .jf-amount {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .jf-amount--negative {
+    color: var(--stop-tint);
+  }
+}

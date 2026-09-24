@@ -1,0 +1,151 @@
+/* Base layer (ui-core). The only file with element selectors. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+    background: var(--ink);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Dark scrollbars everywhere (inherited by every scroll container). */
+    scrollbar-color: var(--raised) var(--ink);
+    /* In-page anchors land below the fixed spectrum rule and the sticky running header. */
+    scroll-padding-top: calc(var(--spectrum-h) + var(--shell-header-h) + var(--space-4));
+  }
+
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--fs-body);
+    font-weight: 400;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Components own their spacing; nothing inherits user-agent margins. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  figure,
+  blockquote,
+  dl,
+  dd {
+    margin: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  a {
+    color: var(--teal);
+    text-underline-offset: 2px;
+  }
+
+  a:hover {
+    color: var(--teal-tint);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+
+  img,
+  svg {
+    max-width: 100%;
+  }
+
+  code,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--teal) 35%, transparent);
+    color: var(--text-bright);
+  }
+
+  /* Keyboard focus: a 2px teal ring everywhere. Components may move it (e.g. inputs ring the frame). */
+  :focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  /* Figures: monospaced, tabular, right-aligned. */
+  .jf-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* Hidden visually, still read by assistive technology. */
+  .jf-visually-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  /* Prose keeps to the 70ch measure, 8px between paragraphs, ragged right. */
+  .jf-prose {
+    max-width: var(--measure);
+    text-align: left;
+  }
+
+  .jf-prose > * + * {
+    margin-top: var(--space-2);
+  }
+
+  @media (max-width: 767.98px) {
+    html {
+      /* The phone header has a second row for the freshness line. */
+      scroll-padding-top: calc(var(--spectrum-h) + 96px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

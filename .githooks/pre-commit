@@ -1,0 +1,6 @@
+#!/bin/sh
+# Joinr Finance privacy guard: this repo is PUBLIC.
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+TSX="$ROOT/node_modules/tsx/dist/cli.mjs"
+if [ ! -f "$TSX" ]; then echo "privacy-guard: run 'pnpm install' first (commit blocked)" >&2; exit 1; fi
+exec node "$TSX" "$ROOT/tools/privacy-guard/src/cli.ts" --staged

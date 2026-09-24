@@ -1,0 +1,8 @@
+/* ui-core stylesheet entry: tokens and base (@layer base), then the component CSS (@layer core). */
+@import './tokens.css';
+@import './base.css';
+@import './layout/layout.css';
+@import './layout/shell.css';
+@import './content/content.css';
+@import './table/table.css';
+@import './forms/forms.css';

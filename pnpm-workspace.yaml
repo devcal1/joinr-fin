@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+allowBuilds:
+  better-sqlite3: false # ships N-API prebuilds; true would run node-gyp (no toolchain)
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@tanstack/react-router@1.170.39'
+  - prettier@3.9.9

@@ -1,0 +1,45 @@
+# ─── PRIVATE — this repo is PUBLIC. Never commit personal or business-contact data. ───
+# reference/: source workbook, dumps, functional specs (describe the owner's holdings), full style-guide PDF (contact numbers)
+reference/*
+!reference/brand/
+# docs/private/: environment facts (NAS address, Drive ids), owner-specific open questions and data notes
+docs/private/
+data/
+*.db
+*.db-*
+# database copies (finance.db.bak, finance.db.2026-09-24); code and notes about a DB stay visible
+*.db.*
+!*.db.md
+!*.db.ts
+!*.db.tsx
+!*.db.js
+!*.db.mjs
+!*.db.cjs
+!*.db.json
+*.bak
+*.sqlite
+*.xlsx
+**/fixtures/private/
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# build / deps
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+playwright-report/
+test-results/
+*.log
+
+# scratch output (screenshots, Playwright output, agent DATA_DIRs)
+artifacts/
+*.tsbuildinfo
+*.sqlite*
+*.xls
+*.xlsm
+.claude/settings.local.json

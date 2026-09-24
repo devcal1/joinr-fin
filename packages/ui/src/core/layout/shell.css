@@ -1,0 +1,487 @@
+/* AppShell (STYLE_GUIDE §4). Desktop ≥ 1024px: sticky sidebar. Below: drawer. Below 768px: the
+   freshness line drops to its own row so the running header never wraps into the page. */
+@layer core {
+  .jf-shell {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--shell-sidebar-w) minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-areas:
+      'rule rule'
+      'header header'
+      'nav main'
+      'footer footer';
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding-top: var(--spectrum-h);
+    background: var(--ink);
+    color: var(--text);
+  }
+
+  .jf-scroll-locked {
+    overflow: hidden;
+  }
+
+  /* ── Skip link: when focused it covers the header's brand area completely (one inset ring) ── */
+  .jf-skip-link {
+    position: absolute;
+    top: var(--spectrum-h);
+    left: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    min-width: var(--shell-sidebar-w);
+    height: var(--shell-header-h);
+    padding: 0 var(--space-6);
+    background: var(--ink);
+    color: var(--teal);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-decoration: none;
+    text-transform: uppercase;
+    transform: translateY(calc(-100% - var(--space-9)));
+  }
+
+  .jf-skip-link:focus,
+  .jf-skip-link:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: -2px;
+    transform: none;
+  }
+
+  /* ── Spectrum rules (4px, full width) ── */
+  .jf-shell__rule {
+    height: var(--spectrum-h);
+    background: var(--spectrum);
+  }
+
+  .jf-shell__rule--top {
+    grid-area: rule;
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 60;
+  }
+
+  /* ── Running header ── */
+  .jf-shell__header {
+    grid-area: header;
+    position: sticky;
+    top: var(--spectrum-h);
+    z-index: 30;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      'brand title'
+      'brand fresh';
+    align-content: center;
+    align-items: center;
+    column-gap: var(--space-6);
+    row-gap: 2px;
+    height: var(--shell-header-h);
+    padding: 0 var(--space-6);
+    border-bottom: 1px solid var(--hairline);
+    background: var(--ink);
+  }
+
+  .jf-shell__header--plain {
+    grid-template-areas:
+      'brand title'
+      'brand title';
+  }
+
+  .jf-shell__brand {
+    grid-area: brand;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .jf-shell__title,
+  .jf-shell__freshness {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    justify-self: end;
+  }
+
+  .jf-shell__title {
+    grid-area: title;
+    align-self: end;
+    color: var(--text);
+    font-size: var(--fs-header);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+
+  .jf-shell__header--plain .jf-shell__title {
+    align-self: center;
+  }
+
+  .jf-shell__freshness {
+    grid-area: fresh;
+    align-self: start;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .jf-shell__icon-button {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-bar);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .jf-shell__icon-button:hover {
+    background: var(--surface);
+    color: var(--text-bright);
+  }
+
+  .jf-shell__menu {
+    grid-area: menu;
+    display: none;
+    margin-left: calc(-1 * var(--space-2));
+  }
+
+  /* ── Sidebar nav ──
+     The nav column stretches to the page's row and never sizes it (contain: size), so a short
+     page keeps its footer on the first screen. Its body sticks below the header, is at most one
+     viewport tall, and scrolls on its own when the list is longer than that. */
+  .jf-shell__nav {
+    grid-area: nav;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    contain: size;
+    border-right: 1px solid var(--hairline);
+    background: var(--ink);
+  }
+
+  .jf-shell__nav-body {
+    position: sticky;
+    top: calc(var(--spectrum-h) + var(--shell-header-h));
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: calc(100vh - var(--spectrum-h) - var(--shell-header-h));
+    max-height: calc(100dvh - var(--spectrum-h) - var(--shell-header-h));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-2) 0 var(--space-4);
+  }
+
+  .jf-shell__nav-head {
+    display: none;
+  }
+
+  .jf-shell__nav-heading {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .jf-shell__nav-group + .jf-shell__nav-group {
+    margin-top: var(--space-2);
+  }
+
+  /* An unlabelled group (Settings) is set off from the group above by a hairline. */
+  .jf-shell__nav-group + .jf-shell__nav-group--plain {
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .jf-shell__nav-label {
+    padding: 10px var(--space-6) var(--space-1);
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .jf-shell__nav-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jf-shell__nav-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    /* 34px rows keep the whole list on screen at 900px tall; the drawer uses 44px touch rows. */
+    min-height: 34px;
+    padding: var(--space-1) var(--space-4) var(--space-1) calc(var(--space-6) - 4px);
+    border-left: 4px solid transparent;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.3;
+    text-decoration: none;
+  }
+
+  .jf-shell__nav-link:hover {
+    background: var(--surface);
+    color: var(--text-bright);
+  }
+
+  .jf-shell__nav-link:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .jf-shell__nav-link[aria-current='page'] {
+    border-left-color: var(--teal);
+    background: var(--surface);
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+
+  /* A label written in capitals (e.g. FIRE): uppercase is always letter-spaced (§2). */
+  .jf-shell__nav-text--caps {
+    letter-spacing: 0.06em;
+  }
+
+  .jf-shell__nav-icon {
+    color: var(--text-secondary);
+  }
+
+  .jf-shell__nav-link[aria-current='page'] .jf-shell__nav-icon {
+    color: var(--teal);
+  }
+
+  .jf-shell__nav-secondary {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .jf-shell__nav-secondary .jf-shell__nav-link {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .jf-shell__nav-secondary .jf-shell__nav-icon {
+    color: var(--text-muted);
+  }
+
+  .jf-shell__nav-secondary .jf-shell__nav-link:hover,
+  .jf-shell__nav-secondary .jf-shell__nav-link[aria-current='page'] {
+    color: var(--text-bright);
+  }
+
+  .jf-shell__scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: color-mix(in srgb, var(--ink) 72%, transparent);
+  }
+
+  /* ── Main ── */
+  .jf-shell__main {
+    grid-area: main;
+    min-width: 0;
+    padding: var(--space-6) var(--space-6) var(--space-9);
+  }
+
+  .jf-shell__main:focus {
+    outline: none;
+  }
+
+  .jf-shell__content {
+    min-width: 0;
+  }
+
+  /* Page flow: 24px between blocks (the page header adds 12px of its own, making 36). */
+  .jf-shell__content > * + * {
+    margin-top: var(--space-6);
+  }
+
+  /* ── Footer ── */
+  .jf-shell__footer {
+    grid-area: footer;
+    border-top: 1px solid var(--hairline);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    line-height: 1.5;
+  }
+
+  .jf-shell__footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-6);
+    padding: var(--space-3) var(--space-6);
+  }
+
+  /* ── Drawer (below 1024px) ── */
+  @media (max-width: 1023.98px) {
+    .jf-shell {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'rule'
+        'header'
+        'main'
+        'footer';
+    }
+
+    .jf-shell__header {
+      grid-template-columns: auto auto minmax(0, 1fr);
+      grid-template-areas:
+        'menu brand title'
+        'menu brand fresh';
+      column-gap: var(--space-3);
+      padding: 0 var(--space-4);
+    }
+
+    .jf-shell__header--plain {
+      grid-template-areas:
+        'menu brand title'
+        'menu brand title';
+    }
+
+    .jf-shell__menu {
+      display: inline-grid;
+    }
+
+    /* The drawer spans the viewport top to bottom (stretch, not the content height), keeps its
+       head in place and scrolls its body. */
+    .jf-shell__nav {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 50;
+      align-self: stretch;
+      width: min(300px, calc(100vw - 56px));
+      height: auto;
+      contain: none;
+      padding-top: var(--spectrum-h);
+      visibility: hidden;
+      transform: translateX(-100%);
+      transition:
+        transform 200ms ease,
+        visibility 0s linear 200ms;
+    }
+
+    .jf-shell__nav-body {
+      position: static;
+      flex: 1 1 auto;
+      min-height: 0;
+      height: auto;
+      max-height: none;
+    }
+
+    .jf-shell--nav-open .jf-shell__nav {
+      visibility: visible;
+      transform: none;
+      transition: transform 200ms ease;
+    }
+
+    .jf-shell__nav-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 56px;
+      padding: var(--space-2) var(--space-2) var(--space-2) var(--space-6);
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .jf-shell__nav-link {
+      min-height: 44px;
+    }
+  }
+
+  /* ── Phone (below 768px) ── */
+  @media (max-width: 767.98px) {
+    .jf-shell__header,
+    .jf-shell__header--plain {
+      grid-template-rows: 56px auto;
+      grid-template-areas:
+        'menu brand title'
+        'fresh fresh fresh';
+      row-gap: 0;
+      height: auto;
+      min-height: 56px;
+    }
+
+    .jf-shell__title {
+      align-self: center;
+    }
+
+    .jf-skip-link {
+      height: 56px;
+    }
+
+    .jf-shell__freshness {
+      justify-self: stretch;
+      padding: var(--space-1) 0 var(--space-2);
+      text-align: left;
+    }
+
+    .jf-shell__main {
+      padding: var(--space-4) var(--space-4) var(--space-6);
+    }
+
+    .jf-shell__footer-row {
+      padding: var(--space-3) var(--space-4);
+    }
+  }
+
+  /* ── Embedded (gallery demo): contained; nothing fixed, sticky or viewport-tall ── */
+  .jf-shell--embedded {
+    min-height: 0;
+    padding-top: 0;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+  }
+
+  /* The spectrum belongs to the real frame only (top of the viewport, bottom of the footer). */
+  .jf-shell--embedded .jf-shell__rule {
+    display: none;
+  }
+
+  .jf-shell--embedded .jf-shell__header {
+    position: static;
+  }
+
+  .jf-shell--embedded .jf-shell__nav {
+    contain: none;
+  }
+
+  .jf-shell--embedded .jf-shell__nav-body {
+    position: static;
+    height: auto;
+    max-height: none;
+  }
+
+  @media (max-width: 1023.98px) {
+    .jf-shell--embedded .jf-shell__nav,
+    .jf-shell--embedded .jf-shell__scrim {
+      position: absolute;
+    }
+
+    .jf-shell--embedded .jf-shell__nav {
+      width: min(280px, 85%);
+      padding-top: 0;
+    }
+  }
+}

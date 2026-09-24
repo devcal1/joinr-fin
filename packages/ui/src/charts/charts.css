@@ -1,0 +1,302 @@
+/* Charts (charts owner): `jf-chart-*` rules only. STYLE_GUIDE §6: no shadows or glows. */
+@layer charts {
+  /* ── EChart frame: an HTML legend, then a plot box whose fixed height includes the axis labels ── */
+  .jf-chart {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    width: 100%;
+    min-width: 0;
+  }
+
+  .jf-chart__plot {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Legend: text in text tokens; the colour lives only in the key beside it. */
+  .jf-chart__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jf-chart__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .jf-chart__legend-key {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .jf-chart__legend-key--line {
+    width: 14px;
+    height: 3px;
+  }
+
+  .jf-chart__host {
+    position: absolute;
+    inset: 0;
+    transition: opacity 200ms ease;
+  }
+
+  /* Refetch keeps the frame: the previous render dims instead of flashing a skeleton. */
+  .jf-chart--refreshing .jf-chart__host {
+    opacity: 0.45;
+  }
+
+  .jf-chart--loading .jf-chart__host,
+  .jf-chart--empty .jf-chart__host {
+    visibility: hidden;
+  }
+
+  .jf-chart__overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* ── Centre figure (donut hole, gauge) ── */
+  .jf-chart__center {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    max-width: 56%;
+    text-align: center;
+    transform: translate(-50%, -50%);
+  }
+
+  .jf-chart__center-value {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .jf-chart__center-value--large {
+    font-size: var(--fs-kpi, 26px);
+  }
+
+  .jf-chart__center-label {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+
+  .jf-chart__center-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    white-space: nowrap;
+  }
+
+  /* The target tick, as drawn across the gauge track. */
+  .jf-chart__target-key {
+    width: 3px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--text-bright);
+  }
+
+  /* ── Empty and loading states: same footprint as the chart, no layout jump ── */
+  .jf-chart__state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    color: var(--text-secondary);
+    font-size: var(--fs-dense);
+    text-align: center;
+  }
+
+  .jf-chart__state-icon {
+    color: var(--text-muted);
+  }
+
+  .jf-chart__state-text {
+    max-width: 40ch;
+    margin: 0;
+  }
+
+  .jf-chart__spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--raised);
+    border-top-color: var(--teal);
+    border-radius: 50%;
+    animation: jf-chart-spin 900ms linear infinite;
+  }
+
+  @keyframes jf-chart-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* ── Tooltip body (ECharts draws the --raised box; this lays out its content) ── */
+  .jf-chart-tooltip {
+    display: grid;
+    grid-template-columns: 12px auto minmax(0, 1fr);
+    column-gap: var(--space-2);
+    row-gap: 6px;
+    align-items: center;
+    min-width: 140px;
+    max-width: 260px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .jf-chart-tooltip__title {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .jf-chart-tooltip__row {
+    display: contents;
+  }
+
+  .jf-chart-tooltip__key {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .jf-chart-tooltip__key--line {
+    width: 12px;
+    height: 3px;
+  }
+
+  .jf-chart-tooltip__value {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .jf-chart-tooltip__name {
+    min-width: 0;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .jf-chart-tooltip__note::before {
+    content: ' · ';
+    font-family: var(--font-sans);
+  }
+
+  /* A figure after the name (a share such as 41.7%) is monospaced like every number (§2). */
+  .jf-chart-tooltip__note--num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jf-chart-tooltip__row--total > span {
+    padding-top: 2px;
+  }
+
+  .jf-chart-tooltip__row--total > .jf-chart-tooltip__name {
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  /* ── Palette key (slot order, for the style guide and settings) ── */
+  .jf-chart-palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    margin: 0;
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    list-style: none;
+  }
+
+  .jf-chart-palette__item {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    column-gap: var(--space-2);
+    align-items: center;
+  }
+
+  .jf-chart-palette__swatch {
+    grid-row: 1 / span 2;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+  }
+
+  .jf-chart-palette__slot {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .jf-chart-palette__hex {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+  }
+
+  /* ── ChartCard ── */
+  .jf-chart-card__toggle {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-bar);
+  }
+
+  .jf-chart-card__panel {
+    min-width: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jf-chart__host {
+      transition: none;
+    }
+
+    .jf-chart__spinner {
+      animation: none;
+    }
+  }
+}

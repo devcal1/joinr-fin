@@ -1,0 +1,518 @@
+/*
+ * Brand treatments (STYLE_GUIDE §7, source B): the wordmark, the header lockup, the banner artwork
+ * (hero band, brand screens). `jf-brand-*` classes only. Glows and the banner's own colours
+ * (§7.1: ground #13141D → #10111A → #0C0D16, hairline #1E1F28, glow ≈ #291636, wordmark dot
+ * #6E78E2 → #E44FB5) are allowed here and nowhere else.
+ */
+@layer brand {
+  /* ── Wordmark ─────────────────────────────────────────────────────────────────────────────── */
+  .jf-brand-wordmark {
+    display: block;
+    flex: none;
+    overflow: visible;
+  }
+
+  /* ── Brand block: wordmark + FINANCE on the wordmark's baseline, 0.4 × height apart ────────── */
+  .jf-brand-block {
+    --jf-brand-h: 32px;
+
+    display: inline-flex;
+    flex: none;
+    align-items: flex-end;
+    gap: calc(var(--jf-brand-h) * 0.4);
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .jf-brand-block--sm {
+    --jf-brand-h: 24px;
+  }
+
+  .jf-brand-block--lg {
+    --jf-brand-h: 48px;
+  }
+
+  .jf-brand-block__label {
+    /*
+     * The wordmark's baseline is 18.42% of its height above its bottom edge; with line-height 1,
+     * Arial's baseline sits 0.1535em above the label box's bottom edge.
+     */
+    margin-bottom: calc(var(--jf-brand-h) * 0.1842 - 0.1535em);
+    color: var(--teal);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  /* ── Banner artwork (HeroBackground) ─────────────────────────────────────────────────────────── */
+  .jf-brand-hero-bg {
+    --jf-hero-line-y: 39%;
+    --jf-brand-hairline: #1e1f28;
+
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    /* Ground: near-ink, darkening towards the bottom (and bottom-left, see the glow layer). */
+    background: linear-gradient(
+      180deg,
+      #13141d 0%,
+      #12131c 30%,
+      #10111a 52%,
+      #0f1018 72%,
+      #0e0e17 100%
+    );
+  }
+
+  .jf-brand-hero-bg__art {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .jf-brand-hero-bg__glow,
+  .jf-brand-hero-bg__grid,
+  .jf-brand-hero-bg__guides {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Broad bottom glow, strongest centre-right; a hint of orange far right; darker bottom-left. */
+  .jf-brand-hero-bg__glow {
+    background:
+      radial-gradient(ellipse 34% 46% at 63% 102%, rgb(48 23 60 / 0.85), rgb(48 23 60 / 0) 100%),
+      radial-gradient(ellipse 50% 58% at 58% 108%, rgb(33 19 46 / 0.8), rgb(33 19 46 / 0) 100%),
+      radial-gradient(ellipse 22% 40% at 33% 104%, rgb(26 24 52 / 0.35), rgb(26 24 52 / 0) 100%),
+      radial-gradient(ellipse 15% 32% at 99% 104%, rgb(60 26 20 / 0.5), rgb(60 26 20 / 0) 100%),
+      radial-gradient(ellipse 34% 52% at 0% 104%, rgb(10 10 18 / 0.7), rgb(10 10 18 / 0) 100%);
+  }
+
+  /* Faint dot matrix across the centre band, fading out towards every edge. */
+  .jf-brand-hero-bg__grid {
+    background-image: radial-gradient(circle, rgb(170 172 200 / 0.06) 0.6px, transparent 1.1px);
+    background-position: center var(--jf-hero-line-y);
+    background-size: 10px 10px;
+    -webkit-mask-image: radial-gradient(ellipse 42% 58% at 60% 42%, #000 35%, transparent 100%);
+    mask-image: radial-gradient(ellipse 42% 58% at 60% 42%, #000 35%, transparent 100%);
+  }
+
+  /* Faint vertical guides through each node (and two shorter ones between them). */
+  .jf-brand-hero-bg__guide {
+    position: absolute;
+    top: 14%;
+    bottom: 12%;
+    width: 1px;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      var(--jf-brand-hairline) 22%,
+      var(--jf-brand-hairline) 78%,
+      transparent
+    );
+    opacity: 0.8;
+    transform: translateX(-50%);
+  }
+
+  .jf-brand-hero-bg__guide--teal {
+    left: 25%;
+  }
+
+  .jf-brand-hero-bg__guide--violet {
+    left: 50%;
+  }
+
+  .jf-brand-hero-bg__guide--fuchsia {
+    left: 69%;
+  }
+
+  .jf-brand-hero-bg__guide--orange {
+    left: 87.5%;
+  }
+
+  .jf-brand-hero-bg__guide--minor-a {
+    top: 24%;
+    bottom: 40%;
+    left: 37.5%;
+    opacity: 0.55;
+  }
+
+  .jf-brand-hero-bg__guide--minor-b {
+    top: 32%;
+    bottom: 30%;
+    left: 75%;
+    opacity: 0.55;
+  }
+
+  /* The node line: a thin hairline at ~39% height, fading at both ends. */
+  .jf-brand-hero-bg__line {
+    position: absolute;
+    top: var(--jf-hero-line-y);
+    right: 9%;
+    left: 17%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--jf-brand-hairline) 9%,
+      var(--jf-brand-hairline) 94%,
+      transparent
+    );
+    transform: translateY(-50%);
+  }
+
+  .jf-brand-hero-bg__nodes {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Four nodes with soft glows, in the fixed spectrum order. */
+  .jf-brand-hero-bg__node {
+    --jf-node: var(--teal);
+
+    position: absolute;
+    top: var(--jf-hero-line-y);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--jf-node);
+    box-shadow:
+      0 0 3px 1px color-mix(in srgb, var(--jf-node) 55%, transparent),
+      0 0 8px 2px color-mix(in srgb, var(--jf-node) 18%, transparent),
+      0 0 16px 5px color-mix(in srgb, var(--jf-node) 5%, transparent);
+    transform: translate(-50%, -50%);
+  }
+
+  .jf-brand-hero-bg__node--teal {
+    left: 25%;
+  }
+
+  .jf-brand-hero-bg__node--violet {
+    --jf-node: var(--violet);
+
+    left: 50%;
+  }
+
+  .jf-brand-hero-bg__node--fuchsia {
+    --jf-node: var(--fuchsia);
+
+    left: 69%;
+  }
+
+  .jf-brand-hero-bg__node--orange {
+    --jf-node: var(--orange);
+
+    left: 87.5%;
+  }
+
+  /* ── Hero band (Net Worth) ──────────────────────────────────────────────────────────────────── */
+  .jf-brand-hero {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    background: var(--ink);
+  }
+
+  .jf-brand-hero__bg {
+    /* 39% of the band's minimum height, fixed so KPI cards below it never cover the nodes. */
+    --jf-hero-line-y: 70px;
+
+    display: flex;
+    flex-direction: column;
+    min-height: 180px;
+  }
+
+  .jf-brand-hero--compact .jf-brand-hero__bg {
+    --jf-hero-line-y: 55px;
+
+    min-height: 140px;
+  }
+
+  .jf-brand-hero__content {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: var(--space-4) var(--space-6);
+    /* The wordmark alone sits where the banner has it: ~4.7% from the right, ~15% from the bottom. */
+    padding: var(--space-4) max(var(--space-6), 4.7%) calc(var(--jf-hero-line-y) * 0.385);
+  }
+
+  .jf-brand-hero--has-content .jf-brand-hero__content {
+    padding: calc(var(--jf-hero-line-y) + 18px) var(--space-4) var(--space-4);
+  }
+
+  /*
+   * With KPI cards on the band, the dot grid and the guides stop just below the node line, where
+   * the cards begin; otherwise they show through the gaps between cards as a ladder of ticks. The
+   * guides keep the banner's proportion above the line (they start at 0.36 × the line's height).
+   */
+  .jf-brand-hero--has-content .jf-brand-hero-bg__grid,
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guides {
+    bottom: calc(100% - var(--jf-hero-line-y) - 18px);
+  }
+
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guide--teal,
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guide--violet,
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guide--fuchsia,
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guide--orange {
+    top: calc(var(--jf-hero-line-y) * 0.36);
+    bottom: 0;
+  }
+
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guide--minor-a,
+  .jf-brand-hero--has-content .jf-brand-hero-bg__guide--minor-b {
+    top: calc(var(--jf-hero-line-y) * 0.6);
+    bottom: 4px;
+  }
+
+  .jf-brand-hero__body {
+    flex: 1 1 480px;
+    min-width: 0;
+  }
+
+  .jf-brand-hero__mark {
+    flex: none;
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-brand-hero--has-content .jf-brand-hero__content {
+      padding-right: var(--space-3);
+      padding-left: var(--space-3);
+      padding-bottom: var(--space-3);
+    }
+
+    .jf-brand-hero__body {
+      flex-basis: 100%;
+    }
+  }
+
+  /* ── Brand screens: loading, empty, error, sign-in ─────────────────────────────────────────── */
+  .jf-brand-screen {
+    --jf-brand-screen-h: 360px;
+
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    background: var(--ink);
+  }
+
+  .jf-brand-screen--full {
+    --jf-brand-screen-h: 100dvh;
+
+    border: 0;
+    border-radius: 0;
+  }
+
+  .jf-brand-screen__bg {
+    display: flex;
+    flex-direction: column;
+    min-height: var(--jf-brand-screen-h);
+  }
+
+  .jf-brand-screen__layout {
+    display: grid;
+    flex: 1;
+    grid-template-rows: calc(var(--jf-brand-screen-h) * 0.39 + var(--space-6)) auto 1fr auto;
+    grid-template-areas:
+      '.'
+      'card'
+      '.'
+      'foot';
+    justify-items: center;
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .jf-brand-screen--full .jf-brand-screen__layout {
+    padding: 0 var(--space-6) var(--space-6);
+  }
+
+  .jf-brand-screen__card {
+    display: flex;
+    grid-area: card;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    width: min(100%, 440px);
+    padding: var(--space-6);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    text-align: center;
+  }
+
+  .jf-brand-screen__title {
+    max-width: 100%;
+    color: var(--text-bright);
+    font-size: var(--fs-h1);
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+    text-transform: uppercase;
+  }
+
+  .jf-brand-screen--embedded .jf-brand-screen__title {
+    font-size: var(--fs-h2);
+    letter-spacing: 0.05em;
+  }
+
+  .jf-brand-screen__message {
+    max-width: var(--measure);
+    color: var(--text);
+  }
+
+  .jf-brand-screen__body {
+    align-self: stretch;
+    text-align: left;
+  }
+
+  .jf-brand-screen__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2) var(--space-4);
+    margin-top: var(--space-1);
+  }
+
+  .jf-brand-screen__foot {
+    grid-area: foot;
+    justify-self: end;
+    padding-top: var(--space-6);
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-brand-screen--full .jf-brand-screen__layout {
+      padding: 0 var(--space-4) var(--space-4);
+    }
+
+    .jf-brand-screen__card {
+      padding: var(--space-6) var(--space-4);
+    }
+
+    .jf-brand-screen__foot {
+      justify-self: center;
+    }
+  }
+
+  /* A call-to-action link on brand screens: teal, uppercase, letter-spaced. */
+  .jf-brand-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--control-h);
+    color: var(--teal);
+    font-size: var(--fs-dense);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-decoration: none;
+    text-transform: uppercase;
+  }
+
+  .jf-brand-link:hover {
+    color: var(--teal-tint);
+    text-decoration: underline;
+  }
+
+  /* Collapsed technical detail on an error screen. */
+  .jf-brand-details {
+    color: var(--text-secondary);
+    font-size: var(--fs-dense);
+  }
+
+  .jf-brand-details__summary {
+    width: fit-content;
+    margin: 0 auto;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .jf-brand-details__code {
+    display: block;
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-bar);
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  /* ── Loading indicator: four nodes on a hairline, pulsing in spectrum order ─────────────────── */
+  .jf-brand-loader {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 72px;
+    height: 16px;
+  }
+
+  .jf-brand-loader__line {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    height: 1px;
+    background: var(--raised);
+  }
+
+  .jf-brand-loader__node {
+    --jf-node: var(--teal);
+    --jf-node-delay: 0s;
+
+    position: relative;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--jf-node);
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--jf-node) 55%, transparent);
+    animation: jf-brand-node-pulse 1.6s ease-in-out var(--jf-node-delay) infinite both;
+  }
+
+  .jf-brand-loader__node--violet {
+    --jf-node: var(--violet);
+    --jf-node-delay: 0.2s;
+  }
+
+  .jf-brand-loader__node--fuchsia {
+    --jf-node: var(--fuchsia);
+    --jf-node-delay: 0.4s;
+  }
+
+  .jf-brand-loader__node--orange {
+    --jf-node: var(--orange);
+    --jf-node-delay: 0.6s;
+  }
+
+  @keyframes jf-brand-node-pulse {
+    0%,
+    55%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.8);
+    }
+
+    25% {
+      opacity: 1;
+      transform: scale(1.3);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jf-brand-loader__node {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

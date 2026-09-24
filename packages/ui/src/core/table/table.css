@@ -1,0 +1,152 @@
+/* ColumnTable (STYLE_GUIDE §5). Total row: the only white bold row; key figure: the only teal cell. */
+@layer core {
+  .jf-table {
+    min-width: 0;
+  }
+
+  .jf-table__title {
+    margin-bottom: var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* Wide tables scroll inside this box; the page never scrolls sideways. */
+  .jf-table__scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .jf-table__scroll:focus-visible {
+    outline-offset: 0;
+  }
+
+  .jf-table__table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    color: var(--text);
+    font-size: var(--fs-dense);
+    line-height: 1.5;
+  }
+
+  .jf-table--regular .jf-table__table {
+    font-size: var(--fs-body);
+  }
+
+  .jf-table__th {
+    padding: var(--space-2) var(--space-3);
+    background: var(--raised);
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1.4;
+    text-align: left;
+    text-transform: uppercase;
+    vertical-align: bottom;
+    white-space: nowrap;
+  }
+
+  .jf-table__th--num {
+    text-align: right;
+  }
+
+  .jf-table__th--sorted {
+    color: var(--text-bright);
+  }
+
+  .jf-table__sort {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+
+  .jf-table__sort:hover {
+    color: var(--text-bright);
+  }
+
+  .jf-table__th--num .jf-table__sort {
+    flex-direction: row-reverse;
+  }
+
+  /* The label gives the button its baseline (not the icon), so a sortable header's text lines up
+     with the plain headers beside it, whichever side the icon sits on. */
+  .jf-table__sort > span {
+    align-self: baseline;
+  }
+
+  .jf-table__sort-icon {
+    flex: none;
+    opacity: 0.8;
+  }
+
+  .jf-table__cell {
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--hairline);
+    background: var(--surface);
+    font-weight: 400;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .jf-table__body > tr:first-child > .jf-table__cell {
+    border-top: 0;
+  }
+
+  .jf-table__cell--num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .jf-table__empty {
+    padding: var(--space-4) var(--space-3);
+    background: var(--surface);
+    color: var(--text-secondary);
+  }
+
+  /* Total row: white bold; the key figure teal. */
+  .jf-table__total > .jf-table__cell {
+    border-top: 1px solid var(--hairline);
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+
+  .jf-table__total > .jf-table__key {
+    color: var(--teal);
+  }
+
+  .jf-table__key .jf-amount--negative {
+    color: inherit;
+  }
+
+  /* Sticky first column: keeps the row label in view; a hairline appears once scrolled. */
+  .jf-table--sticky .jf-table__th--first,
+  .jf-table--sticky .jf-table__cell--first {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    border-right: 1px solid transparent;
+  }
+
+  .jf-table--sticky.jf-table--scrolled .jf-table__th--first,
+  .jf-table--sticky.jf-table--scrolled .jf-table__cell--first {
+    border-right-color: var(--hairline);
+  }
+}

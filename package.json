@@ -1,0 +1,45 @@
+{
+  "name": "joinr-finance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Joinr Finance: a self-hosted personal-finance web app.",
+  "packageManager": "pnpm@11.23.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "prepare": "node tools/privacy-guard/scripts/install-hook.mjs",
+    "dev": "concurrently -k -n server,web -c green,cyan \"pnpm --filter @joinr/server dev\" \"pnpm --filter @joinr/web dev\"",
+    "build": "pnpm --filter @joinr/web build && pnpm --filter @joinr/server build",
+    "start": "cross-env NODE_ENV=production node apps/server/dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc -p tsconfig.json && pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "guard": "tsx tools/privacy-guard/src/cli.ts --staged",
+    "guard:all": "tsx tools/privacy-guard/src/cli.ts --all",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.13.6",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
+    "jsdom": "^30.1.1",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}

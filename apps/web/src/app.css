@@ -1,0 +1,68 @@
+/* apps/web gallery chrome (Scaffolder): `jf-app-*` rules only, in their own layer after charts. */
+@layer app {
+  .jf-app-styleguide {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    min-width: 0;
+  }
+
+  .jf-app-styleguide__toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .jf-app-styleguide__toc-link {
+    color: var(--teal);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .jf-app-styleguide__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+    /* Clear the sticky running header (taller on a phone, where freshness has its own row). */
+    scroll-margin-top: calc(var(--spectrum-h) + var(--shell-header-h) + var(--space-6));
+  }
+
+  .jf-app-gallery-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+    margin: 0;
+  }
+
+  .jf-app-gallery-item__caption {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    align-items: baseline;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .jf-app-gallery-item__note {
+    color: var(--text-secondary);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .jf-app-gallery-item__body {
+    min-width: 0;
+  }
+
+  /* Icons take --text-secondary (STYLE_GUIDE §9). */
+  .jf-app-icon-demo {
+    color: var(--text-secondary);
+  }
+}

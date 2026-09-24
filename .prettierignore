@@ -1,0 +1,8 @@
+pnpm-lock.yaml
+**/dist
+artifacts
+data
+reference
+docs/private
+apps/server/migrations/meta
+**/*.md

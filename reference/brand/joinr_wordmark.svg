@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 213.55 87.46" role="img" aria-labelledby="joinr-title">
+  <!-- Joinr wordmark master (Stage 0, D12). Traced from joinr_wordmark.png: letters j o i n r as white
+       filled paths; the full stop is a true circle with a violet to fuchsia gradient (STYLE_GUIDE 7.1).
+       Dark backgrounds only. The same geometry is inlined in packages/ui/src/brand/wordmarkGeometry.ts. -->
+  <title id="joinr-title">joinr</title>
+  <defs>
+    <linearGradient id="joinr-dot" x1="0.15" y1="0.15" x2="0.85" y2="0.85">
+      <stop offset="0" stop-color="#6E78E2"/>
+      <stop offset="1" stop-color="#E44FB5"/>
+    </linearGradient>
+  </defs>
+  <g fill="#FFFFFF">
+    <path d="M18.76 22.54 L35.85 22.54 L35.85 67.49 C35.85 80.02 27.82 87.45 15.43 87.45 C9.81 87.45 4.87 86.16 0.01 81.23 L9.93 71.92 C14.03 73.49 18.76 74.76 18.76 68.29 Z M18.42 8.85 A8.85 8.85 0 1 1 36.11 8.85 A8.85 8.85 0 1 1 18.42 8.85 Z"/>
+    <path d="M65.36 22.9 C79.16 22.9 91.66 32.29 91.66 47.67 C91.66 62.97 78.89 72.51 65.36 72.51 C50.75 72.51 38.67 62.91 38.67 47.67 C38.67 32.24 50.37 22.9 65.36 22.9 Z M65.21 38.02 C59.38 38.02 55.83 42.11 55.83 47.74 C55.83 53.29 59.35 57.26 65.02 57.26 C70.8 57.26 74.23 53.49 74.23 47.67 C74.23 41.82 70.63 38.02 65.21 38.02 Z"/>
+    <path d="M94.73 23.93 L111.86 23.93 L111.86 71.35 L94.73 71.35 Z M94.41 9.39 A8.85 8.85 0 1 1 112.1 9.39 A8.85 8.85 0 1 1 94.41 9.39 Z"/>
+    <path d="M114.71 23.93 L131.68 23.93 L131.68 27.16 C136.26 23.7 138.96 23.04 144.83 23.04 C155.66 23.04 162.17 31.36 162.17 41.54 L162.17 71.35 L145.21 71.35 L145.21 44.94 C145.21 40.61 142.92 37.63 138.42 37.63 C134.27 37.63 131.68 40.44 131.68 44.54 L131.68 71.35 L114.71 71.35 Z"/>
+    <path d="M164.74 23.93 L181.71 23.93 L181.71 27.16 C185.83 23.76 188.15 23.04 193.66 23.04 C198.23 23.04 199.34 23.51 203.81 26.4 L193.98 39.62 C191.69 38.17 191.25 37.84 188.68 37.84 C182.63 37.84 181.71 41.39 181.71 46.8 L181.71 71.35 L164.74 71.35 Z"/>
+  </g>
+  <circle cx="203.35" cy="62.74" r="10.2" fill="url(#joinr-dot)"/>
+</svg>

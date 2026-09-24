@@ -1,0 +1,70 @@
+/*
+ * Design tokens (STYLE_GUIDE §1–3). Mirrored in tokens.ts for ECharts; tokens.test.ts checks parity.
+ *
+ * Breakpoints (literal media queries; custom properties cannot be used inside @media):
+ *   phone    ≤ 767.98px      1 column, 16px side gutters
+ *   tablet   768–1199.98px   6 columns
+ *   desktop  ≥ 1200px        12 columns, 12px gutters
+ *   drawer   ≤ 1023.98px     the sidebar becomes a drawer
+ */
+@layer base {
+  :root {
+    /* Colour (§1) */
+    --ink: #101019;
+    --surface: #191a24;
+    --raised: #262735;
+    --hairline: #24252f;
+    --text-bright: #ffffff;
+    --text: #d3d4dc;
+    --text-secondary: #9a9ba8;
+    --text-muted: #838494;
+    --teal: #17c8a0;
+    --violet: #8b5cf6;
+    --fuchsia: #d946ef;
+    --orange: #f97316;
+    --go: #22c55e;
+    --stop: #ef4444;
+    --pill-na: #2e2f3c;
+    --teal-tint: #6ee7c9;
+    --violet-tint: #a855f7;
+    --orange-tint: #fb923c;
+    --go-tint: #4ade80;
+    --stop-tint: #f87171;
+    --spectrum: linear-gradient(90deg, #17c8a0 0%, #8b5cf6 30%, #d946ef 55%, #f97316 100%);
+
+    /* Typography (§2) */
+    --font-sans: Arial, Helvetica, sans-serif;
+    --font-mono: ui-monospace, Consolas, 'Courier New', monospace;
+    --fs-h1: 31px;
+    --fs-subline: 15px;
+    --fs-h2: 16px;
+    --fs-h3: 13.5px;
+    --fs-body: 14.5px;
+    --fs-dense: 13px;
+    --fs-header: 13px;
+    --fs-badge: 12px;
+    --fs-small: 11px;
+    --fs-kpi: 26px;
+    --measure: 70ch;
+
+    /* Spacing (§3, 4px base) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-9: 36px;
+
+    /* Radius (§3) */
+    --radius-card: 6px;
+    --radius-bar: 5px;
+    --radius-pill: 999px;
+
+    /* Shell furniture (§4) */
+    --spectrum-h: 4px;
+    --shell-header-h: 64px;
+    --shell-sidebar-w: 240px;
+    --control-h: 36px;
+    --control-h-sm: 28px;
+  }
+}

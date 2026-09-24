@@ -1,0 +1,462 @@
+/* Buttons and form fields (STYLE_GUIDE §5 "Forms", plan §7.3). Focus is always a teal ring. */
+@layer core {
+  /* ── Button ── */
+  .jf-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: var(--control-h);
+    padding: 0 var(--space-4);
+    border: 1px solid transparent;
+    border-radius: var(--radius-bar);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+    text-decoration: none;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
+  }
+
+  .jf-button--sm {
+    min-height: var(--control-h-sm);
+    padding: 0 var(--space-3);
+    font-size: var(--fs-small);
+  }
+
+  .jf-button--icon {
+    width: var(--control-h);
+    padding: 0;
+  }
+
+  .jf-button--sm.jf-button--icon {
+    width: var(--control-h-sm);
+  }
+
+  .jf-button--primary {
+    border-color: var(--teal);
+    background: var(--teal);
+    color: var(--ink);
+  }
+
+  .jf-button--primary:hover:not(:disabled) {
+    border-color: var(--teal-tint);
+    background: var(--teal-tint);
+  }
+
+  .jf-button--secondary {
+    border-color: var(--raised);
+    background: var(--raised);
+    color: var(--text-bright);
+  }
+
+  .jf-button--secondary:hover:not(:disabled) {
+    border-color: var(--text-muted);
+  }
+
+  .jf-button--ghost {
+    background: transparent;
+    color: var(--teal);
+  }
+
+  .jf-button--ghost:hover:not(:disabled) {
+    background: var(--raised);
+    color: var(--teal-tint);
+  }
+
+  .jf-button--danger {
+    border-color: var(--stop);
+    background: transparent;
+    color: var(--stop-tint);
+  }
+
+  .jf-button--danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--stop) 16%, transparent);
+  }
+
+  .jf-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* ── Field frame: uppercase label above; error and hint below ── */
+  .jf-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .jf-field__label {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .jf-field__required {
+    margin-left: var(--space-1);
+  }
+
+  .jf-field__hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .jf-field__error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--stop-tint);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  /* ── Input frame (text, money, number, date, select) ── */
+  .jf-input {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    min-height: var(--control-h);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-bar);
+    background: var(--surface);
+    color: var(--text);
+    transition: border-color 120ms ease;
+  }
+
+  /* On a surface card the field steps down to ink so it stays distinct. */
+  .jf-card .jf-input {
+    background: var(--ink);
+  }
+
+  .jf-input:hover {
+    border-color: var(--text-muted);
+  }
+
+  .jf-field--invalid .jf-input {
+    border-color: var(--stop);
+  }
+
+  .jf-input:focus-within {
+    border-color: var(--teal);
+    outline: 1px solid var(--teal);
+  }
+
+  .jf-field--disabled .jf-input,
+  .jf-card .jf-field--disabled .jf-input {
+    border-color: var(--hairline);
+    background: transparent;
+    opacity: 0.5;
+  }
+
+  .jf-input__control {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: calc(var(--control-h) - 2px);
+    margin: 0;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--fs-body);
+  }
+
+  .jf-input__control:focus,
+  .jf-input__control:focus-visible {
+    outline: none;
+  }
+
+  .jf-input__control::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+  }
+
+  .jf-input__control:disabled {
+    cursor: not-allowed;
+  }
+
+  .jf-input--numeric .jf-input__control,
+  .jf-input__control--date {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jf-input--numeric .jf-input__control {
+    text-align: right;
+  }
+
+  .jf-input__adorn {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding: 0 var(--space-3);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    user-select: none;
+  }
+
+  .jf-input__adorn--start {
+    padding-right: 0;
+  }
+
+  .jf-input__adorn--end {
+    padding-left: 0;
+    font-family: var(--font-sans);
+    font-size: var(--fs-dense);
+  }
+
+  .jf-input__adorn--start + .jf-input__control {
+    padding-left: var(--space-2);
+  }
+
+  .jf-input__control:has(+ .jf-input__adorn--end) {
+    padding-right: var(--space-2);
+  }
+
+  .jf-input__button {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: var(--control-h);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--hairline);
+    border-radius: 0 var(--radius-bar) var(--radius-bar) 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .jf-input__button:hover:not(:disabled) {
+    color: var(--text-bright);
+  }
+
+  .jf-input__button:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .jf-input__button:disabled {
+    cursor: not-allowed;
+  }
+
+  /* The native date input only hosts the browser's picker; it is never seen or focused. */
+  .jf-input__picker {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .jf-input__control--select {
+    padding-right: calc(var(--space-3) + 24px);
+    appearance: none;
+    cursor: pointer;
+  }
+
+  /* Nothing chosen yet: the placeholder reads like a text input's placeholder, not a value. */
+  .jf-input__control--placeholder {
+    color: var(--text-muted);
+  }
+
+  .jf-input__control--select option {
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .jf-input__chevron {
+    position: absolute;
+    top: 50%;
+    right: var(--space-3);
+    color: var(--text-secondary);
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  /* ── Checkbox and switch ── */
+  .jf-check,
+  .jf-switch {
+    display: grid;
+    align-items: start;
+    column-gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .jf-check {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .jf-switch {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .jf-check__control,
+  .jf-switch__control {
+    position: relative;
+    display: block;
+  }
+
+  .jf-check__control {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+  }
+
+  .jf-switch__control {
+    width: 36px;
+    height: 20px;
+    margin-top: 1px;
+  }
+
+  /* The real input sits on top (transparent) so clicks, focus and assistive tech use it. */
+  .jf-check__input,
+  .jf-switch__input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .jf-check__input:disabled,
+  .jf-switch__input:disabled {
+    cursor: not-allowed;
+  }
+
+  .jf-check__box {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--text-muted);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .jf-check__mark {
+    visibility: hidden;
+  }
+
+  .jf-check__input:checked + .jf-check__box {
+    border-color: var(--teal);
+    background: var(--teal);
+  }
+
+  .jf-check__input:checked + .jf-check__box .jf-check__mark {
+    visibility: visible;
+  }
+
+  .jf-check__input:hover:not(:disabled) + .jf-check__box {
+    border-color: var(--text-secondary);
+  }
+
+  .jf-check__input:checked:hover:not(:disabled) + .jf-check__box {
+    border-color: var(--teal-tint);
+  }
+
+  .jf-switch__track {
+    position: relative;
+    display: block;
+    width: 36px;
+    height: 20px;
+    border: 1px solid var(--text-muted);
+    border-radius: var(--radius-pill);
+    background: var(--raised);
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease;
+  }
+
+  .jf-switch__thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition:
+      transform 150ms ease,
+      background-color 150ms ease;
+  }
+
+  .jf-switch__input:checked + .jf-switch__track {
+    border-color: var(--teal);
+    background: var(--teal);
+  }
+
+  .jf-switch__input:checked + .jf-switch__track .jf-switch__thumb {
+    background: var(--ink);
+    transform: translateX(16px);
+  }
+
+  .jf-switch__input:hover:not(:disabled) + .jf-switch__track {
+    border-color: var(--text-secondary);
+  }
+
+  .jf-check__input:focus-visible + .jf-check__box,
+  .jf-switch__input:focus-visible + .jf-switch__track {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  .jf-check__label,
+  .jf-switch__label {
+    color: var(--text);
+    font-size: var(--fs-body);
+    line-height: 1.5;
+    cursor: pointer;
+  }
+
+  .jf-check__hint,
+  .jf-switch__hint {
+    grid-column: 2;
+    margin-top: 2px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .jf-check--disabled,
+  .jf-switch--disabled {
+    opacity: 0.5;
+  }
+
+  .jf-check--disabled .jf-check__label,
+  .jf-switch--disabled .jf-switch__label {
+    cursor: not-allowed;
+  }
+}
+
+/* Style guide only: shows a field's focus ring without focusing it. */
+@layer core {
+  .jf-field--focus-demo .jf-input {
+    border-color: var(--teal);
+    outline: 1px solid var(--teal);
+  }
+}

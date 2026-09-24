@@ -1,0 +1,25 @@
+# Joinr Finance: a single-container compose file for building and running the image.
+# Stage 7 wraps this for Umbrel (umbrel-app.yml, app proxy auth, a DATA_DIR on NAS storage)
+# and sets the real time zone.
+#
+#   docker compose up -d --build
+#
+# The data folder must exist and be writable by uid 1000 (the image's `node` user), otherwise
+# Docker creates it owned by root and the app cannot open its database:
+#   mkdir -p ./data && sudo chown 1000:1000 ./data
+
+services:
+  joinr-finance:
+    build: .
+    image: joinr-finance:local
+    init: true
+    restart: unless-stopped
+    # Loopback only: the app has no login of its own. On the NAS (Stage 7) the Umbrel app proxy,
+    # which puts the Umbrel login in front, is the only way in, and that packaging publishes no
+    # port. Never publish this port on all interfaces (LAN or tailnet).
+    ports:
+      - '127.0.0.1:${JOINR_PORT:-3001}:3001'
+    volumes:
+      - '${JOINR_DATA_PATH:-./data}:/data'
+    environment:
+      TZ: '${TZ:-UTC}'
