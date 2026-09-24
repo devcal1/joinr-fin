@@ -2,7 +2,13 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildApp, SECURITY_HEADERS } from '../src/app';
+import {
+  buildApp,
+  offServices,
+  SECURITY_HEADERS,
+  type AppServices,
+  type ServiceDeps,
+} from '../src/app';
 import type { Config } from '../src/config';
 import { closeDatabase, openDatabase, runMigrations, type AppDatabase } from '../src/db/database';
 import { codeForStatus, HttpError } from '../src/errors';
@@ -51,7 +57,7 @@ describe('GET /api/health', () => {
       db: { ok: true, journalMode: 'wal', migrations: expect.any(Number) as number },
     });
     expect(body.uptimeSeconds).toBeGreaterThanOrEqual(0);
-    expect(body.db.migrations).toBeGreaterThanOrEqual(1);
+    expect(body.db.migrations).toBe(2);
   });
 
   it('never exposes paths or environment values', async () => {
@@ -156,6 +162,77 @@ describe('errors and not-found', () => {
     expect(codeForStatus(413)).toBe('PAYLOAD_TOO_LARGE');
     expect(codeForStatus(418)).toBe('I_M_A_TEAPOT');
     expect(codeForStatus(599)).toBe('ERROR');
+  });
+});
+
+describe('services', () => {
+  it('defaults to market data off and decorates the app with the services', async () => {
+    const instance = await start();
+    expect(instance.market.status()).toEqual({
+      mode: 'off',
+      running: false,
+      lastRefreshAt: null,
+      nextRefreshAt: null,
+    });
+    expect(instance.scheduler.isRunning('prices')).toBe(false);
+  });
+
+  it('builds the services with the app logger and config', async () => {
+    let seen: ServiceDeps | undefined;
+    app = await buildApp({
+      config,
+      db: database,
+      services: (deps) => {
+        seen = deps;
+        return offServices(deps);
+      },
+    });
+    expect(seen?.database).toBe(database);
+    expect(seen?.config).toBe(config);
+    expect(seen?.log).toBe(app.log);
+  });
+
+  it('stops the scheduler (awaiting it) before the database closes', async () => {
+    const events: string[] = [];
+    app = await buildApp({
+      config,
+      db: database,
+      services: (deps): AppServices => {
+        const services = offServices(deps);
+        const stop = services.scheduler.stop.bind(services.scheduler);
+        services.scheduler.stop = async () => {
+          events.push(`stop:start:db-open=${String(database.sqlite.open)}`);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          await stop();
+          events.push(`stop:end:db-open=${String(database.sqlite.open)}`);
+        };
+        return services;
+      },
+    });
+    await app.close();
+    app = undefined;
+    events.push(`closed:db-open=${String(database.sqlite.open)}`);
+    expect(events).toEqual([
+      'stop:start:db-open=true',
+      'stop:end:db-open=true',
+      'closed:db-open=false',
+    ]);
+  });
+
+  it.each([
+    ['GET', '/api/records'],
+    ['GET', '/api/records/trades'],
+    ['GET', '/api/import/runs'],
+    ['GET', '/api/import/runs/1'],
+    ['GET', '/api/status'],
+    ['GET', '/api/prices'],
+    ['POST', '/api/prices/refresh'],
+    ['DELETE', '/api/prices/1/manual'],
+    ['GET', '/api/market/series'],
+  ] as const)('%s %s is registered', async (method, url) => {
+    const res = await (await start()).inject({ method, url });
+    // A 404 from the route itself (unknown id) is fine; the router must not answer "No route".
+    expect(res.body).not.toContain('No route for');
   });
 });
 

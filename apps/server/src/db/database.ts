@@ -2,12 +2,13 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { DB_FILE_NAME } from '../config';
-import * as schema from './schema';
+import { tables, type JoinrDb } from './schema';
 
-export type Db = BetterSQLite3Database<typeof schema>;
+/** The Drizzle database type (all @joinr/schema tables). */
+export type Db = JoinrDb;
 
 export interface AppDatabase {
   /** The raw better-sqlite3 handle (pragmas, health checks, close). */
@@ -35,7 +36,7 @@ export function openDatabase(dataDir: string, fileName: string = DB_FILE_NAME): 
     sqlite.close();
     throw err;
   }
-  return { sqlite, db: drizzle(sqlite, { schema }) };
+  return { sqlite, db: drizzle(sqlite, { schema: tables }) };
 }
 
 /** Closes the connection if it is still open. Safe to call twice. */

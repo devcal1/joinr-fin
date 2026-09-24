@@ -1,10 +1,10 @@
 // The API's JSON error shape: `{ error: { code, message } }`.
 import { STATUS_CODES } from 'node:http';
+import type { ApiErrorBody } from '@joinr/schema';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { z } from 'zod';
 
-export interface ApiErrorBody {
-  error: { code: string; message: string };
-}
+export type { ApiErrorBody } from '@joinr/schema';
 
 /** An error a route throws on purpose; its message is safe to show to the client. */
 export class HttpError extends Error {
@@ -31,6 +31,27 @@ export function codeForStatus(statusCode: number): string {
 
 export function errorBody(code: string, message: string): ApiErrorBody {
   return { error: { code, message } };
+}
+
+/** One line per issue: `path: message` (the path is omitted for the root). */
+export function formatIssues(issues: readonly z.core.$ZodIssue[]): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.map(String).join('.');
+      return path ? `${path}: ${issue.message}` : issue.message;
+    })
+    .join('; ');
+}
+
+/**
+ * Validates a request body, query or params with a Zod schema and returns the parsed value;
+ * throws `HttpError(400, <issues>, 'VALIDATION_ERROR')` when it does not match.
+ */
+export function parseWith<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
+  const result = schema.safeParse(value);
+  if (!result.success)
+    throw new HttpError(400, formatIssues(result.error.issues), 'VALIDATION_ERROR');
+  return result.data;
 }
 
 export function sendNotFoundJson(request: FastifyRequest, reply: FastifyReply): FastifyReply {

@@ -13,9 +13,10 @@ How Joinr Finance is put together. [`PLAN.md`](../PLAN.md) gives the reasons beh
  │   ├─ /api/*        JSON API ──► engine (pure TypeScript)      │
  │   ├─ everything    the built React SPA (static files)         │
  │   ├─ SQLite (better-sqlite3 + Drizzle) ◄── DATA_DIR volume    │
- │   └─ later: price service + cache, scheduler, backups         │
+ │   ├─ price service + cache, job scheduler (Stage 1)           │
+ │   └─ later: month-end snapshots (5), backups (7)              │
  └───────────────────────────────────────────────────────────────┘
- DATA_DIR → a folder on the server's storage: finance.db (+ backups/, exports/ later)
+ DATA_DIR → a folder on the server's storage: finance.db, backups/ (+ exports/ later)
 ```
 
 - The app is one process with one database file.
@@ -27,9 +28,10 @@ How Joinr Finance is put together. [`PLAN.md`](../PLAN.md) gives the reasons beh
 A pnpm workspace with three kinds of member.
 
 ```
-apps/web ─────────► @joinr/ui
-apps/server ──────► @joinr/engine, @joinr/schema     (from Stages 1–2)
-packages/importer ► @joinr/schema                    (Stage 1)
+apps/web ─────────► @joinr/ui, @joinr/schema (types and plain constants only, never /db)
+apps/server ──────► @joinr/importer, @joinr/schema   (+ @joinr/engine from Stage 2)
+packages/importer ► @joinr/schema, xlsx (SheetJS)
+packages/schema   ► drizzle-orm, zod, decimal.js     (the root entry has no drizzle import)
 tools/privacy-guard  (standalone, Node built-ins only)
 ```
 
@@ -39,8 +41,8 @@ tools/privacy-guard  (standalone, Node built-ins only)
 | `@joinr/server` | Fastify API, SQLite access and migrations. In production it also serves the SPA. |
 | `@joinr/ui` | Design tokens, global CSS, layout and content components, brand components and chart wrappers. It is split into `core`, `brand` and `charts`. |
 | `@joinr/engine` | Pure calculation functions (holdings, savings, FIRE). It has no I/O. Stage 2. |
-| `@joinr/schema` | Drizzle tables and Zod types shared by the server and the importer. Stage 1. |
-| `@joinr/importer` | Reads a workbook export into the database and produces a reconciliation report. Stage 1. |
+| `@joinr/schema` | The shared data contract. The root entry holds enums, Zod schemas, API DTO types, the settings and record-browser registries, and pricing, decimal and date helpers; `/db` holds the Drizzle tables; `/testing` the in-memory test database, the generic seed and a table dump; `/fixtures` typed sample DTOs for UI tests. |
+| `@joinr/importer` | Reads a workbook export (SheetJS) into the database in one transaction and produces a reconciliation report. `/testing` builds a generic synthetic workbook for tests. |
 | `@joinr/privacy-guard` | The pre-commit check that keeps private material out of this public repo. |
 
 Internal packages are **TypeScript source with no build step**:
@@ -80,26 +82,39 @@ The start-up sequence is in `apps/server/src/index.ts`:
    - `synchronous=NORMAL`
 3. **Migrations.** `runMigrations` applies pending SQL migrations in one transaction. A second run is a no-op.
 4. **Bookkeeping.** The server records `created_at` once and `last_started_at` on every start, in `app_meta`.
-5. **App.** `buildApp({ config, db })` builds the Fastify instance. It has no side effects at import.
-6. **Listen.** It logs `Joinr Finance listening on http://HOST:PORT`.
+5. **Stale runs.** `markInterruptedRuns` marks import and job runs left `running` by a crash or restart as `failed` (`interrupted`).
+6. **App.** `buildApp({ config, db, services: defaultServices })` builds the Fastify instance. It has no side effects at import. The services factory receives the app's own logger and builds the scheduler and the market data service; the app is decorated with both (`app.scheduler`, `app.market`). Tests omit `services` and get `offServices`: market data off, no timers.
+7. **Listen.** It logs `Joinr Finance listening on http://HOST:PORT`, then starts the scheduler.
 
 Shutdown:
-- The first `SIGINT`, `SIGTERM` or `SIGBREAK` runs `app.close()`, which also closes SQLite.
+- The first `SIGINT`, `SIGTERM` or `SIGBREAK` runs `app.close()`. A `preClose` hook stops the scheduler first (aborting and awaiting an in-flight price run), then an `onClose` hook closes SQLite.
 - A second signal, or a 10-second timeout, forces the exit.
 
 | Module | Responsibility |
 |---|---|
 | `config.ts`, `paths.ts` | Environment validation. Finds the repo root (the folder with `pnpm-workspace.yaml`), the migrations folder and the web build. |
 | `db/database.ts`, `db/schema.ts`, `db/meta.ts` | The connection, migrations, the `app_meta` table and its helpers. |
-| `app.ts` | Fastify setup: security headers, the error handler, routes, SPA serving and the not-found handling. |
+| `app.ts` | Fastify setup: the services, security and `cache-control` headers, the error handler, routes, SPA serving and the not-found handling. |
+| `db/backup.ts` | Pre-import backups (`VACUUM INTO`, newest 10 kept). |
+| `db/queries/*` | Shared queries: held units per instrument, "has imported data", stale-run cleanup, import-run DTOs. |
+| `records/` | The record browser: one loader per registry entity, serialised to the registry's columns. |
 | `routes/health.ts` | `GET /api/health`. |
-| `errors.ts` | The JSON error shape and `HttpError`. |
+| `routes/status.ts` | `GET /api/status` (header freshness). |
+| `routes/records.ts` | `GET /api/records`, `GET /api/records/:entity`. |
+| `routes/import.ts` | `POST /api/import` and the import runs. |
+| `routes/prices.ts` | Prices, refresh, manual overrides, price sources, market series. |
+| `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. |
+| `scheduler/` | A small generic job scheduler that logs every run in `job_runs`. |
+| `cli/import.ts` | `pnpm import:workbook`. |
+| `errors.ts` | The JSON error shape, `HttpError` and `parseWith` (Zod validation, `400 VALIDATION_ERROR`). |
 | `web.ts` | Static SPA serving and cache rules. |
 | `version.ts` | The app version, baked in at build time or read from the root `package.json` in development. |
 
 **API conventions.**
 - JSON everywhere under `/api`.
-- Errors are `{ "error": { "code", "message" } }`. `code` is a stable, upper-snake identifier such as `NOT_FOUND` or `BAD_REQUEST`.
+- Every `/api` response, errors included, carries `Cache-Control: no-store`.
+- Request bodies, queries and params are validated with the Zod schemas from `@joinr/schema`. The DTO types come from there too, so the server and the web share one contract.
+- Errors are `{ "error": { "code", "message" } }`. `code` is a stable, upper-snake identifier such as `NOT_FOUND`, `VALIDATION_ERROR` or `IMPORT_CONFIRM_REQUIRED`.
 - A `5xx` message is always generic. The full error goes to the log only.
 - Responses never include file paths or environment values.
 - Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
@@ -119,12 +134,48 @@ Shutdown:
 
 - If the build is missing, the server refuses to start and says how to fix it.
 
+## Workbook import
+
+One function, `importWorkbook(db, { bytes, … })` in `@joinr/importer`, serves both entry points: the CLI (`pnpm import:workbook`) and `POST /api/import`.
+
+```
+.xlsx bytes ──► read (SheetJS) ──► extract each tab (pure) ──► corrections ──► exclusions,
+                                                                             suspect flags,
+                                                                             dividend re-keying
+        ┌──────────────────────── one SQLite transaction ─────────────────────────┐
+  ──►   │ delete imported rows · upsert instruments · price sources and seeded     │
+        │ prices · insert rows in sheet order · settings · reconcile (read back)   │
+        └──────────── dry run: roll back · otherwise: commit ─────────────────────┘
+  ──► import_runs row (status, totals, report JSON)
+```
+
+- **Replace-all, idempotent.** An import replaces the imported tables. Ids restart at 1 after the delete (no AUTOINCREMENT), so importing the same bytes twice gives identical tables. Instruments are upserted by kind and symbol, which keeps price sources and manual prices set in the app.
+- **Reconciliation report.** Every check compares a sheet value (a tab total, held units, a History row, a count) with the value read back from the database inside the transaction. Each check is `match`, `explained` (with a reason code and, where relevant, a decision reference), `suspect`, `info` or `unexplained`. The target is zero unexplained.
+- **Corrections** are owner-approved data fixes kept outside the repo (`import-corrections.json` in `DATA_DIR`, or in `reference/` on the development PC; `IMPORT_CORRECTIONS_FILE` overrides). Each applied correction is listed in the report.
+- **Upload route.** The body is the raw `.xlsx` (25 MiB limit; a route-scoped parser accepts only `application/octet-stream` and the xlsx MIME type). One import runs at a time. While app-entered rows exist (`origin = 'app'` in a domain table, `instruments` or `settings`; `hasAppData()`), a real import answers `409 IMPORT_APP_DATA_EXISTS` before the confirm check, with no backup and no run row; dry runs still run, and only the CLI overrides, with `--yes --replace-app-data` (D34). When data exists, a real import needs `confirmReplace=true` and takes a `VACUUM INTO` backup first. A committed import tells the price service to refresh soon.
+- A crash mid-import leaves the data untouched (the transaction rolls back), and the next start marks the run `failed`.
+
+## Price service and scheduler
+
+```
+scheduler ──(every PRICE_REFRESH_MINUTES, or "Refresh now")──► prices job
+  prices job: series (AUD/USD, silver, gold) ─► instruments by provider ─► FX to AUD
+              ─► one write transaction (prices, market_quotes) ─► job_runs row
+```
+
+- **Providers:** the Yahoo chart API for listed securities, futures and FX; CoinGecko for crypto; a deterministic `fake` provider for tests and demos (`MARKET_DATA_MODE=fake`). `off` never fetches. Every request has a 10-second timeout, and a run has a 90-second deadline.
+- **Resilience:** a failed fetch keeps the last good price, repeated failures back off, and a rate-limited provider cools down. A manual price always wins over a fetched one.
+- **Status** is computed, never stored: `fresh`, `stale`, `failed`, `manual` or `none`. Prices seeded from the workbook show as stale until the first refresh.
+- **Bullion** is priced from the built-in series (silver and gold per ounce in AUD), not from holdings.
+- **Scheduler:** generic and reusable (Stage 5 adds the month-end snapshot job, Stage 7 backups). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
+
 ## Data
 
 ```
 DATA_DIR/
   finance.db          the SQLite database (WAL mode; -wal and -shm files sit beside it while it is open)
-  backups/            Stage 7: nightly copies with retention
+  backups/            pre-import-YYYYMMDD-HHmmss.db (newest 10); Stage 7 adds nightly copies
+  import-corrections.json   optional: the owner's import corrections (on the server)
   exports/            later: JSON exports
 ```
 
@@ -134,8 +185,9 @@ DATA_DIR/
   - `drizzle-kit generate` writes SQL and a snapshot into `apps/server/migrations/`, and both are committed.
   - The server applies them at start-up.
   - Migrations are append-only: never edit one that has shipped.
-  - In Stage 1 the schema moves into `packages/schema`, and the migrations folder stays with the server.
-- **Snapshots** (Stage 5) are immutable rows. Corrections are explicit edits, never silent recalculation.
+  - The schema lives in `packages/schema` (Stage 1), and the migrations folder stays with the server. Later stages only add tables or nullable/defaulted columns.
+- **Provenance.** Imported rows carry `origin = 'import'` and a `sheet_ref` such as `ETFs!A31`. Rows the importer finds questionable carry review flags.
+- **Snapshots** (imported from History in Stage 1, recorded by the app from Stage 5) are immutable rows. Corrections are explicit edits, never silent recalculation.
 
 ## Styling
 
@@ -173,7 +225,8 @@ DATA_DIR/
 | Server | Vitest + Fastify `inject`, with a temp `DATA_DIR` per test | `apps/server/test` |
 | Privacy guard | Vitest; the integration tests run the real hook in a temporary git repo | `tools/privacy-guard/test` |
 | End to end | Playwright at 1440 px and 375 px, installed Chrome | `e2e/` |
-| Golden values (from Stage 2) | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | engine tests |
+| Importer | Vitest against an in-memory database and the generic synthetic workbook (no network, corrections off) | `packages/importer`, `apps/server/test` |
+| Golden values | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | importer (Stage 1), engine (Stage 2 on) |
 
 Each app, package and tool is a Vitest project, and the root `vitest.config.ts` runs them all.
 
@@ -188,7 +241,7 @@ Each app, package and tool is a Vitest project, and the root `vitest.config.ts` 
 The server bundle:
 - It is made by esbuild: ESM, `node24`.
 - Workspace code is bundled in.
-- Every third-party dependency stays external and loads from `node_modules`.
+- Every third-party dependency listed in the server's `package.json` stays external and loads from `node_modules`. SheetJS (`xlsx`) is a dependency of the importer only, so it is bundled in.
 
 The image's `/app` holds:
 - `dist/server.js`

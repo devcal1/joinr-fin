@@ -9,13 +9,19 @@ import {
   useParams,
   type RouterHistory,
 } from '@tanstack/react-router';
+import { isRecordEntityId } from '@joinr/schema';
 import type { JSX } from 'react';
 import { RootLayout } from './layout/RootLayout';
 import { PAGES, STYLEGUIDE_PAGE, isScreenVariant, type PageDef } from './pages';
 import { ErrorPage } from './pages/ErrorPage';
+import { ImportPage } from './pages/import/ImportPage';
+import { ImportRunPage } from './pages/import/ImportRunPage';
 import { NetWorthPage } from './pages/NetWorthPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
+import { PricesPage } from './pages/prices/PricesPage';
+import { RecordsEntityPage } from './pages/records/RecordsEntityPage';
+import { RecordsIndexPage } from './pages/records/RecordsIndexPage';
 import { ScreenPreviewPage } from './pages/ScreenPreviewPage';
 import { StyleguidePage } from './pages/styleguide/StyleguidePage';
 
@@ -43,13 +49,70 @@ function placeholderFor(page: PageDef): () => JSX.Element {
   return Placeholder;
 }
 
-const pageRoutes = PAGES.map((page) =>
+// Stage 1 pages have their own typed routes (literal paths, so links to them are type-checked).
+const recordsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/records',
+  component: RecordsIndexPage,
+});
+
+const importRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/import',
+  component: ImportPage,
+});
+
+const pricesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/prices',
+  component: PricesPage,
+});
+
+const BUILT_PAGE_ROUTES = [recordsRoute, importRoute, pricesRoute];
+const BUILT_PATHS: ReadonlySet<string> = new Set(['/records', '/import', '/prices']);
+
+// Every other page renders its placeholder until its stage lands.
+const pageRoutes = PAGES.filter((page) => !BUILT_PATHS.has(page.path)).map((page) =>
   createRoute({
     getParentRoute: () => appRoute,
     path: page.path,
     component: page.id === 'net-worth' ? NetWorthPage : placeholderFor(page),
   }),
 );
+
+/** A positive integer path segment (`7`; not `07`, `0` or `-1`). */
+const POSITIVE_INT_RE = /^[1-9]\d{0,15}$/;
+
+// eslint-disable-next-line react-refresh/only-export-components
+function RecordsEntityRoute(): JSX.Element {
+  const { entity } = recordsEntityRoute.useParams();
+  // beforeLoad has already rejected unknown ids; this guard only narrows the type.
+  return isRecordEntityId(entity) ? <RecordsEntityPage entity={entity} /> : <NotFoundPage />;
+}
+
+const recordsEntityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/records/$entity',
+  beforeLoad: ({ params }) => {
+    if (!isRecordEntityId(params.entity)) throw notFound();
+  },
+  component: RecordsEntityRoute,
+});
+
+// eslint-disable-next-line react-refresh/only-export-components
+function ImportRunRoute(): JSX.Element {
+  const { runId } = importRunRoute.useParams();
+  return <ImportRunPage key={runId} runId={Number(runId)} />;
+}
+
+const importRunRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/import/runs/$runId',
+  beforeLoad: ({ params }) => {
+    if (!POSITIVE_INT_RE.test(params.runId)) throw notFound();
+  },
+  component: ImportRunRoute,
+});
 
 const styleguideRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -78,7 +141,13 @@ const screenPreviewRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  appRoute.addChildren([...pageRoutes, styleguideRoute]),
+  appRoute.addChildren([
+    ...pageRoutes,
+    ...BUILT_PAGE_ROUTES,
+    recordsEntityRoute,
+    importRunRoute,
+    styleguideRoute,
+  ]),
   screenPreviewRoute,
 ]);
 

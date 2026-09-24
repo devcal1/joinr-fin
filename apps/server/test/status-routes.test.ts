@@ -1,0 +1,164 @@
+// GET /api/status (stage-1.md §3.3) and the start-up stale-run cleanup (§4.8, §7.5 step 3).
+import { join } from 'node:path';
+import type { AppStatus } from '@joinr/schema';
+import { importRuns, jobRuns } from '@joinr/schema/db';
+import { seedGenericData } from '@joinr/schema/testing';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { buildApp } from '../src/app';
+import type { Config } from '../src/config';
+import { closeDatabase, openDatabase, runMigrations, type AppDatabase } from '../src/db/database';
+import { markInterruptedRuns } from '../src/db/queries/domain';
+import { registerErrorHandler } from '../src/errors';
+import type { MarketDataService, MarketDataStatus } from '../src/market/types';
+import { statusRoutes } from '../src/routes/status';
+import { makeTempDir, removeDir, testConfig } from './helpers';
+
+const NOW = new Date('2026-09-24T04:00:00.000Z');
+
+let tempDir: string;
+let config: Config;
+let database: AppDatabase;
+let app: FastifyInstance | undefined;
+
+beforeEach(async () => {
+  tempDir = await makeTempDir();
+  config = testConfig(join(tempDir, 'data'));
+  database = openDatabase(config.dataDir);
+  runMigrations(database, config.migrationsDir);
+});
+
+afterEach(async () => {
+  await app?.close();
+  app = undefined;
+  closeDatabase(database);
+  await removeDir(tempDir);
+});
+
+function marketWithStatus(status: MarketDataStatus): MarketDataService {
+  const fail = (): never => {
+    throw new Error('not used');
+  };
+  return {
+    refresh: () => Promise.reject(new Error('not used')),
+    getPrices: fail,
+    getSeries: fail,
+    setManualPrice: fail,
+    clearManualPrice: fail,
+    setPriceSource: fail,
+    notifyInstrumentsChanged: () => undefined,
+    status: () => status,
+  };
+}
+
+async function getStatus(instance: FastifyInstance): Promise<AppStatus> {
+  const res = await instance.inject({ method: 'GET', url: '/api/status' });
+  expect(res.statusCode).toBe(200);
+  expect(res.headers['cache-control']).toBe('no-store');
+  return res.json<AppStatus>();
+}
+
+describe('GET /api/status', () => {
+  it('reports an empty database (market data off in tests)', async () => {
+    app = await buildApp({ config, db: database });
+    expect(await getStatus(app)).toEqual({
+      prices: { mode: 'off', lastRefreshAt: null, running: false },
+      snapshots: { count: 0, latestPeriod: null },
+      import: { lastRunAt: null, lastStatus: null, hasImportedData: false },
+    });
+  });
+
+  it('reports snapshots, the latest import run and imported data', async () => {
+    seedGenericData(database.db, { now: NOW });
+    database.db
+      .insert(importRuns)
+      .values({
+        startedAt: '2026-09-24T05:00:00.000Z',
+        status: 'failed',
+        dryRun: true,
+        trigger: 'upload',
+        fileName: 'later.xlsx',
+        fileSha256: 'c'.repeat(64),
+        fileSize: 1,
+        importerVersion: '1.0.0',
+        errorCode: 'INVALID_WORKBOOK',
+        error: 'Missing sheet',
+      })
+      .run();
+    app = await buildApp({ config, db: database });
+    const status = await getStatus(app);
+    expect(status.snapshots.count).toBe(3);
+    expect(status.snapshots.latestPeriod).toMatch(/^\d{4}-\d{2}$/);
+    expect(status.import).toEqual({
+      lastRunAt: '2026-09-24T05:00:00.000Z',
+      lastStatus: 'failed',
+      hasImportedData: true,
+    });
+  });
+
+  it('takes the price freshness from the market data service', async () => {
+    app = Fastify({ logger: false });
+    registerErrorHandler(app);
+    const market = marketWithStatus({
+      mode: 'fake',
+      running: true,
+      lastRefreshAt: '2026-09-24T03:59:00.000Z',
+      nextRefreshAt: '2026-09-24T04:59:00.000Z',
+    });
+    await app.register(statusRoutes, { prefix: '/api', database, config, market });
+    const res = await app.inject({ method: 'GET', url: '/api/status' });
+    expect(res.json<AppStatus>().prices).toEqual({
+      mode: 'fake',
+      lastRefreshAt: '2026-09-24T03:59:00.000Z',
+      running: true,
+    });
+  });
+});
+
+describe('start-up stale-run cleanup', () => {
+  it('marks running import and job runs as failed (interrupted) and leaves the others', () => {
+    const base = {
+      trigger: 'cli' as const,
+      fileName: 'x.xlsx',
+      fileSha256: 'd'.repeat(64),
+      fileSize: 1,
+      importerVersion: '1.0.0',
+    };
+    database.db
+      .insert(importRuns)
+      .values([
+        { ...base, startedAt: '2026-09-24T01:00:00.000Z', status: 'running' },
+        { ...base, startedAt: '2026-09-24T00:00:00.000Z', status: 'succeeded' },
+      ])
+      .run();
+    database.db
+      .insert(jobRuns)
+      .values([
+        {
+          job: 'prices',
+          trigger: 'schedule',
+          startedAt: '2026-09-24T01:00:00.000Z',
+          status: 'running',
+        },
+        {
+          job: 'prices',
+          trigger: 'manual',
+          startedAt: '2026-09-24T00:00:00.000Z',
+          status: 'partial',
+        },
+      ])
+      .run();
+
+    expect(markInterruptedRuns(database.db, NOW)).toEqual({ importRuns: 1, jobRuns: 1 });
+    const imports = database.db.select().from(importRuns).all();
+    expect(imports.map((r) => r.status).sort()).toEqual(['failed', 'succeeded']);
+    expect(imports.find((r) => r.status === 'failed')).toMatchObject({
+      errorCode: 'INTERRUPTED',
+      error: 'interrupted',
+      finishedAt: NOW.toISOString(),
+    });
+    const jobs = database.db.select().from(jobRuns).all();
+    expect(jobs.map((r) => r.status).sort()).toEqual(['failed', 'partial']);
+    expect(markInterruptedRuns(database.db, NOW)).toEqual({ importRuns: 0, jobRuns: 0 });
+  });
+});

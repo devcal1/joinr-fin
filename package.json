@@ -22,7 +22,10 @@
     "format:check": "prettier --check .",
     "guard": "tsx tools/privacy-guard/src/cli.ts --staged",
     "guard:all": "tsx tools/privacy-guard/src/cli.ts --all",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "import:workbook": "tsx apps/server/src/cli/import.ts",
+    "seed:dev": "tsx apps/server/scripts/seed-dev.ts",
+    "db:generate": "pnpm --filter @joinr/server db:generate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

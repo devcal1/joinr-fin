@@ -23,10 +23,19 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { viewport: { width: 1440, height: 900 } } },
+    // Runs once before desktop and phone: imports the synthetic workbook (e2e/import.setup.ts).
+    { name: 'setup', testMatch: /.*\.setup\.ts/ },
+    {
+      name: 'desktop',
+      use: { viewport: { width: 1440, height: 900 } },
+      dependencies: ['setup'],
+      testIgnore: /.*\.setup\.ts/,
+    },
     {
       name: 'phone',
       use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true },
+      dependencies: ['setup'],
+      testIgnore: /.*\.setup\.ts/,
     },
   ],
   webServer: {
@@ -38,6 +47,11 @@ export default defineConfig({
       PORT: apiPort,
       WEB_PORT: webPort,
       DATA_DIR: process.env.DATA_DIR ?? 'artifacts/e2e/data',
+      // Deterministic offline prices and no refresh timer (stage-1.md §8).
+      MARKET_DATA_MODE: process.env.MARKET_DATA_MODE ?? 'fake',
+      PRICE_REFRESH_MINUTES: process.env.PRICE_REFRESH_MINUTES ?? '0',
+      // The synthetic workbook must never meet the owner's corrections file (stage-1.md §3.4).
+      IMPORT_CORRECTIONS_FILE: process.env.IMPORT_CORRECTIONS_FILE ?? 'none',
     },
   },
 });

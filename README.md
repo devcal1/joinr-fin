@@ -2,7 +2,7 @@
 
 A self-hosted personal-finance web app. It tracks net worth, investments (shares, ETFs, managed funds and crypto), cash flow, super, property and a FIRE plan. It rebuilds a personal-wealth spreadsheet template as a web app that runs on a home server and opens in a browser on any PC or phone. It is styled to the Joinr brand in dark mode.
 
-**Status:** Stage 0, foundations and design system. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
+**Status:** Stage 1, data model, workbook importer and market data. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
 
 > [!IMPORTANT]
 > **This repository is public.** It holds code and generic documentation only. The owner's workbook, specs, notes and data live in git-ignored folders, and a pre-commit **privacy guard** blocks them (see [Privacy](#privacy)). Code, tests, seeds and docs use obviously generic values such as "Example Co", `$12,480.00` and `user@example.com`.
@@ -44,7 +44,9 @@ Run these from the repo root.
 | `pnpm check` | Runs typecheck, lint and test. |
 | `pnpm guard` | Runs the privacy guard on staged files. The pre-commit hook runs the same check. |
 | `pnpm guard:all` | Runs the privacy guard on every tracked file and every untracked file that is not ignored. |
-| `pnpm --filter @joinr/server db:generate --name <name>` | Generates a SQL migration from the schema. |
+| `pnpm import:workbook [file.xlsx] [--dry-run] [--yes] [--replace-app-data] [--corrections <file> | --no-corrections] [--json]` | Imports the workbook export into `DATA_DIR` (see [Importing the workbook](#importing-the-workbook)). |
+| `pnpm seed:dev` | Replaces the data in `DATA_DIR` with a small generic data set, for UI work without a workbook. If `DATA_DIR` already holds data it asks for `--yes` (exit 3), and with `--yes` it backs the database up first. |
+| `pnpm db:generate --name <name>` | Generates a SQL migration from the schema in `packages/schema` (same as `pnpm --filter @joinr/server db:generate`). Migrations are append-only. |
 
 To scope a run while working: `pnpm exec vitest run --project server`, or `pnpm exec eslint apps/server`.
 
@@ -64,6 +66,9 @@ Everything is set through environment variables. The server validates them at st
 | `SERVE_WEB` | server | on in production | `true`/`false` (also `1`/`0`, `yes`/`no`). Serves the built SPA. |
 | `WEB_DIST_DIR` | server | `apps/web/dist` | The folder of the built SPA. The image uses `/app/web`. |
 | `MIGRATIONS_DIR` | server | `apps/server/migrations` | The SQL migrations folder. |
+| `MARKET_DATA_MODE` | server | `live` (`off` under `NODE_ENV=test`) | `live` fetches prices (Yahoo chart, CoinGecko), `fake` gives deterministic offline prices (e2e, demos), `off` never fetches (refresh answers `503`). Playwright defaults to `fake`. |
+| `PRICE_REFRESH_MINUTES` | server | `60` (`0` under `NODE_ENV=test`) | The scheduled price refresh interval, `0`–`1440`. `0` switches the timer off; **Refresh now** still works. |
+| `IMPORT_CORRECTIONS_FILE` | server, import CLI | unset (auto) | The corrections file for the workbook import. A path (relative to the repo root), or `none` to switch corrections off. Unset: `<DATA_DIR>/import-corrections.json`, else `reference/import-corrections.json` in a dev checkout, else none. Playwright defaults to `none`. |
 | `PW_CHANNEL` | Playwright | `chrome` | Uses an installed browser: `chrome`, `msedge`, or `chromium` (the cached build). Browsers are never downloaded. |
 
 To use different ports (for example, a second copy running side by side):
@@ -88,8 +93,8 @@ apps/
 packages/
   ui/                  @joinr/ui       design tokens, CSS, components, brand, ECharts wrappers
   engine/              @joinr/engine   pure calculation functions (from Stage 2)
-  schema/              @joinr/schema   database tables and types (from Stage 1)
-  importer/            @joinr/importer one-off workbook importer (from Stage 1)
+  schema/              @joinr/schema   database tables, Zod schemas, API types, registries, test helpers
+  importer/            @joinr/importer workbook importer and reconciliation report (CLI and upload)
 tools/
   privacy-guard/       @joinr/privacy-guard  the pre-commit privacy check
 .githooks/pre-commit   runs the guard on staged content
@@ -104,7 +109,20 @@ More detail is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## API
 
-Stage 0 has one endpoint:
+Every route is under `/api`, answers JSON and sends `cache-control: no-store`. Errors always have the same shape, `{ "error": { "code": "NOT_FOUND", "message": "…" } }`. A `500` never carries internal detail; the detail goes to the server log.
+
+| Route | What it does |
+|---|---|
+| `GET /api/health` | Liveness and a database check (`503` with `"status": "degraded"` if the check fails). |
+| `GET /api/status` | Header freshness: price mode and last refresh, snapshot count and latest period, last import run. |
+| `GET /api/records` | The read-only record browser: every entity with its row count. |
+| `GET /api/records/:entity` | One entity's columns and rows (money in integer cents, quantities and prices as decimal strings; at most 5,000 rows). |
+| `POST /api/import` | Uploads a workbook (raw bytes, see below). |
+| `GET /api/import/runs` | The newest 50 import runs, plus `hasImportedData`, `hasAppData` and `inProgress`. |
+| `GET /api/import/runs/:id` | One run with its reconciliation report. |
+| `GET /api/prices`, `POST /api/prices/refresh` | Prices per instrument with their status; refresh now. |
+| `PUT`/`DELETE /api/prices/:instrumentId/manual`, `PUT /api/prices/:instrumentId/source` | Manual price overrides and the price source per instrument. |
+| `GET /api/market/series` | FX and bullion series (AUD/USD, silver and gold per ounce). |
 
 ```http
 GET /api/health
@@ -116,17 +134,52 @@ GET /api/health
   "version": "0.1.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
-  "db": { "ok": true, "journalMode": "wal", "migrations": 1 }
+  "db": { "ok": true, "journalMode": "wal", "migrations": 2 }
 }
 ```
 
-It answers `503` with `"status": "degraded"` if the database check fails. Errors always have the same shape, `{ "error": { "code": "NOT_FOUND", "message": "…" } }`. A `500` never carries internal detail; the detail goes to the server log.
+**`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`); a dry run is still allowed, and only the CLI can override (see below).
+
+| Answer | When |
+|---|---|
+| `201` | Imported. The body is the run with its report. |
+| `200` | Dry run. |
+| `400` | Empty body or a bad query. |
+| `409 IMPORT_IN_PROGRESS` | Another import is running. |
+| `409 IMPORT_APP_DATA_EXISTS` | Not a dry run, and data entered in the app exists. Checked before the confirm; no backup is taken and no run is recorded. Import from the command line with `--yes --replace-app-data` instead. |
+| `409 IMPORT_CONFIRM_REQUIRED` | Data exists and `confirmReplace=true` was not sent. |
+| `413` / `415` | The body is too large / not a workbook content type. |
+| `422 INVALID_WORKBOOK` / `INVALID_CORRECTIONS` | The workbook or the corrections file could not be used. The run is recorded as failed. |
+
+```sh
+curl -X POST "http://127.0.0.1:3001/api/import?dryRun=true"   -H "Content-Type: application/octet-stream" -H "X-File-Name: workbook.xlsx"   --data-binary @path/to/workbook.xlsx
+```
+
+## Importing the workbook
+
+The app's data comes from the spreadsheet template's `.xlsx` export. The same importer runs from the command line and from the **Import** page, and both produce the same reconciliation report.
+
+1. Export the Google Sheet as `.xlsx` and put it in `reference/` (git-ignored). The CLI picks the single `.xlsx` there, or takes a path.
+2. Preview: `pnpm import:workbook --dry-run`. Nothing is written except the run record.
+3. Import: `pnpm import:workbook --yes`. `--yes` confirms replacing data imported before. A backup is taken first (`<DATA_DIR>/backups/pre-import-YYYYMMDD-HHmmss.db`; the newest 10 are kept).
+   If the database holds data entered in the app (any row with `origin = 'app'`), a real import stops with exit 3 until you add `--replace-app-data` as well: `pnpm import:workbook --yes --replace-app-data`. The upload on the **Import** page refuses this case (`409 IMPORT_APP_DATA_EXISTS`); a dry run works either way.
+4. Open **Import** in the app for the full report. The target is **zero unexplained** checks. Suspect rows are imported as they are and flagged for review.
+
+CLI exit codes: `0` succeeded with nothing unexplained, `4` succeeded with unexplained checks, `1` failed, `2` usage, configuration or corrections error, `3` confirmation required (`--yes`, or `--yes --replace-app-data` over data entered in the app). The CLI is safe to run while the server runs; the server sees the new data on its next request.
+
+An import **replaces** the imported investments, cash, budget, income, assets and history. Instruments are matched by kind and symbol, so price-source edits and manual prices entered in the app are kept. Re-importing the same file gives identical data.
+
+**Corrections.** Known data fixes to the sheet (for example a mistyped trade date) live in a corrections file, never in the repo: `reference/import-corrections.json` on the development PC, `<DATA_DIR>/import-corrections.json` on the server. `IMPORT_CORRECTIONS_FILE` picks another file or `none`; the CLI takes `--corrections <file>` or `--no-corrections`. Each applied correction is listed in the report.
+
+**Prices.** After an import the price service refreshes the instruments in the background (mode `live` or `fake`). Listed securities and FX use the Yahoo chart API, crypto uses CoinGecko, and anything else takes a manual price. A price that cannot be fetched keeps its last good value and shows as stale or failed.
 
 ## Testing
 
 - **Unit and component tests** use Vitest. Each app, package and tool is a Vitest project, and `pnpm test` runs them all. Server tests use Fastify's `inject` against a temporary `DATA_DIR`.
 - **End-to-end tests** use Playwright, at desktop and phone widths, against the installed Chrome. Screenshots go to `artifacts/screenshots/`.
-- **Golden tests** start in Stage 2. They compare the engine with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
+- **Golden tests** compare the importer (Stage 1) and the engine (Stage 2 on) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
+- **Synthetic workbook.** `buildSyntheticWorkbook()` (`@joinr/importer/testing`) builds a generic workbook in the template's layout, so the importer, the upload route and the e2e specs are tested without the private file. Synthetic imports always run with corrections off.
+- **No network in unit tests.** A setup file makes `fetch` fail; price providers are tested with mocked responses.
 
 ## Privacy
 

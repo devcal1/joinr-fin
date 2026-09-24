@@ -17,6 +17,10 @@ export function removeDir(dir: string): Promise<void> {
   return rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
+/**
+ * A test config: silent logs, no SPA, market data off, no refresh timer, corrections off and no
+ * repo root (so nothing ever reads reference/import-corrections.json).
+ */
 export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Config {
   return {
     nodeEnv: 'test',
@@ -28,6 +32,10 @@ export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Co
     serveWeb: false,
     webDistDir: join(dataDir, 'no-web-dist'),
     migrationsDir: MIGRATIONS_DIR,
+    priceRefreshMinutes: 0,
+    marketDataMode: 'off',
+    importCorrections: { kind: 'off' },
+    repoRoot: null,
     ...overrides,
   };
 }

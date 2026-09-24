@@ -31,16 +31,26 @@ export function findRepoRoot(
 
 /** The folders that relative settings and defaults resolve against. */
 export interface ConfigBase {
-  /** Relative `DATA_DIR`, `WEB_DIST_DIR` and `MIGRATIONS_DIR` values resolve against this. */
+  /**
+   * Relative `DATA_DIR`, `WEB_DIST_DIR`, `MIGRATIONS_DIR` and `IMPORT_CORRECTIONS_FILE` values
+   * resolve against this (the workspace root, or `process.cwd()` outside a workspace).
+   */
   repoRoot: string;
+  /**
+   * The folder holding `pnpm-workspace.yaml`, or null when there is none (the Docker image).
+   * Never the `process.cwd()` fallback: the dev-checkout corrections fallback keys on it.
+   */
+  workspaceRoot: string | null;
   /** The server package folder; the migrations and web-dist defaults hang off it. */
   serverDir: string;
 }
 
 /** The repo root (or `process.cwd()` outside a workspace) and this server's package folder. */
 export function defaultConfigBase(): ConfigBase {
+  const workspaceRoot = findRepoRoot(SERVER_DIR) ?? null;
   return {
-    repoRoot: findRepoRoot(SERVER_DIR) ?? process.cwd(),
+    repoRoot: workspaceRoot ?? process.cwd(),
+    workspaceRoot,
     serverDir: SERVER_DIR,
   };
 }

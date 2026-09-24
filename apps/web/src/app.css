@@ -1,4 +1,4 @@
-/* apps/web gallery chrome (Scaffolder): `jf-app-*` rules only, in their own layer after charts. */
+/* apps/web chrome: `jf-app-*` rules only, in their own layer after charts. */
 @layer app {
   .jf-app-styleguide {
     display: flex;
@@ -64,5 +64,384 @@
   /* Icons take --text-secondary (STYLE_GUIDE §9). */
   .jf-app-icon-demo {
     color: var(--text-secondary);
+  }
+
+  /* ── Data pages (Stage 1: records, import, prices) ── */
+
+  /* A block with its own heading: 16px after the section bar and between its parts. */
+  .jf-app-block,
+  .jf-app-records-group,
+  .jf-app-records-table,
+  .jf-app-result,
+  .jf-app-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+
+  .jf-app-result {
+    margin-top: var(--space-4);
+  }
+
+  /* Live regions stay mounted; while empty they take no space in the page flow. */
+  .jf-app-live:empty {
+    margin-top: 0;
+  }
+
+  .jf-app-live--card > .jf-callout {
+    margin-top: var(--space-4);
+  }
+
+  .jf-app-muted {
+    color: var(--text-muted);
+  }
+
+  .jf-app-meta {
+    color: var(--text-secondary);
+    font-size: var(--fs-dense);
+  }
+
+  .jf-app-strong {
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+
+  .jf-app-code {
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .jf-app-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-secondary);
+  }
+
+  .jf-app-loading__icon {
+    animation: jf-app-spin 1s linear infinite;
+  }
+
+  @keyframes jf-app-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jf-app-loading__icon {
+      animation: none;
+    }
+  }
+
+  .jf-app-error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--stop-tint);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .jf-app-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-decoration: none;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .jf-app-entity-count {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Record-table switcher (wider screens): groups of links that wrap. */
+  .jf-app-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-6);
+  }
+
+  .jf-app-switcher__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .jf-app-switcher__label {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .jf-app-switcher__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jf-app-switcher__link {
+    font-size: var(--fs-dense);
+    text-decoration: none;
+  }
+
+  .jf-app-switcher__link:hover {
+    text-decoration: underline;
+  }
+
+  /* The current table: bright text on a teal underline (marked by aria-current, not colour alone). */
+  .jf-app-switcher__link[aria-current='page'] {
+    color: var(--text-bright);
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-color: var(--teal);
+    text-decoration-thickness: 2px;
+  }
+
+  /* Short codes (sheet refs, symbols, kinds) stay on one line so table rows keep one height. */
+  .jf-app-nowrap {
+    white-space: nowrap;
+  }
+
+  .jf-app-flags,
+  .jf-app-row-actions,
+  .jf-app-series {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .jf-app-row-actions {
+    flex-wrap: nowrap;
+  }
+
+  /* A market series value: the figure is mono; the badge and any words keep the body face. */
+  .jf-app-series__value {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* File picker: the native control, styled to the field frame. */
+  .jf-app-file {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .jf-app-file__label {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .jf-app-file__input {
+    max-width: 100%;
+    padding: var(--space-2);
+    border: 1px dashed var(--text-muted);
+    border-radius: var(--radius-bar);
+    background: var(--ink);
+    color: var(--text);
+    font-size: var(--fs-dense);
+    cursor: pointer;
+  }
+
+  .jf-app-file__input::file-selector-button {
+    margin-right: var(--space-3);
+    padding: 0 var(--space-3);
+    min-height: var(--control-h-sm);
+    border: 1px solid var(--raised);
+    border-radius: var(--radius-bar);
+    background: var(--raised);
+    color: var(--text-bright);
+    font: inherit;
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .jf-app-file__input:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  .jf-app-file__input[aria-invalid='true'] {
+    border-color: var(--stop);
+  }
+
+  .jf-app-file__hint {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-secondary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  /* Report filters: status buttons wrap; the section select keeps a sensible width. */
+  .jf-app-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-6);
+  }
+
+  .jf-app-filters__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .jf-app-filters__section {
+    width: min(100%, 260px);
+  }
+
+  /* The pressed filter: raised fill plus a teal border (pressed state is also aria-pressed). */
+  .jf-app-filter[aria-pressed='true'] {
+    border-color: var(--teal);
+  }
+
+  .jf-app-reason {
+    display: inline-block;
+    min-width: 12ch;
+  }
+
+  /* A figure in a column that also holds words (report values, settings values, run facts):
+     mono and tabular (STYLE_GUIDE §3), right-aligned as a block; `--inline` keeps it in the text
+     flow, left-aligned with its neighbours. */
+  .jf-app-num {
+    display: block;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .jf-app-num--inline {
+    display: inline;
+    text-align: inherit;
+  }
+
+  /* Words in a value column: the body face, free to wrap. */
+  .jf-app-text-value {
+    font-family: var(--font-sans);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* Reconciliation report: every section table shares one fixed column grid on wide screens, so
+     Status, Expected, … sit at the same x down the page. Figures keep fixed widths (they never
+     wrap); Check and Reason share the rest. Phones keep the auto layout with sideways scroll. */
+  @media (min-width: 1280px) {
+    .jf-app-report-table .jf-table__table {
+      table-layout: fixed;
+    }
+
+    .jf-app-report-table .jf-table__th:nth-child(2) {
+      width: 9rem;
+    }
+
+    .jf-app-report-table .jf-table__th:nth-child(3),
+    .jf-app-report-table .jf-table__th:nth-child(4),
+    .jf-app-report-table .jf-table__th:nth-child(5) {
+      width: 9.5rem;
+    }
+
+    .jf-app-report-table .jf-table__th:nth-child(6) {
+      width: 9rem;
+    }
+
+    .jf-app-report-table .jf-app-code {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  /* The value headers sit over right-aligned figures. */
+  .jf-app-report-table .jf-table__th:nth-child(3),
+  .jf-app-report-table .jf-table__th:nth-child(4),
+  .jf-app-report-table .jf-table__th:nth-child(5) {
+    text-align: right;
+  }
+
+  .jf-app-instrument {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .jf-app-instrument__symbol {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+
+  .jf-app-instrument__name {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .jf-app-status-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    font-size: 12px;
+  }
+
+  .jf-app-freshness {
+    /* Sits under the page header (which keeps 12px of its own), not a full block gap below it. */
+    margin-top: 0;
+  }
+
+  /* KPI tiles: two across on a phone, one row on wider screens (equal columns, 12px gutters). */
+  .jf-app-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--space-3);
+  }
+
+  /* A key figure that needs review: an orange alert icon beside it (the hint says it in words). */
+  .jf-app-tile-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .jf-app-tile-flag__icon {
+    flex: none;
+    color: var(--orange-tint);
+  }
+
+  /* Phone: a report section's counts and Show/Hide take their own line under the title, so every
+     bar wraps the same way (counts left, the toggle right) whatever the title's length. */
+  @media (max-width: 767.98px) {
+    .jf-app-report-section .jf-section-bar__actions {
+      flex-basis: 100%;
+      justify-content: space-between;
+    }
   }
 }

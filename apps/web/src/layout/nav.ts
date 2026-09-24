@@ -1,10 +1,12 @@
 // The sidebar nav, built from the page registry, with one lucide icon per page (STYLE_GUIDE §9).
 import type { NavGroup, NavItem } from '@joinr/ui';
 import {
+  BadgeDollarSign,
   Bitcoin,
   Briefcase,
   ChartCandlestick,
   Coins,
+  FileSpreadsheet,
   Flame,
   Gem,
   HandCoins,
@@ -15,6 +17,7 @@ import {
   Palette,
   PiggyBank,
   Settings,
+  Table2,
   Umbrella,
   Wallet,
   type LucideIcon,
@@ -36,6 +39,9 @@ export const PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   super: Umbrella,
   property: House,
   fire: Flame,
+  records: Table2,
+  import: FileSpreadsheet,
+  prices: BadgeDollarSign,
   settings: Settings,
   styleguide: Palette,
 };

@@ -3,6 +3,12 @@
 // `loadConfig` is pure: it reads only the `env` object and the folders in `base`, never the disk,
 // and reports every invalid variable in a single ConfigError.
 import { isAbsolute, join, resolve } from 'node:path';
+import {
+  correctionsSettingFromEnv,
+  MARKET_DATA_MODES,
+  type CorrectionsSetting,
+  type MarketDataMode,
+} from '@joinr/schema';
 import { z } from 'zod';
 import {
   defaultConfigBase,
@@ -35,6 +41,14 @@ export interface Config {
   webDistDir: string;
   /** Absolute. */
   migrationsDir: string;
+  /** Scheduled price refresh interval; 0 = no timer (manual refresh still works). */
+  priceRefreshMinutes: number;
+  /** `live` fetches, `fake` is deterministic and offline, `off` never fetches. */
+  marketDataMode: MarketDataMode;
+  /** Where the importer's owner corrections come from (`IMPORT_CORRECTIONS_FILE`). */
+  importCorrections: CorrectionsSetting;
+  /** The folder holding pnpm-workspace.yaml; null outside a checkout (the Docker image). */
+  repoRoot: string | null;
 }
 
 export const DEFAULTS = {
@@ -43,7 +57,15 @@ export const DEFAULTS = {
   dataDir: 'data',
   logLevel: 'info',
   nodeEnv: 'development',
+  priceRefreshMinutes: 60,
+  marketDataMode: 'live',
 } as const;
+
+/** Defaults that differ under NODE_ENV=test (no timers, no network). */
+export const TEST_DEFAULTS = { priceRefreshMinutes: 0, marketDataMode: 'off' } as const;
+
+/** The largest PRICE_REFRESH_MINUTES (one day). */
+export const MAX_PRICE_REFRESH_MINUTES = 1440;
 
 const TRUE_VALUES = ['true', '1', 'yes'] as const;
 const BOOLEAN_VALUES = [...TRUE_VALUES, 'false', '0', 'no'] as const;
@@ -73,6 +95,20 @@ const envSchema = z.object({
   WEB_DIST_DIR: z.string().optional(),
   MIGRATIONS_DIR: z.string().optional(),
   SERVE_WEB: booleanFlag.optional(),
+  PRICE_REFRESH_MINUTES: z
+    .string()
+    .regex(/^\d{1,4}$/, { error: `must be a whole number from 0 to ${MAX_PRICE_REFRESH_MINUTES}` })
+    .transform(Number)
+    .pipe(
+      z.number().max(MAX_PRICE_REFRESH_MINUTES, {
+        error: `must be a whole number from 0 to ${MAX_PRICE_REFRESH_MINUTES}`,
+      }),
+    )
+    .optional(),
+  MARKET_DATA_MODE: z
+    .enum(MARKET_DATA_MODES, { error: `must be one of ${MARKET_DATA_MODES.join(', ')}` })
+    .optional(),
+  IMPORT_CORRECTIONS_FILE: z.string().optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -111,9 +147,18 @@ function resolveFrom(base: string, value: string): string {
   return isAbsolute(value) ? resolve(value) : resolve(base, value);
 }
 
+/** `IMPORT_CORRECTIONS_FILE` → a CorrectionsSetting with an absolute file path. */
+function correctionsSetting(value: string | undefined, base: string): CorrectionsSetting {
+  const setting = correctionsSettingFromEnv(value);
+  return setting.kind === 'file'
+    ? { kind: 'file', path: resolveFrom(base, setting.path) }
+    : setting;
+}
+
 /**
- * Validates the environment and resolves every path to an absolute one.
- * Relative `DATA_DIR`, `WEB_DIST_DIR` and `MIGRATIONS_DIR` values resolve against the repo root.
+ * Validates the environment and resolves every path to an absolute one. Relative `DATA_DIR`,
+ * `WEB_DIST_DIR`, `MIGRATIONS_DIR` and `IMPORT_CORRECTIONS_FILE` values resolve against the repo
+ * root.
  */
 export function loadConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -132,6 +177,7 @@ export function loadConfig(
 
   const e = parsed.data;
   const dataDir = resolveFrom(base.repoRoot, e.DATA_DIR);
+  const isTest = e.NODE_ENV === 'test';
   return {
     nodeEnv: e.NODE_ENV,
     host: e.HOST,
@@ -146,5 +192,12 @@ export function loadConfig(
     migrationsDir: e.MIGRATIONS_DIR
       ? resolveFrom(base.repoRoot, e.MIGRATIONS_DIR)
       : defaultMigrationsDir(base.serverDir),
+    priceRefreshMinutes:
+      e.PRICE_REFRESH_MINUTES ??
+      (isTest ? TEST_DEFAULTS.priceRefreshMinutes : DEFAULTS.priceRefreshMinutes),
+    marketDataMode:
+      e.MARKET_DATA_MODE ?? (isTest ? TEST_DEFAULTS.marketDataMode : DEFAULTS.marketDataMode),
+    importCorrections: correctionsSetting(e.IMPORT_CORRECTIONS_FILE, base.repoRoot),
+    repoRoot: base.workspaceRoot,
   };
 }

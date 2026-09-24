@@ -1,9 +1,11 @@
-// Server entry point: load config → open DB → migrate → build → listen.
+// Server entry point: load config → open DB → migrate → clean up interrupted runs → build →
+// listen → start the scheduler.
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from './app';
+import { buildApp, defaultServices } from './app';
 import { ConfigError, loadConfig, type Config } from './config';
 import { closeDatabase, openDatabase, runMigrations } from './db/database';
 import { recordStartup } from './db/meta';
+import { markInterruptedRuns } from './db/queries/domain';
 import { APP_VERSION } from './version';
 
 /** A stuck shutdown is abandoned after this long. */
@@ -58,10 +60,12 @@ async function main(): Promise<void> {
   const database = openDatabase(config.dataDir);
   let app: FastifyInstance;
   let migrations: ReturnType<typeof runMigrations>;
+  let interrupted: ReturnType<typeof markInterruptedRuns>;
   try {
     migrations = runMigrations(database, config.migrationsDir);
     recordStartup(database.db);
-    app = await buildApp({ config, db: database });
+    interrupted = markInterruptedRuns(database.db, new Date());
+    app = await buildApp({ config, db: database, services: defaultServices });
   } catch (err) {
     closeDatabase(database);
     throw err;
@@ -75,9 +79,15 @@ async function main(): Promise<void> {
       migrationsApplied: migrations.applied,
       migrationsTotal: migrations.total,
       serveWeb: config.serveWeb,
+      marketDataMode: config.marketDataMode,
+      priceRefreshMinutes: config.priceRefreshMinutes,
+      interruptedRuns: interrupted,
     },
     'database ready',
   );
+  if (interrupted.importRuns > 0 || interrupted.jobRuns > 0) {
+    app.log.warn(interrupted, 'marked runs left running by the last shutdown as failed');
+  }
   installShutdownHandlers(app);
 
   try {
@@ -91,6 +101,7 @@ async function main(): Promise<void> {
     await app.close();
     process.exit(1);
   }
+  app.scheduler.start();
 }
 
 main().catch((err: unknown) => {

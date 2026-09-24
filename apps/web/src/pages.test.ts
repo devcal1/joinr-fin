@@ -10,8 +10,8 @@ import {
 } from './pages';
 
 describe('page registry', () => {
-  it('has the 15 in-scope pages', () => {
-    expect(PAGES).toHaveLength(15);
+  it('has the 18 in-scope pages', () => {
+    expect(PAGES).toHaveLength(18);
   });
 
   it('has unique ids and paths', () => {
@@ -27,6 +27,7 @@ describe('page registry', () => {
       'Cash flow',
       'Assets',
       'Planning',
+      'Records',
       'Settings',
     ]);
   });
@@ -53,6 +54,22 @@ describe('page registry', () => {
     expect(pageForPath('/stocks/')?.title).toBe('Stocks');
     expect(pageForPath('/styleguide')).toBeUndefined();
     expect(pageForPath('/nope')).toBeUndefined();
+  });
+
+  it('has the Stage 1 Records group: Records, Import, Prices', () => {
+    expect(PAGES.filter((p) => p.group === 'records')).toEqual([
+      { id: 'records', path: '/records', title: 'Records', group: 'records', stage: 1 },
+      { id: 'import', path: '/import', title: 'Import', group: 'records', stage: 1 },
+      { id: 'prices', path: '/prices', title: 'Prices', group: 'records', stage: 1 },
+    ]);
+  });
+
+  it('maps sub-routes to their page', () => {
+    expect(pageForPath('/records/trades')?.id).toBe('records');
+    expect(pageForPath('/import/runs/7')?.id).toBe('import');
+    expect(pageForPath('/import/runs/7/')?.id).toBe('import');
+    expect(pageForPath('/recordsx')).toBeUndefined();
+    expect(pageForPath('/nope/deeper')).toBeUndefined();
   });
 
   it('recognises brand screen variants', () => {

@@ -2,8 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { appStatusPopulated } from '@joinr/schema/fixtures';
 import { describe, expect, it } from 'vitest';
+import { mockApi, pending } from '../../test/mockApi';
 import { createAppRouter } from '../router';
+import { freshnessOf } from './freshness';
 
 function renderAt(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -31,6 +34,7 @@ describe('RootLayout', () => {
   });
 
   it('shows the brand block, freshness, footer version and every nav page', async () => {
+    // No API in this test: the status request fails, and the header shows the empty text.
     renderAt('/');
     const banner = await screen.findByRole('banner');
     expect(within(banner).getByText('FINANCE')).toBeInTheDocument();
@@ -39,7 +43,7 @@ describe('RootLayout', () => {
     expect(footer).toHaveTextContent(`Joinr Finance v${__APP_VERSION__}`);
     expect(footer).toHaveTextContent('Last snapshot — · Prices —');
     const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(16);
+    expect(within(nav).getAllByRole('link')).toHaveLength(19);
     expect(within(nav).getByRole('link', { name: 'Net Worth' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -63,5 +67,34 @@ describe('RootLayout', () => {
     renderAt('/styleguide');
     const nav = await screen.findByRole('navigation', { name: 'Main' });
     expect(within(nav).getByRole('link', { current: 'page' })).toHaveTextContent('Style guide');
+  });
+
+  it('keeps the empty freshness text while the status loads', async () => {
+    mockApi({ 'GET /api/status': pending });
+    renderAt('/');
+    const banner = await screen.findByRole('banner');
+    expect(within(banner).getByText('No prices yet · No snapshots yet')).toBeInTheDocument();
+    expect(screen.getByRole('contentinfo')).toHaveTextContent('Last snapshot — · Prices —');
+  });
+
+  it('shows the live freshness line from /api/status in the header and the footer', async () => {
+    const api = mockApi({ 'GET /api/status': { body: appStatusPopulated } });
+    renderAt('/stocks');
+    const expected = freshnessOf(appStatusPopulated, new Date());
+    const banner = await screen.findByRole('banner');
+    expect(await within(banner).findByText(expected.header)).toBeInTheDocument();
+    expect(expected.header).toMatch(/^Prices .+ · Snapshot Aug 2026$/);
+    expect(screen.getByRole('contentinfo')).toHaveTextContent(expected.footer);
+    expect(api.calls('GET /api/status')).toHaveLength(1);
+  });
+
+  it('marks the parent page in the nav on a sub-route', async () => {
+    mockApi({ 'GET /api/import/runs/7': pending });
+    renderAt('/import/runs/7');
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    const current = within(nav).getAllByRole('link', { current: 'page' });
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent('Import');
+    expect(within(screen.getByRole('banner')).getByText('Import')).toBeInTheDocument();
   });
 });

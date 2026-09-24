@@ -48,4 +48,24 @@ describe('router', () => {
     renderAt('/preview/screen/nope');
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
   });
+
+  it.each([
+    ['/records', 'Records'],
+    ['/records/trades', 'Records'],
+    ['/import', 'Import'],
+    ['/import/runs/3', 'Import'],
+    ['/prices', 'Prices'],
+  ])('renders the Stage 1 page %s with its h1 even when the API is down', async (path, title) => {
+    renderAt(path);
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument();
+    expect(await screen.findByRole('note')).toHaveClass('jf-callout--do-not');
+  });
+
+  it.each(['/records/nope', '/import/runs/abc', '/import/runs/0'])(
+    'shows "Page not found" for %s',
+    async (path) => {
+      renderAt(path);
+      expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+    },
+  );
 });

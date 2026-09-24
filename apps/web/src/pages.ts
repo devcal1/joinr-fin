@@ -2,7 +2,7 @@
 // Dependency-free so the router, the nav and the e2e specs can all share it.
 
 export type NavGroupId =
-  'overview' | 'investments' | 'cashflow' | 'assets' | 'planning' | 'settings';
+  'overview' | 'investments' | 'cashflow' | 'assets' | 'planning' | 'records' | 'settings';
 
 export interface PageDef {
   id: string;
@@ -18,6 +18,7 @@ export const NAV_GROUPS: readonly { id: NavGroupId; label: string }[] = [
   { id: 'cashflow', label: 'Cash flow' },
   { id: 'assets', label: 'Assets' },
   { id: 'planning', label: 'Planning' },
+  { id: 'records', label: 'Records' },
   { id: 'settings', label: 'Settings' },
 ];
 
@@ -42,6 +43,9 @@ export const PAGES: readonly PageDef[] = [
   { id: 'super', path: '/super', title: 'Super', group: 'assets', stage: 4 },
   { id: 'property', path: '/property', title: 'Property', group: 'assets', stage: 4 },
   { id: 'fire', path: '/fire', title: 'FIRE', group: 'planning', stage: 6 },
+  { id: 'records', path: '/records', title: 'Records', group: 'records', stage: 1 },
+  { id: 'import', path: '/import', title: 'Import', group: 'records', stage: 1 },
+  { id: 'prices', path: '/prices', title: 'Prices', group: 'records', stage: 1 },
   { id: 'settings', path: '/settings', title: 'Settings', group: 'settings', stage: 5 },
 ];
 
@@ -71,8 +75,14 @@ export function isScreenVariant(value: unknown): value is ScreenVariant {
   return typeof value === 'string' && (SCREEN_VARIANTS as readonly string[]).includes(value);
 }
 
-/** The page for a pathname (trailing slash tolerated), or undefined (e.g. `/styleguide`, 404s). */
+/**
+ * The page for a pathname (trailing slash tolerated), or undefined (e.g. `/styleguide`, 404s).
+ * Sub-routes belong to their page: `/records/trades` → Records, `/import/runs/7` → Import.
+ */
 export function pageForPath(pathname: string): PageDef | undefined {
   const normalised = pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname;
-  return PAGES.find((page) => page.path === normalised);
+  return (
+    PAGES.find((page) => page.path === normalised) ??
+    PAGES.find((page) => page.path !== '/' && normalised.startsWith(`${page.path}/`))
+  );
 }

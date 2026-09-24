@@ -4,5 +4,6 @@ export default defineProject({
   test: {
     name: 'server',
     environment: 'node',
+    setupFiles: ['./test/setup.ts'],
   },
 });

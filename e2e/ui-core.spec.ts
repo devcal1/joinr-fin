@@ -84,9 +84,10 @@ test.describe('app shell', () => {
     await page.goto('/cash');
     await expect(menuButton(page)).toBeVisible();
     await expect(mainNav(page)).toBeHidden();
-    await expect(
-      page.getByRole('banner').getByText('No prices yet · No snapshots yet'),
-    ).toBeVisible();
+    // Freshness (stage-1.md §6.6): the empty text, or a live line once data is imported.
+    await expect(page.getByRole('banner').locator('.jf-shell__freshness')).toHaveText(
+      /^(No prices yet|Prices (\d{2}:\d{2}|\d{2}\/\d{2}\/\d{4})) · (No snapshots yet|Snapshot [A-Z][a-z]{2} \d{4})$/,
+    );
     await expectNoHorizontalScroll(page);
     await menuButton(page).click();
     await expect(mainNav(page)).toBeVisible();

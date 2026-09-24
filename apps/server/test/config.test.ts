@@ -14,7 +14,7 @@ import {
 
 const repoRoot = resolve('/joinr-test/repo');
 const serverDir = join(repoRoot, 'apps', 'server');
-const base: ConfigBase = { repoRoot, serverDir };
+const base: ConfigBase = { repoRoot, workspaceRoot: repoRoot, serverDir };
 
 function configError(env: Record<string, string>): ConfigError {
   try {
@@ -38,6 +38,10 @@ describe('loadConfig', () => {
       serveWeb: false,
       webDistDir: join(repoRoot, 'apps', 'web', 'dist'),
       migrationsDir: join(serverDir, 'migrations'),
+      priceRefreshMinutes: 60,
+      marketDataMode: 'live',
+      importCorrections: { kind: 'auto' },
+      repoRoot,
     });
   });
 
@@ -52,6 +56,9 @@ describe('loadConfig', () => {
         WEB_DIST_DIR: resolve('/srv/joinr-web'),
         MIGRATIONS_DIR: resolve('/srv/joinr-migrations'),
         SERVE_WEB: 'false',
+        PRICE_REFRESH_MINUTES: '15',
+        MARKET_DATA_MODE: 'fake',
+        IMPORT_CORRECTIONS_FILE: resolve('/srv/joinr-corrections.json'),
       },
       base,
     );
@@ -65,7 +72,57 @@ describe('loadConfig', () => {
       serveWeb: false,
       webDistDir: resolve('/srv/joinr-web'),
       migrationsDir: resolve('/srv/joinr-migrations'),
+      priceRefreshMinutes: 15,
+      marketDataMode: 'fake',
+      importCorrections: { kind: 'file', path: resolve('/srv/joinr-corrections.json') },
+      repoRoot,
     });
+  });
+
+  it('switches prices off and the timer to 0 under NODE_ENV=test', () => {
+    const config = loadConfig({ NODE_ENV: 'test' }, base);
+    expect(config.marketDataMode).toBe('off');
+    expect(config.priceRefreshMinutes).toBe(0);
+    const explicit = loadConfig(
+      { NODE_ENV: 'test', MARKET_DATA_MODE: 'fake', PRICE_REFRESH_MINUTES: '1' },
+      base,
+    );
+    expect(explicit.marketDataMode).toBe('fake');
+    expect(explicit.priceRefreshMinutes).toBe(1);
+  });
+
+  it.each(['0', '60', '1440'])('accepts PRICE_REFRESH_MINUTES=%s', (value) => {
+    expect(loadConfig({ PRICE_REFRESH_MINUTES: value }, base).priceRefreshMinutes).toBe(
+      Number(value),
+    );
+  });
+
+  it.each(['1441', '-1', '1.5', 'hourly'])('rejects PRICE_REFRESH_MINUTES=%s', (value) => {
+    const err = configError({ PRICE_REFRESH_MINUTES: value });
+    expect(err.issues[0]).toMatch(/^PRICE_REFRESH_MINUTES: must be a whole number from 0 to 1440/);
+  });
+
+  it('rejects an unknown MARKET_DATA_MODE', () => {
+    expect(configError({ MARKET_DATA_MODE: 'demo' }).issues[0]).toMatch(
+      /^MARKET_DATA_MODE: must be one of live, fake, off/,
+    );
+  });
+
+  it('reads IMPORT_CORRECTIONS_FILE: unset → auto, none → off, relative → repo root', () => {
+    expect(loadConfig({}, base).importCorrections).toEqual({ kind: 'auto' });
+    expect(loadConfig({ IMPORT_CORRECTIONS_FILE: 'none' }, base).importCorrections).toEqual({
+      kind: 'off',
+    });
+    expect(
+      loadConfig({ IMPORT_CORRECTIONS_FILE: 'private/corrections.json' }, base).importCorrections,
+    ).toEqual({ kind: 'file', path: join(repoRoot, 'private', 'corrections.json') });
+  });
+
+  it('reports no repo root outside a workspace, whatever the working directory', () => {
+    const outside: ConfigBase = { repoRoot: resolve('/cwd'), workspaceRoot: null, serverDir };
+    const config = loadConfig({ DATA_DIR: 'd' }, outside);
+    expect(config.repoRoot).toBeNull();
+    expect(config.dataDir).toBe(join(resolve('/cwd'), 'd'));
   });
 
   it('resolves relative paths against the repo root, not the working directory', () => {
@@ -157,6 +214,7 @@ describe('paths', () => {
     const detected = defaultConfigBase();
     expect(existsSync(join(detected.repoRoot, 'pnpm-workspace.yaml'))).toBe(true);
     expect(resolve(detected.repoRoot, 'apps', 'server')).toBe(resolve(SERVER_DIR));
+    expect(detected.workspaceRoot).toBe(detected.repoRoot);
   });
 
   it('derives the migrations and web-dist defaults from the server folder', () => {
