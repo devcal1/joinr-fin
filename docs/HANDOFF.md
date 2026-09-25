@@ -1,69 +1,97 @@
 # Handoff
 
-_Last updated: 2026-09-24, end of Stage 1._
+_Last updated: 2026-09-25, end of Stage 2._
 
 ## Where we are
-**Stage 1 (Data model, importer & market data) is done.** It was demoed to the owner and committed locally. Nothing has been pushed (D10).
+**Stage 2 (Investments: Stocks, ETFs, Managed Funds, Crypto) is done.** The owner approved the demo, and it is committed locally with the owner's OK. Nothing has been pushed (D10).
 
 - The remote `origin` is `github.com/devcal1/joinr-fin` (**public**).
-- The plan and outcome are in `docs/stages/stage-1.md`; see its "Scaffold notes" and "Stage close notes".
-- Kickoff decisions are D22–D29 and demo decisions D30–D35 in `docs/DECISIONS.md`.
-- Owner-specific import facts (expected checks, suspects, the correction) are in `docs/private/stage-1-private.md`. The owner corrections file is `reference/import-corrections.json` (git-ignored, D27).
+- The plan and its outcome are in `docs/stages/stage-2.md`. See its "Scaffold notes", "Stage close notes" and "Plan review log".
+- Decisions:
+  - Kickoff: D36–D43.
+  - During the stage: D44–D47.
+  - Demo: D48 (all 22 §11 template fixes accepted).
+- Owner-specific golden expectations, quirks and guard terms are in `docs/private/stage-2-private.md`.
 
 ## What exists
-A pnpm workspace (Node 24, TypeScript 6). New or extended in Stage 1:
+A pnpm workspace (Node 24, TypeScript 6). New or extended in Stage 2:
 
 | Path | What it is |
 |---|---|
-| `packages/schema` | `@joinr/schema`: 22 Drizzle tables (`src/db/tables`), enums, Zod row and DTO schemas, the settings registry (SheetOptions IDs 1–44), the record-browser registry, pricing helpers, decimal/date helpers. `./testing` has `createTestDb`, `seedGenericData` and `dumpDomainTables`; `./fixtures` has typed sample DTOs for UI tests. The web imports only the root entry (no drizzle). |
-| `packages/importer` | `@joinr/importer`: SheetJS reader behind a zip pre-scan (size and entry limits), one extractor per tab, corrections (D27), exclusions (D22/D23), suspect flags (D26), dividend re-keying (D28), a replace-all writer in one transaction, and the reconciliation report (match / explained / unexplained / suspect / info). `./testing` has `buildSyntheticWorkbook()` (generic data) and the local-workbook helpers for golden tests. |
-| `apps/server` | Migration `0001_stage1_core`. Routes: `/api/records[/:entity]`, `POST /api/import` (raw xlsx body, dry run, confirm, 409 when app data exists), `/api/import/runs[/:id]`, `/api/status`, `/api/prices` (+ refresh, manual price, source), `/api/market/series`. The price service (`src/market`): Yahoo chart, CoinGecko and a fake provider, FX and silver/gold series, cache with status, backoff and cool-downs. A generic scheduler (`src/scheduler`) with a `job_runs` log. The CLI `src/cli/import.ts`. Pre-import backups (`VACUUM INTO`, newest 10). |
-| `apps/web` | A **Records** nav group: `/records` (read-only data browser for 16 tables), `/import` (upload, preview, runs) and `/import/runs/$runId` (the report, opening on "Needs attention"), `/prices` (status badges, refresh, manual price and source forms, market series). The header freshness line reads `/api/status`. |
-| `e2e/` | Adds a `setup` project that imports the synthetic workbook once, plus `records`, `import` and `prices` specs. Steps that change data run on desktop only. |
+| `packages/engine` | `@joinr/engine`: a pure calculation engine with no I/O and no clock. `asOf` is injected; money is in cents and quantities are decimal strings. Modules: `lots` (FIFO by date then `seq`, pro-rata fees, oversell flags), `realised` (ATO anniversary split, FY summary), `investments` (per-kind holding metrics, the summary, allocation, the regional look-through, dividends and staking), `xirr` (Newton plus bracketing), `history` (contributions, net purchases, compression) and `timing` (the D40 budget amount, parcel optimiser, countdown including `split_off`, consider-next and the next-buy hint). Golden tests under `test/golden/` read the local workbook at runtime. A purity test and an ESLint rule ban clocks and non-root imports. |
+| `packages/schema` | Adds `trading.ts` (units from an amount, fees, the order-value bound), `dto/investments.ts` (request schemas and DTOs), three error codes (`TRADE_OVERSELL`, `INSTRUMENT_EXISTS`, `INSTRUMENT_IN_USE`), and investment fixtures covering every page state. |
+| `apps/server` | Migration `0002_stage2_investments` adds `instruments.default_fee_cents` and `default_fee_rate`. `src/investments/**` and `routes/investments.ts`: `GET /api/investments/:kind[/trades]`, `GET/POST/PUT/DELETE /api/instruments[/:id]`, and `POST/PUT/DELETE /api/trades[/:id]`. Mutations run in `IMMEDIATE` transactions and refuse oversells (422). The D34 rules: editing an imported row makes it app-owned, and deleting one leaves a marker, so re-import is blocked. A default-fee-only edit does not block it. The server golden is in `test/golden/`. |
+| `apps/web` | The pages `/stocks`, `/etfs`, `/managed-funds` and `/crypto`, plus `/<kind>/$instrumentId` holding detail pages. Each has KPI tiles, the holdings table (with a "More columns" toggle), the trade ledger, trade and holding forms (D38 amount mode with a default-fee pre-fill, D47 per-holding mode memory), allocation donuts (current vs target), value, gain and purchase history charts, the FY realised table (D42), the next-buy and timing card (D39/D46), and staleness badges. Phone tables put status first. |
+| `e2e/` | `investments.spec.ts`, `investments-states.spec.ts` (renders the fixtures in a real browser) and `trades.spec.ts`. `trades.spec.ts` runs in its own `mutations` Playwright project, which depends on `desktop` and `phone`. |
 
 ## How to run
-- `pnpm dev`: web on 5173, server on 3001 (live prices, hourly refresh). In the Claude app, use `preview_start` with `joinr-dev`.
-- `pnpm import:workbook [file.xlsx] [--dry-run] [--yes] [--replace-app-data] [--corrections <file> | --no-corrections] [--json]`. With no file, it uses the single `*.xlsx` in `reference/`. **Never `pnpm import`**: that is a pnpm built-in.
-- `pnpm seed:dev`: generic demo data (asks for `--yes` when `DATA_DIR` holds data, and takes a backup first).
-- `pnpm check`, `pnpm test`, `pnpm e2e`, `pnpm build` then `pnpm start`, `pnpm guard:all`: as before.
-- **New env vars:**
-  - `MARKET_DATA_MODE`: `live`, `fake` or `off`. Playwright uses `fake`.
-  - `PRICE_REFRESH_MINUTES`: default 60, 0 in tests.
-  - `IMPORT_CORRECTIONS_FILE`: unset means auto; `none` turns corrections off, and Playwright uses `none`.
-- **The owner's `data/` database** now holds the imported workbook (run #1, 0 unexplained) and live prices.
+Everything from Stage 1 still applies: `pnpm dev`, `pnpm import:workbook`, `pnpm seed:dev`, `pnpm check`, `pnpm test`, `pnpm e2e`, `pnpm build` then `pnpm start`, and `pnpm guard:all`.
+- No new environment variables.
+- Scoped runs:
+  - `pnpm vitest run --project engine`, and `--project engine test/golden` for the goldens.
+  - `pnpm vitest run --project server test/investments`.
+- **The owner's `data/` database** is at migration 3 with the imported workbook and live prices. It has **no app-entered rows**, so re-import is still allowed.
+- Backups (git-ignored):
+  - `data/backups/pre-stage2-2026-09-25/` is the database as it was before Stage 2.
+  - `data/backups/draft-0002-2026-09-25/` holds a copy that a stale dev server migrated with a draft 0002. It is no longer needed.
 
 **State at close:**
-- typecheck, lint, format:check, build and `guard:all` are green (191 private terms).
-- 1271 unit tests pass.
-- e2e: 109 passed, 10 skipped by design.
+- typecheck, lint, format:check, build and `guard:all` are green. The guard has 701 private terms, including the rounded forms of the private ratios.
+- 1878 unit tests pass, with the goldens and the gated suites running.
+- e2e: 163 passed, 11 skipped by design, and the `mutations` project ran.
 
 ## Known issues / carried forward
-- **Yahoo is unofficial.** One ASX ETF returns a degraded summary. The provider now falls back to the daily close, but watch for new failure modes; the Prices page shows a Failed badge with the error.
-- **CoinGecko ids** other than BTC/ETH are resolved by search (highest market cap). Check them on `/prices`; the Source form overrides them.
-- **D34 gap (Stage 5):** an app-entered setting for a key the workbook doesn't supply keeps the import blocked even after `--replace-app-data`. Decide this with the Settings page.
-- **Deferred review items:** see "Deferred" in the stage-1 close notes (Stage 4 row-30 semantics; Stage 5 settings checks; Stage 6 polish items; Stage 7 backup timing).
-- Carried from Stage 0, still open:
-  - The Dockerfile is unbuilt (Stage 7). It must also reach `cdn.sheetjs.com` for the SheetJS tarball; the fallback is to vendor it.
-  - The web bundle is about 1 MB; route-level code splitting is planned for Stage 6.
-  - Browser-pane screenshots time out while the pane is hidden; use `get_page_text` or a Playwright script.
+- **Deferred review items:** see "Deferred" in the stage-2 close notes.
+  - Stage 3: engine purity hardening.
+  - Stage 5: a chart gap step before the live point.
+  - Stage 6 polish: finding the default-fee edit, the ETF Holdings tile, duplicated limits and helpers, a layering nit.
+  - Stage 7: trades dated after the as-of date across time zones; a race between the CLI import and the server.
+- **Stage 2 stubs that Stage 3 replaces** (stage-2.md §1.5):
+  - The D40 amount to invest is computed from the **imported** budget rows. The UI says so.
+  - Dividends are read-only on the holding pages.
+  - The cash-deficit wait (`SheetOptions!H12`) is deferred.
+  - "Consider next" uses the imported cash balances and other-asset values.
+- **D46 (manual-split budget) is to be revisited with the live Budget in Stage 3.**
+- **Flaky e2e:**
+  - Runs can fail with `net::ERR_NETWORK_CHANGED` when the VPN or Tailscale adapters change; a re-run passes.
+  - The records test has a 60 s timeout.
+  - Server tests have 20 s timeouts for cold starts under load.
+- **Stale dev servers:** after a demo, stop `pnpm dev` before starting agent work. A `tsx watch` server left running on `data/` hot-reloads onto in-progress code and can apply draft migrations; this happened once during Stage 2 and was rolled back from the backup. Under the Claude preview, the server gets `PORT=5173` and listens on 127.0.0.1:5173, beside Vite on ::1:5173.
+- **Still open from Stage 1:**
+  - The D34 gap for app-entered settings (decide it with the Settings page in Stage 5).
+  - Yahoo is unofficial.
+  - CoinGecko ids are resolved by search (check them on `/prices`).
+- **Still open from Stage 0:**
+  - The Dockerfile is unbuilt (Stage 7; it needs `cdn.sheetjs.com`).
+  - Route-level code splitting (Stage 6).
+  - Browser-pane screenshots time out while the pane is hidden.
   - Never run `pnpm deploy` in the dev checkout.
-  - pnpm 11 `allowBuilds` must stay as it is.
+  - pnpm 11 `allowBuilds` stays as it is.
   - TypeScript stays pinned to ~6.0.
-- **Privacy:** check ids embed instrument symbols, so reports and CLI output from the owner's workbook are private. Never paste them into committed docs. The guard's term list now includes the Stage 1 owner amounts.
+- **Privacy:** anything printed from an owner import (symbols, check ids, API bodies) stays in git-ignored `artifacts/` or `docs/private/`. Before implementers start, the stage's coordinator pre-step adds that stage's owner amounts **and their rounded forms** to `docs/private/guard-terms.txt`.
 
 ## Next step
-**Stage 2: Investments (Stocks, ETFs, Managed Funds, Crypto).** Follow `docs/STAGE_PROCESS.md`:
-1. Ask the Stage 2 questions in `docs/private/OPEN_QUESTIONS.md`: parcel matching (FIFO only?), the "Retirement" tag, $0-brokerage auto-invest buys, investment-timing features, and the auto-invest amount bug.
-2. Build on Stage 1:
-   - Trades carry `seq` (the FIFO tie-break) and follow the fee-authority rule in stage-1 §2.4.
-   - Prices come from the `prices` table (manual wins).
-   - Golden tests use `@joinr/importer/testing` (`describeWithLocalWorkbook`, `readWorkbook`). The Stage 1 report already lists the tab gain cells as `derived_later_stage` info lines, which become Stage 2 goldens.
-3. Run the workflow: Planner → Scaffold → parallel implementers → reviewers → triage → Fixer → Verifier.
-4. Demo: each investment page with live prices, then add and remove a test trade. Adding trades in the app creates `origin='app'` rows, which blocks re-import (D34).
+**Stage 3: Cash flow & income (Cash, Side Income, Dividends, Budget).** Follow `docs/STAGE_PROCESS.md`:
+1. Ask the Stage 3 questions in `docs/private/OPEN_QUESTIONS.md`:
+   - loans held as cash accounts;
+   - franking credits and a Yahoo dividend suggestion;
+   - the "Include side income" setting;
+   - the savings-rate definition and a one-off inflow adjustment;
+   - the FY or calendar year basis;
+   - the house-deposit tracker;
+   - the emergency-fund offset setting.
+
+   Also revisit D46.
+2. Build on Stage 2:
+   - The live Budget engine replaces the imported-rows input of `budgetInvestment` (same signature).
+   - The Dividends page gains dividend CRUD, and the holding pages keep reading it by instrument id (D28).
+   - The savings engine supplies the cash-deficit wait for the timing chain.
+   - Reuse the engine conventions (pure, `asOf` injected, cents and decimal strings) and the Stage 2 workflow shape: Planner → critics → reviser; Scaffolder → implementers → Integrator; reviewers → triage → Fixer → Verifier.
+3. Coordinator pre-step: stop any running dev server, back up `data/`, and add the Stage 3 guard terms, including rounded forms.
 
 ## Environment facts (generic)
 - **Tooling:** Windows 11 with PowerShell and Git Bash, Node v24.20.0, pnpm 11.23. **No Docker, GitHub CLI or Python.** System Chrome and Edge are installed; Playwright uses `channel: 'chrome'`.
 - **PDFs:** the Claude `Read` tool can't render them here (no poppler). Use the `.txt` of the style guide.
-- **Reading the xlsx:** use SheetJS (the workspace depends on the 0.20.3 tarball from cdn.sheetjs.com). `exceljs` fails on the sheet named "History". SheetJS cannot **write** a sheet named "History"; the synthetic workbook renames it through `XLSX.CFB`.
+- **Reading the xlsx:** use SheetJS (the 0.20.3 tarball from cdn.sheetjs.com). `exceljs` fails on the sheet named "History". SheetJS cannot **write** a sheet named "History"; the synthetic workbook renames it through `XLSX.CFB`.
 - **Network:** Yahoo's chart API needs a browser-like User-Agent. CoinGecko's public API needs no key.
-- **Private backup:** `reference/` and `docs/private/` (including `guard-terms.txt` and `stage-1-private.md`) exist only on this PC. Back them up to the NAS when it is reachable (see `docs/private/ENVIRONMENT.md`).
+- **Private backup:** `reference/` and `docs/private/` (including `guard-terms.txt`, `stage-1-private.md` and `stage-2-private.md`) exist only on this PC. Back them up to the NAS when it is reachable (see `docs/private/ENVIRONMENT.md`).

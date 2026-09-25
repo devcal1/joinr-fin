@@ -41,7 +41,7 @@ test.describe('app shell', () => {
     await expect(page.getByRole('contentinfo')).toContainText('Joinr Finance v');
     await expect(page.getByRole('contentinfo')).not.toContainText('ABN');
     await expect(page.locator('.jf-shell__rule--top')).toBeVisible();
-    await expect(page.getByRole('note')).toContainText('Stocks arrives in Stage 2');
+    await expect(page.getByRole('group', { name: 'Portfolio value' })).toBeVisible();
     // The top spectrum rule stays fixed at the top of the viewport while the page scrolls.
     const ruleBox = await page.locator('.jf-shell__rule--top').boundingBox();
     expect(ruleBox).toMatchObject({ y: 0, height: 4 });
@@ -161,8 +161,14 @@ test.describe('app shell', () => {
 
   test('desktop: a short page fits the viewport, footer included', async ({ page }) => {
     test.skip(test.info().project.name !== 'desktop', 'desktop layout');
-    for (const path of ['/stocks', '/budget']) {
+    // Short pages = routes that still render PlaceholderPage. /stocks left this list when Stage 2
+    // built it; swap in another placeholder when a later stage builds one of these.
+    for (const path of ['/fire', '/budget']) {
       await page.goto(path);
+      // Measure only once the placeholder has rendered, and fail plainly if the page is built now.
+      await expect(page.getByRole('main').getByRole('note'), path).toContainText(
+        'arrives in Stage',
+      );
       const { scrollHeight, innerHeight } = await page.evaluate(() => ({
         scrollHeight: document.documentElement.scrollHeight,
         innerHeight: window.innerHeight,

@@ -41,6 +41,12 @@ export const instruments = sqliteTable(
     drp: integer('drp', { mode: 'boolean' }),
     note: text('note'),
     ...provenanceColumns(),
+    // Stage 2 (migration 0002, appended; D38). The importer never writes these, so a re-import
+    // keeps them. Null = the global default (investing.defaultBrokerageCents / crypto.feeRate).
+    /** The holding's flat default trade fee (cents). */
+    defaultFeeCents: integer('default_fee_cents'),
+    /** Crypto only: the holding's default fee rate (a ratio). */
+    defaultFeeRate: text('default_fee_rate'),
   },
   (t) => [unique().on(t.kind, t.symbol), index('instruments_code_idx').on(t.code)],
 );

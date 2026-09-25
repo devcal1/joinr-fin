@@ -26,7 +26,7 @@ import {
 import { ConfigError, loadConfig } from '../config';
 import { backupBeforeImport } from '../db/backup';
 import { closeDatabase, openDatabase, runMigrations } from '../db/database';
-import { hasAppData, hasDomainData } from '../db/queries/domain';
+import { clearAppEditMarker, hasAppData, hasDomainData } from '../db/queries/domain';
 
 export interface CliIo {
   stdout: { write(text: string): unknown };
@@ -304,6 +304,8 @@ export async function main(argv: string[], io: CliIo = defaultIo()): Promise<num
       correctionsSource: source,
       dryRun: args.dryRun,
     });
+    // A committed import replaced every app edit, so the D34 deletion marker goes too (§3.3).
+    if (result.status === 'succeeded' && !result.dryRun) clearAppEditMarker(database.db);
     if (args.json) io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else
       printSummary(

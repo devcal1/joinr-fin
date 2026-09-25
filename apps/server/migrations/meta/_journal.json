@@ -15,6 +15,13 @@
       "when": 1790239983030,
       "tag": "0001_stage1_core",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790286237323,
+      "tag": "0002_stage2_investments",
+      "breakpoints": true
     }
   ]
 }

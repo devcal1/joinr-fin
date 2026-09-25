@@ -52,6 +52,18 @@ export const MARKET_SERIES: Readonly<Record<MarketSeriesId, MarketSeriesDef>> = 
 
 export const MARKET_SERIES_IDS = Object.keys(MARKET_SERIES) as MarketSeriesId[];
 
+/**
+ * `ASX:ABC` → `{ exchange: 'ASX', code: 'ABC' }`; a symbol without an inner `:` (`EXAMPLEFUND`,
+ * `BTC`, `SI=F`) → `{ exchange: null, code: symbol }`. Shared by the importer and the server's
+ * instrument create (moved here from the importer in Stage 2).
+ */
+export function splitSymbol(symbol: string): { exchange: string | null; code: string } {
+  const i = symbol.indexOf(':');
+  return i > 0 && i < symbol.length - 1
+    ? { exchange: symbol.slice(0, i), code: symbol.slice(i + 1) }
+    : { exchange: null, code: symbol };
+}
+
 const YAHOO_LIKE_RE = /^[A-Z0-9^.-]+(\.[A-Z]{1,3}|=F|=X)$/;
 const MORNINGSTAR_ID_RE = /^0P[0-9A-Z]{8}/;
 

@@ -8,5 +8,12 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@joinr/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@joinr/importer": "workspace:*"
   }
 }

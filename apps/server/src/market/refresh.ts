@@ -2,7 +2,12 @@
 // series, the instruments per provider and any extra FX, convert to AUD, then write everything in
 // one synchronous transaction. Rate-limited, backed-off, cooled-down and deadline-aborted
 // instruments count as skipped; failures keep the last good price.
-import { MARKET_SERIES, type MarketSeriesId, type PriceSource } from '@joinr/schema';
+import {
+  MARKET_SERIES,
+  type InstrumentKind,
+  type MarketSeriesId,
+  type PriceSource,
+} from '@joinr/schema';
 import { instruments, marketQuotes, prices, priceSources, type JoinrDb } from '@joinr/schema/db';
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
@@ -123,6 +128,8 @@ interface Target {
   id: number;
   provider: ProviderKey;
   providerSymbol: string | null;
+  /** The instrument's identity when the run chose it (ids can be reused after a delete). */
+  kind: InstrumentKind;
   symbol: string;
 }
 
@@ -167,6 +174,7 @@ function selectTargets(
         id,
         provider: src.provider,
         providerSymbol: src.providerSymbol,
+        kind: row.instrument.kind,
         symbol: row.instrument.symbol,
       },
     });
@@ -395,14 +403,21 @@ export async function runRefresh(
   const touched = [...new Set([...results.keys(), ...resolvedIds.keys()])];
   db.transaction(
     (tx) => {
+      // Only instruments that still exist with the kind and symbol captured when the run chose
+      // them: instrument ids have no AUTOINCREMENT, so a delete and a create during the fetch can
+      // reuse an id for another instrument (stage-2.md §4.5).
       const existing = new Set(
         touched.length === 0
           ? []
           : tx
-              .select({ id: instruments.id })
+              .select({ id: instruments.id, kind: instruments.kind, symbol: instruments.symbol })
               .from(instruments)
               .where(inArray(instruments.id, touched))
               .all()
+              .filter((r) => {
+                const t = targetOf.get(r.id);
+                return t !== undefined && t.kind === r.kind && t.symbol === r.symbol;
+              })
               .map((r) => r.id),
       );
 

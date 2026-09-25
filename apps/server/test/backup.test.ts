@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { COMMITTED_MIGRATION_COUNT } from '@joinr/schema/testing';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -45,7 +46,7 @@ describe('backupBeforeImport', () => {
         value: 'value',
       });
       expect(copy.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
-        n: 2,
+        n: COMMITTED_MIGRATION_COUNT,
       });
     } finally {
       copy.close();

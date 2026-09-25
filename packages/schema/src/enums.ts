@@ -161,3 +161,55 @@ export type AllocationAggressiveness = (typeof ALLOCATION_AGGRESSIVENESS)[number
 
 export const CHART_DATE_UNITS = ['monthly', 'quarterly', 'yearly'] as const;
 export type ChartDateUnit = (typeof CHART_DATE_UNITS)[number];
+
+// ─── Stage 2: investments (stage-2.md §3.2) ─────────────────────────────────────────────────────
+
+export const TRADE_SIDES = ['buy', 'sell'] as const;
+export type TradeSide = (typeof TRADE_SIDES)[number];
+
+/** D38: a trade is entered as units, or as a dollar amount (units = amount ÷ price). */
+export const QUANTITY_MODES = ['units', 'amount'] as const;
+export type QuantityMode = (typeof QUANTITY_MODES)[number];
+
+export const FEE_KINDS = ['flat', 'rate'] as const;
+export type FeeKind = (typeof FEE_KINDS)[number];
+
+export const HOLDING_STATUSES = ['held', 'watching', 'exited'] as const;
+export type HoldingStatus = (typeof HOLDING_STATUSES)[number];
+
+export const HOLDING_FLAGS = ['unpriced', 'stale_price', 'oversell', 'unwatched_held'] as const;
+export type HoldingFlag = (typeof HOLDING_FLAGS)[number];
+
+export const CAPITAL_GAIN_TERMS = ['short', 'long'] as const;
+export type CapitalGainTerm = (typeof CAPITAL_GAIN_TERMS)[number];
+
+/** Net Worth B38:B43 order. */
+export const ASSET_CLASSES = [
+  'etf',
+  'stock',
+  'crypto',
+  'cash',
+  'managed_fund',
+  'other_assets',
+] as const;
+export type AssetClass = (typeof ASSET_CLASSES)[number];
+
+export const CONSIDER_REASONS = ['below_emergency_fund', 'most_underweight', 'no_targets'] as const;
+export type ConsiderReason = (typeof CONSIDER_REASONS)[number];
+
+/**
+ * `split_off` (D46, appended): nothing to invest because the budget drives the amount and its
+ * automatic investment split is off (the whole leftover goes to cash), not a bare cash first.
+ */
+export const COUNTDOWN_STATES = [
+  'wait',
+  'invest',
+  'cash_first',
+  'unavailable',
+  'split_off',
+] as const;
+export type CountdownState = (typeof COUNTDOWN_STATES)[number];
+
+/** Timing inputs Stage 2 does not have yet (the cash-deficit wait needs the Stage 3 savings engine). */
+export const DEFERRED_TIMING_INPUTS = ['cash_deficit_period'] as const;
+export type DeferredTimingInput = (typeof DEFERRED_TIMING_INPUTS)[number];

@@ -1,7 +1,16 @@
-// Migrations are append-only (stage-1.md §2.1, §7.2 step 3): a fresh database reaches 2
-// migrations, a Stage 0 database upgrades cleanly, and the FKs behave as specified.
+// Migrations are append-only (stage-1.md §2.1, §7.2 step 3; stage-2.md §3.1): a fresh database
+// reaches every committed migration, Stage 0 and Stage 1 databases upgrade cleanly and keep their
+// data, and the FKs behave as specified. Counts come from COMMITTED_MIGRATION_COUNT, never literals.
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  COMMITTED_MIGRATION_COUNT,
+  createTestDb,
+  DUMPED_TABLES,
+  dumpDomainTables,
+  seedGenericData,
+  type DomainDump,
+} from '@joinr/schema/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   closeDatabase,
@@ -38,17 +47,60 @@ const tableNames = (database: AppDatabase): string[] =>
       .all() as { name: string }[]
   ).map((r) => r.name);
 
-/** A copy of the migrations folder that stops after 0000 (a Stage 0 install). */
-function stage0MigrationsDir(): string {
-  const dir = join(tempDir, 'migrations-0000');
+/** A copy of the migrations folder that stops after the given tags (an older install). */
+function migrationsDirUpTo(tags: readonly string[]): string {
+  const dir = join(tempDir, `migrations-${tags.length}`);
   mkdirSync(join(dir, 'meta'), { recursive: true });
-  cpSync(join(MIGRATIONS_DIR, '0000_app_meta.sql'), join(dir, '0000_app_meta.sql'));
+  for (const tag of tags) cpSync(join(MIGRATIONS_DIR, `${tag}.sql`), join(dir, `${tag}.sql`));
   const journal = JSON.parse(
     readFileSync(join(MIGRATIONS_DIR, 'meta', '_journal.json'), 'utf8'),
   ) as { entries: { tag: string }[] };
-  journal.entries = journal.entries.filter((e) => e.tag === '0000_app_meta');
+  journal.entries = journal.entries.filter((e) => tags.includes(e.tag));
   writeFileSync(join(dir, 'meta', '_journal.json'), JSON.stringify(journal));
   return dir;
+}
+
+const STAGE0_TAGS = ['0000_app_meta'];
+const STAGE1_TAGS = ['0000_app_meta', '0001_stage1_core'];
+
+/** The columns migration 0002 adds (stage-2.md §3.1). */
+const STAGE2_INSTRUMENT_COLUMNS = ['default_fee_cents', 'default_fee_rate'];
+
+/**
+ * The generic seed as it would exist in a Stage 1 database: `seedGenericData` on a fully migrated
+ * database, dumped, without the Stage 2 columns. (The seed itself cannot write to a database
+ * stopped at 0001: Drizzle's insert names every column of the current table definition.)
+ */
+function stage1SeedDump(): DomainDump {
+  const full = createTestDb();
+  try {
+    seedGenericData(full.db, { now: new Date('2026-09-24T04:32:00.000Z') });
+    const dump = dumpDomainTables(full.db);
+    dump.instruments = dump.instruments!.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).filter(([k]) => !STAGE2_INSTRUMENT_COLUMNS.includes(k)),
+      ),
+    );
+    return dump;
+  } finally {
+    full.close();
+  }
+}
+
+/** Inserts a dump with raw SQL (parents first: DUMPED_TABLES order). */
+function insertDump(database: AppDatabase, dump: DomainDump): void {
+  database.sqlite.transaction(() => {
+    for (const { table } of DUMPED_TABLES) {
+      for (const row of dump[table] ?? []) {
+        const cols = Object.keys(row);
+        database.sqlite
+          .prepare(
+            `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+          )
+          .run(...cols.map((c) => row[c]));
+      }
+    }
+  })();
 }
 
 const STAGE1_TABLES = [
@@ -76,25 +128,76 @@ const STAGE1_TABLES = [
   'job_runs',
 ];
 
+const columnNames = (database: AppDatabase, table: string): string[] =>
+  (database.sqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]).map(
+    (c) => c.name,
+  );
+
 describe('migrations', () => {
-  it('brings a fresh database to 2 migrations with every Stage 1 table', () => {
+  it('brings a fresh database to every committed migration with every table', () => {
+    expect(COMMITTED_MIGRATION_COUNT).toBeGreaterThanOrEqual(3);
     const database = open();
-    expect(runMigrations(database, MIGRATIONS_DIR)).toEqual({ applied: 2, total: 2 });
+    expect(runMigrations(database, MIGRATIONS_DIR)).toEqual({
+      applied: COMMITTED_MIGRATION_COUNT,
+      total: COMMITTED_MIGRATION_COUNT,
+    });
     expect(tableNames(database)).toEqual(expect.arrayContaining(STAGE1_TABLES));
+    expect(columnNames(database, 'instruments')).toEqual(
+      expect.arrayContaining(STAGE2_INSTRUMENT_COLUMNS),
+    );
   });
 
   it('upgrades a Stage 0 database (0000 only) and keeps its data', () => {
     const dataDir = join(tempDir, 'stage0');
     const first = open(dataDir);
-    expect(runMigrations(first, stage0MigrationsDir())).toEqual({ applied: 1, total: 1 });
+    expect(runMigrations(first, migrationsDirUpTo(STAGE0_TAGS))).toEqual({
+      applied: 1,
+      total: 1,
+    });
     setMeta(first.db, 'created_at', '2026-08-18T01:00:00.000Z');
     closeDatabase(first);
 
     const second = open(dataDir);
-    expect(runMigrations(second, MIGRATIONS_DIR)).toEqual({ applied: 1, total: 2 });
-    expect(countAppliedMigrations(second.sqlite)).toBe(2);
+    expect(runMigrations(second, MIGRATIONS_DIR)).toEqual({
+      applied: COMMITTED_MIGRATION_COUNT - 1,
+      total: COMMITTED_MIGRATION_COUNT,
+    });
+    expect(countAppliedMigrations(second.sqlite)).toBe(COMMITTED_MIGRATION_COUNT);
     expect(getMeta(second.db, 'created_at')).toBe('2026-08-18T01:00:00.000Z');
     expect(tableNames(second)).toEqual(expect.arrayContaining(STAGE1_TABLES));
+  });
+
+  it('upgrades a Stage 1 database with data (0000 + 0001): rows kept, the new columns null', () => {
+    const dataDir = join(tempDir, 'stage1');
+    const first = open(dataDir);
+    expect(runMigrations(first, migrationsDirUpTo(STAGE1_TAGS))).toEqual({
+      applied: 2,
+      total: 2,
+    });
+    expect(columnNames(first, 'instruments')).not.toContain('default_fee_cents');
+    const seeded = stage1SeedDump();
+    insertDump(first, seeded);
+    setMeta(first.db, 'created_at', '2026-08-18T01:00:00.000Z');
+    closeDatabase(first);
+
+    const second = open(dataDir);
+    expect(runMigrations(second, MIGRATIONS_DIR)).toEqual({
+      applied: COMMITTED_MIGRATION_COUNT - 2,
+      total: COMMITTED_MIGRATION_COUNT,
+    });
+    expect(getMeta(second.db, 'created_at')).toBe('2026-08-18T01:00:00.000Z');
+    const upgraded = dumpDomainTables(second.db);
+    const expected: DomainDump = {
+      ...seeded,
+      instruments: seeded.instruments!.map((row) => ({
+        ...row,
+        default_fee_cents: null,
+        default_fee_rate: null,
+      })),
+    };
+    expect(upgraded).toEqual(expected);
+    expect(upgraded.instruments!.length).toBeGreaterThan(0);
+    expect(upgraded.trades!.length).toBeGreaterThan(0);
   });
 
   it('creates integer primary keys without AUTOINCREMENT', () => {

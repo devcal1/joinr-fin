@@ -121,6 +121,8 @@ export const newInstrumentSchema = z.strictObject({
   drp: nullable(bool),
   note: nullable(text),
   ...provenance,
+  defaultFeeCents: nullable(CentsSchema.min(0)),
+  defaultFeeRate: nullable(DecimalStringSchema),
 });
 
 export const newPriceSourceSchema = z.strictObject({

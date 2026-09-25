@@ -164,6 +164,8 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('regionOther', 'Region other', 'ratio'),
       col('dividendFreqMonths', 'Dividend frequency (months)', 'integer'),
       col('drp', 'DRP', 'boolean'),
+      col('defaultFee', 'Default fee', 'money'),
+      col('defaultFeeRate', 'Default fee %', 'ratio'),
       col('provider', 'Price provider', 'text'),
       col('providerSymbol', 'Provider symbol', 'text'),
       col('origin', 'Origin', 'text'),

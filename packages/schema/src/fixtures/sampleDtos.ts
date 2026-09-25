@@ -2,7 +2,7 @@
 // No drizzle, no sqlite, no node imports: the web's Vitest (jsdom) imports this module.
 // Values are made up and round; symbols are the generic test symbols only. The objects are
 // consistent with each other (ids, counts, statuses) and cover every state the pages render.
-import type { CheckStatus, MarketDataMode, PriceStatus, RunStatus } from '../enums';
+import type { CheckStatus, MarketDataMode, RunStatus } from '../enums';
 import { RECORD_ENTITIES, RECORD_ENTITY_IDS, SNAPSHOT_VALUE_COLUMNS } from '../records';
 import type { RecordEntityId } from '../records';
 import type { ApiErrorBody } from '../dto/errors';
@@ -48,10 +48,10 @@ const snapshotValues = (step: number): Cells =>
 // prettier-ignore
 const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
   instruments: [
-    { id: '1', cells: { kind: 'stock', symbol: 'ASX:ABC', name: 'ABC Example Ltd', currency: 'AUD', watched: true, heldUnits: '150', targetRatio: '0.5', sector: 'Materials', retirement: false, mgmtFeeRatio: null, location: null, regionUs: null, regionAsia: null, regionAus: null, regionOther: null, dividendFreqMonths: 6, drp: false, provider: 'yahoo', providerSymbol: 'ABC.AX', origin: 'import' } },
-    { id: '2', cells: { kind: 'stock', symbol: 'ASX:OLD', name: null, currency: 'AUD', watched: false, heldUnits: '0', targetRatio: null, sector: null, retirement: false, mgmtFeeRatio: null, location: null, regionUs: null, regionAsia: null, regionAus: null, regionOther: null, dividendFreqMonths: null, drp: null, provider: 'yahoo', providerSymbol: 'OLD.AX', origin: 'import' } },
-    { id: '3', cells: { kind: 'etf', symbol: 'ASX:XYZ', name: 'XYZ Example ETF', currency: 'AUD', watched: true, heldUnits: '30', targetRatio: '0.6', sector: 'Global shares', retirement: false, mgmtFeeRatio: '0.002', location: 'Australia', regionUs: '0.5', regionAsia: '0.1', regionAus: '0.3', regionOther: '0.1', dividendFreqMonths: 3, drp: true, provider: 'yahoo', providerSymbol: 'XYZ.AX', origin: 'import' } },
-    { id: '7', cells: { kind: 'crypto', symbol: 'BTC', name: null, currency: 'AUD', watched: true, heldUnits: '0.05', targetRatio: '0.7', sector: null, retirement: false, mgmtFeeRatio: null, location: null, regionUs: null, regionAsia: null, regionAus: null, regionOther: null, dividendFreqMonths: null, drp: null, provider: 'coingecko', providerSymbol: 'bitcoin', origin: 'import' } },
+    { id: '1', cells: { kind: 'stock', symbol: 'ASX:ABC', name: 'ABC Example Ltd', currency: 'AUD', watched: true, heldUnits: '150', targetRatio: '0.5', sector: 'Materials', retirement: false, mgmtFeeRatio: null, location: null, regionUs: null, regionAsia: null, regionAus: null, regionOther: null, dividendFreqMonths: 6, drp: false, defaultFee: null, defaultFeeRate: null, provider: 'yahoo', providerSymbol: 'ABC.AX', origin: 'import' } },
+    { id: '2', cells: { kind: 'stock', symbol: 'ASX:OLD', name: null, currency: 'AUD', watched: false, heldUnits: '0', targetRatio: null, sector: null, retirement: false, mgmtFeeRatio: null, location: null, regionUs: null, regionAsia: null, regionAus: null, regionOther: null, dividendFreqMonths: null, drp: null, defaultFee: null, defaultFeeRate: null, provider: 'yahoo', providerSymbol: 'OLD.AX', origin: 'import' } },
+    { id: '3', cells: { kind: 'etf', symbol: 'ASX:XYZ', name: 'XYZ Example ETF', currency: 'AUD', watched: true, heldUnits: '30', targetRatio: '0.6', sector: 'Global shares', retirement: false, mgmtFeeRatio: '0.002', location: 'Australia', regionUs: '0.5', regionAsia: '0.1', regionAus: '0.3', regionOther: '0.1', dividendFreqMonths: 3, drp: true, defaultFee: 0, defaultFeeRate: null, provider: 'yahoo', providerSymbol: 'XYZ.AX', origin: 'import' } },
+    { id: '7', cells: { kind: 'crypto', symbol: 'BTC', name: null, currency: 'AUD', watched: true, heldUnits: '0.05', targetRatio: '0.7', sector: null, retirement: false, mgmtFeeRatio: null, location: null, regionUs: null, regionAsia: null, regionAus: null, regionOther: null, dividendFreqMonths: null, drp: null, defaultFee: null, defaultFeeRate: '0.001', provider: 'coingecko', providerSymbol: 'bitcoin', origin: 'import' } },
   ],
   trades: [
     { id: '1', cells: { date: '2025-01-15', symbol: 'ASX:ABC', kind: 'stock', units: '100', price: '10', orderValue: 100000, fee: 1000, feeRate: null, seq: 1, flags: [], correction: null, sheetRef: 'Stocks!A23' } },
@@ -544,10 +544,9 @@ export const apiErrors = {
   marketDataDisabled: { error: { code: 'MARKET_DATA_DISABLED', message: 'Market data is switched off' } },
   notFound: { error: { code: 'NOT_FOUND', message: 'No instrument 999' } },
   internal: { error: { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' } },
+  // Stage 2 (stage-2.md §4.1, §4.3)
+  tradeOversell: { error: { code: 'TRADE_OVERSELL', message: 'The sell on 15/11/2025 is for 20 units but only 12 are held then.' } },
+  instrumentExists: { error: { code: 'INSTRUMENT_EXISTS', message: 'An ETF with the symbol ASX:DEF already exists' } },
+  instrumentInUse: { error: { code: 'INSTRUMENT_IN_USE', message: 'This holding has trades or dividends, so it cannot be deleted' } },
+  tradeValidation: { error: { code: 'VALIDATION_ERROR', message: 'quantity.units: must be a positive number; price: must be greater than zero' } },
 } satisfies Record<string, ApiErrorBody>;
-
-/** Every PriceStatus appears in `priceItems`; every RunStatus in `importRunDetails`. */
-export const FIXTURE_COVERAGE: { priceStatuses: PriceStatus[]; runStatuses: RunStatus[] } = {
-  priceStatuses: [...new Set(priceItems.map((i) => i.status))],
-  runStatuses: [...new Set(Object.values(importRunDetails).map((r) => r.status))],
-};

@@ -9,13 +9,15 @@ import {
   useParams,
   type RouterHistory,
 } from '@tanstack/react-router';
-import { isRecordEntityId } from '@joinr/schema';
+import { isRecordEntityId, type InstrumentKind } from '@joinr/schema';
 import type { JSX } from 'react';
 import { RootLayout } from './layout/RootLayout';
 import { PAGES, STYLEGUIDE_PAGE, isScreenVariant, type PageDef } from './pages';
 import { ErrorPage } from './pages/ErrorPage';
 import { ImportPage } from './pages/import/ImportPage';
 import { ImportRunPage } from './pages/import/ImportRunPage';
+import { HoldingDetailPage } from './pages/investments/HoldingDetailPage';
+import { InvestmentPage } from './pages/investments/InvestmentPage';
 import { NetWorthPage } from './pages/NetWorthPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
@@ -68,8 +70,57 @@ const pricesRoute = createRoute({
   component: PricesPage,
 });
 
-const BUILT_PAGE_ROUTES = [recordsRoute, importRoute, pricesRoute];
-const BUILT_PATHS: ReadonlySet<string> = new Set(['/records', '/import', '/prices']);
+// Stage 2: the four investment pages (stage-2.md §6.1), one component per kind.
+function investmentPageFor(kind: InstrumentKind): () => JSX.Element {
+  function Investments(): JSX.Element {
+    return <InvestmentPage kind={kind} />;
+  }
+  Investments.displayName = `InvestmentPage(${kind})`;
+  return Investments;
+}
+
+const stocksRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/stocks',
+  component: investmentPageFor('stock'),
+});
+
+const etfsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/etfs',
+  component: investmentPageFor('etf'),
+});
+
+const managedFundsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/managed-funds',
+  component: investmentPageFor('managed_fund'),
+});
+
+const cryptoRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/crypto',
+  component: investmentPageFor('crypto'),
+});
+
+const BUILT_PAGE_ROUTES = [
+  recordsRoute,
+  importRoute,
+  pricesRoute,
+  stocksRoute,
+  etfsRoute,
+  managedFundsRoute,
+  cryptoRoute,
+];
+const BUILT_PATHS: ReadonlySet<string> = new Set([
+  '/records',
+  '/import',
+  '/prices',
+  '/stocks',
+  '/etfs',
+  '/managed-funds',
+  '/crypto',
+]);
 
 // Every other page renders its placeholder until its stage lands.
 const pageRoutes = PAGES.filter((page) => !BUILT_PATHS.has(page.path)).map((page) =>
@@ -114,6 +165,53 @@ const importRunRoute = createRoute({
   component: ImportRunRoute,
 });
 
+// A holding's detail page under each investment path; beforeLoad accepts a positive int only.
+function holdingDetailFor(kind: InstrumentKind): () => JSX.Element {
+  function HoldingDetail(): JSX.Element {
+    const { instrumentId } = useParams({ strict: false });
+    // beforeLoad has already rejected anything else; this guard only narrows the type.
+    return instrumentId !== undefined && POSITIVE_INT_RE.test(instrumentId) ? (
+      <HoldingDetailPage key={instrumentId} kind={kind} instrumentId={Number(instrumentId)} />
+    ) : (
+      <NotFoundPage />
+    );
+  }
+  HoldingDetail.displayName = `HoldingDetailPage(${kind})`;
+  return HoldingDetail;
+}
+
+const rejectNonPositiveId = ({ params }: { params: { instrumentId: string } }): void => {
+  if (!POSITIVE_INT_RE.test(params.instrumentId)) throw notFound();
+};
+
+const stockDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/stocks/$instrumentId',
+  beforeLoad: rejectNonPositiveId,
+  component: holdingDetailFor('stock'),
+});
+
+const etfDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/etfs/$instrumentId',
+  beforeLoad: rejectNonPositiveId,
+  component: holdingDetailFor('etf'),
+});
+
+const managedFundDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/managed-funds/$instrumentId',
+  beforeLoad: rejectNonPositiveId,
+  component: holdingDetailFor('managed_fund'),
+});
+
+const cryptoDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/crypto/$instrumentId',
+  beforeLoad: rejectNonPositiveId,
+  component: holdingDetailFor('crypto'),
+});
+
 const styleguideRoute = createRoute({
   getParentRoute: () => appRoute,
   path: STYLEGUIDE_PAGE.path,
@@ -146,6 +244,10 @@ const routeTree = rootRoute.addChildren([
     ...BUILT_PAGE_ROUTES,
     recordsEntityRoute,
     importRunRoute,
+    stockDetailRoute,
+    etfDetailRoute,
+    managedFundDetailRoute,
+    cryptoDetailRoute,
     styleguideRoute,
   ]),
   screenPreviewRoute,

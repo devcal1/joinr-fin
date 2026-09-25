@@ -7,6 +7,7 @@ import {
   INSTRUMENT_KINDS,
   JoinrDecimal,
   normaliseDecimal,
+  splitSymbol,
   type CorrectionsFile,
   type DividendCorrection,
   type InstrumentKind,
@@ -183,12 +184,8 @@ export function applyCorrections(
 
 // ─── Exclusions and the instrument set (§4.4) ───────────────────────────────────────────────────
 
-export const splitSymbol = (symbol: string): { exchange: string | null; code: string } => {
-  const i = symbol.indexOf(':');
-  return i > 0 && i < symbol.length - 1
-    ? { exchange: symbol.slice(0, i), code: symbol.slice(i + 1) }
-    : { exchange: null, code: symbol };
-};
+/** Moved to `@joinr/schema` in Stage 2 (shared with the server); re-exported unchanged. */
+export { splitSymbol };
 
 export const instrumentKey = (kind: InstrumentKind, symbol: string): string => `${kind}|${symbol}`;
 

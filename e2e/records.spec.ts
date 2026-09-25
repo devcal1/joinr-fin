@@ -65,6 +65,7 @@ test.describe('records', () => {
   }
 
   test('every record table renders from the real API', async ({ page }) => {
+    test.setTimeout(60_000);
     const errors = trackConsoleErrors(page);
     for (const id of RECORD_ENTITY_IDS) {
       const { label } = RECORD_ENTITIES[id];

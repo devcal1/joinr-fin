@@ -29,7 +29,7 @@ import { z } from 'zod';
 import type { Config } from '../config';
 import { backupBeforeImport } from '../db/backup';
 import type { AppDatabase } from '../db/database';
-import { hasAppData, hasDomainData } from '../db/queries/domain';
+import { clearAppEditMarker, hasAppData, hasDomainData } from '../db/queries/domain';
 import { getImportRun, listImportRuns, recordFailedImportRun } from '../db/queries/importRuns';
 import { errorBody, HttpError, parseWith } from '../errors';
 import type { MarketDataService } from '../market/types';
@@ -242,6 +242,13 @@ export const importRoutes: FastifyPluginAsync<ImportRouteOptions> = async (app, 
             throw new HttpError(422, err.message, 'INVALID_CORRECTIONS');
           }
 
+          // D34 re-check (stage-2.md §4.5): the corrections file was awaited above, so an
+          // investments mutation may have committed since the first check. From here to the
+          // import everything is synchronous, and mutations refuse while the lock is held.
+          if (!dryRun && hasAppData(db)) {
+            throw new HttpError(409, IMPORT_APP_DATA_EXISTS_MESSAGE, 'IMPORT_APP_DATA_EXISTS');
+          }
+
           if (!dryRun && hasData) {
             const backup = backupBeforeImport(database, config.dataDir, now());
             request.log.info({ backup: basename(backup) }, 'pre-import backup written');
@@ -268,6 +275,8 @@ export const importRoutes: FastifyPluginAsync<ImportRouteOptions> = async (app, 
           }
 
           if (!result.dryRun) {
+            // A committed import replaced every app edit, so the D34 deletion marker goes too.
+            clearAppEditMarker(db);
             try {
               market.notifyInstrumentsChanged();
             } catch (err) {

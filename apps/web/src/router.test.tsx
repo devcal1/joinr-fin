@@ -28,9 +28,30 @@ describe('router', () => {
   });
 
   it('renders a placeholder page with its name', async () => {
-    renderAt('/stocks');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Stocks' })).toBeInTheDocument();
+    renderAt('/budget');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Budget' })).toBeInTheDocument();
   });
+
+  it.each([
+    ['/stocks', 'Stocks'],
+    ['/etfs', 'ETFs'],
+    ['/managed-funds', 'Managed Funds'],
+    ['/crypto', 'Crypto'],
+    ['/etfs/4', 'Holding'],
+    ['/crypto/7', 'Holding'],
+  ])('renders the Stage 2 page %s with its h1 even when the API is down', async (path, title) => {
+    renderAt(path);
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument();
+    expect(await screen.findByRole('note')).toHaveClass('jf-callout--do-not');
+  });
+
+  it.each(['/etfs/0', '/etfs/abc', '/stocks/07', '/crypto/-1'])(
+    'shows "Page not found" for the holding path %s',
+    async (path) => {
+      renderAt(path);
+      expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+    },
+  );
 
   it('renders the style guide', async () => {
     renderAt('/styleguide');

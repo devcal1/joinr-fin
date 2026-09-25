@@ -9,6 +9,7 @@ import {
   trades,
 } from '../src/db/index';
 import {
+  COMMITTED_MIGRATION_COUNT,
   createTestDb,
   dumpDomainTables,
   dumpDomainTablesJson,
@@ -35,7 +36,8 @@ describe('createTestDb', () => {
     const n = testDb.sqlite.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get() as {
       n: number;
     };
-    expect(n.n).toBe(2);
+    expect(n.n).toBe(COMMITTED_MIGRATION_COUNT);
+    expect(COMMITTED_MIGRATION_COUNT).toBeGreaterThanOrEqual(3); // 0000, 0001, 0002 (Stage 2)
     expect(testDb.sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
   });
 });
@@ -75,6 +77,42 @@ describe('seedGenericData', () => {
       .all();
     expect(statuses).toContainEqual({ s: 'error', src: null });
     expect(statuses).toContainEqual({ s: 'ok', src: 'sheet' });
+  });
+});
+
+describe('seedGenericData: Stage 2 columns', () => {
+  it('sets a $0 default fee on one ETF and a default rate on one crypto, and nothing else', () => {
+    const { instrumentIds } = seedGenericData(testDb.db);
+    const rows = testDb.db.select().from(instruments).all();
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(instrumentIds['ASX:DEF']!)).toMatchObject({
+      kind: 'etf',
+      defaultFeeCents: 0,
+      defaultFeeRate: null,
+    });
+    expect(byId.get(instrumentIds.BTC!)).toMatchObject({
+      kind: 'crypto',
+      defaultFeeCents: null,
+      defaultFeeRate: '0.0025',
+    });
+    const others = rows.filter(
+      (r) => r.id !== instrumentIds['ASX:DEF'] && r.id !== instrumentIds.BTC,
+    );
+    expect(others.length).toBeGreaterThan(0);
+    for (const r of others) {
+      expect(r.defaultFeeCents, r.symbol).toBeNull();
+      expect(r.defaultFeeRate, r.symbol).toBeNull();
+    }
+  });
+
+  it('writes no app rows (an import after seeding stays allowed, D34)', () => {
+    seedGenericData(testDb.db);
+    for (const table of ['instruments', 'trades', 'dividends', 'settings']) {
+      const n = testDb.sqlite
+        .prepare(`SELECT count(*) AS n FROM "${table}" WHERE origin = 'app'`)
+        .get() as { n: number };
+      expect(n.n, table).toBe(0);
+    }
   });
 });
 

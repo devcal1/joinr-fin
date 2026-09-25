@@ -61,6 +61,38 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
 
+  // The engine is pure (stage-2.md §2.1): no clock, no I/O, the @joinr/schema root only.
+  {
+    files: ['packages/engine/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message: 'The engine has no clock: take "today" from the asOf input (stage-2.md §2.1).',
+        },
+        {
+          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message: 'The engine has no clock: take "today" from the asOf input (stage-2.md §2.1).',
+        },
+        {
+          selector: 'ImportDeclaration[source.value=/^node:/]',
+          message:
+            'The engine is pure and bundles for the browser: no node modules (stage-2.md §2.1).',
+        },
+        {
+          selector: 'ImportDeclaration[source.value=/^drizzle-orm(\\/|$)/]',
+          message: 'The engine never touches the database: no drizzle-orm (stage-2.md §2.1).',
+        },
+        {
+          selector:
+            "ImportDeclaration[source.value='@joinr/schema/db'], ImportDeclaration[source.value='@joinr/schema/testing']",
+          message: 'The engine imports the @joinr/schema root entry only (stage-2.md §2.1).',
+        },
+      ],
+    },
+  },
+
   {
     rules: {
       '@typescript-eslint/require-await': 'off', // Fastify handlers are async by convention

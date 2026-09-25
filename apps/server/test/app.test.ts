@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { COMMITTED_MIGRATION_COUNT } from '@joinr/schema/testing';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -57,7 +58,7 @@ describe('GET /api/health', () => {
       db: { ok: true, journalMode: 'wal', migrations: expect.any(Number) as number },
     });
     expect(body.uptimeSeconds).toBeGreaterThanOrEqual(0);
-    expect(body.db.migrations).toBe(2);
+    expect(body.db.migrations).toBe(COMMITTED_MIGRATION_COUNT);
   });
 
   it('never exposes paths or environment values', async () => {

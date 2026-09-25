@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.4",
+    "@joinr/engine": "workspace:*",
     "@joinr/importer": "workspace:*",
     "@joinr/schema": "workspace:*",
     "better-sqlite3": "^13.0.3",

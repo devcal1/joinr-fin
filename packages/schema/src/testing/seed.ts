@@ -85,6 +85,9 @@ interface SeedInstrument {
   targetRatio: string | null;
   sector: string | null;
   isRetirement?: boolean;
+  /** D38 (Stage 2): the holding's own default fee. */
+  defaultFeeCents?: number;
+  defaultFeeRate?: string;
 }
 
 // prettier-ignore
@@ -92,10 +95,10 @@ const INSTRUMENTS: readonly SeedInstrument[] = [
   { kind: 'stock', symbol: 'ASX:ABC', exchange: 'ASX', code: 'ABC', name: 'ABC Example Ltd', isWatched: true, targetRatio: '0.5', sector: 'Materials' },
   { kind: 'stock', symbol: 'ASX:OLD', exchange: 'ASX', code: 'OLD', name: null, isWatched: false, targetRatio: null, sector: null },
   { kind: 'etf', symbol: 'ASX:XYZ', exchange: 'ASX', code: 'XYZ', name: 'XYZ Example ETF', isWatched: true, targetRatio: '0.6', sector: 'Global shares' },
-  { kind: 'etf', symbol: 'ASX:DEF', exchange: 'ASX', code: 'DEF', name: 'DEF Example ETF', isWatched: true, targetRatio: '0.4', sector: 'Retirement', isRetirement: true },
+  { kind: 'etf', symbol: 'ASX:DEF', exchange: 'ASX', code: 'DEF', name: 'DEF Example ETF', isWatched: true, targetRatio: '0.4', sector: 'Retirement', isRetirement: true, defaultFeeCents: 0 },
   { kind: 'managed_fund', symbol: 'EXAMPLEFUND', exchange: null, code: 'EXAMPLEFUND', name: 'Example Managed Fund', isWatched: true, targetRatio: '1', sector: null },
   { kind: 'managed_fund', symbol: 'EXAMPLEFUND2', exchange: null, code: 'EXAMPLEFUND2', name: 'Example Managed Fund 2', isWatched: true, targetRatio: null, sector: null },
-  { kind: 'crypto', symbol: 'BTC', exchange: null, code: 'BTC', name: null, isWatched: true, targetRatio: '0.7', sector: null },
+  { kind: 'crypto', symbol: 'BTC', exchange: null, code: 'BTC', name: null, isWatched: true, targetRatio: '0.7', sector: null, defaultFeeRate: '0.0025' },
   { kind: 'crypto', symbol: 'ETH', exchange: null, code: 'ETH', name: null, isWatched: true, targetRatio: '0.3', sector: null },
 ];
 
@@ -109,7 +112,9 @@ const SHEET_OF: Record<InstrumentKind, string> = {
 /**
  * Replaces the seeded tables with the generic data set. Price statuses covered (relative to
  * `now`): fresh (ASX:ABC, BTC), stale (ASX:XYZ from the workbook, ETH fetched two days ago),
- * failed (ASX:DEF), manual (EXAMPLEFUND), none (ASX:OLD, EXAMPLEFUND2).
+ * failed (ASX:DEF), manual (EXAMPLEFUND), none (ASX:OLD, EXAMPLEFUND2). Default fees (D38): $0 flat on
+ * ASX:DEF and a rate on BTC; every other instrument uses the global default. Every row keeps
+ * origin 'import' (no app rows), so an import after seeding is still allowed.
  */
 export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedResult {
   const now = options.now ?? new Date();
@@ -132,6 +137,8 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         .values({
           ...inst,
           isRetirement: inst.isRetirement ?? false,
+          defaultFeeCents: inst.defaultFeeCents ?? null,
+          defaultFeeRate: inst.defaultFeeRate ?? null,
           sortOrder,
           quoteCurrency: 'AUD',
           dividendFreqMonths: inst.kind === 'crypto' ? null : 6,

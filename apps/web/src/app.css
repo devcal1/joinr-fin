@@ -97,6 +97,12 @@
     color: var(--text-muted);
   }
 
+  /* The containing block for visually hidden text inside a cell of a table that scrolls in its
+     container; without it the text is placed against an outer block and widens the page. */
+  .jf-app-anchor {
+    position: relative;
+  }
+
   .jf-app-meta {
     color: var(--text-secondary);
     font-size: var(--fs-dense);
@@ -434,6 +440,170 @@
   .jf-app-tile-flag__icon {
     flex: none;
     color: var(--orange-tint);
+  }
+
+  /* A figure with a status badge (the ETF counts tile): the badge moves under the figure when the
+     tile is too narrow for both, instead of squeezing the figure onto several lines. */
+  .jf-app-tile-flag--wrap {
+    flex-wrap: wrap;
+  }
+
+  /* ── Investments (Stage 2) ── */
+
+  /* A loss or a negative return in a figure that is not an Amount: the stop tint (D20). */
+  .jf-app-negative {
+    color: var(--stop-tint);
+  }
+
+  /* The symbol links to the holding's page: bright mono text on a quiet underline (the table's
+     only teal cell stays the total's key figure). */
+  .jf-app-holding-link {
+    text-decoration: underline;
+    text-decoration-color: var(--text-muted);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  .jf-app-holding-link:hover,
+  .jf-app-holding-link:focus-visible {
+    text-decoration-color: var(--teal);
+    text-decoration-thickness: 2px;
+  }
+
+  .jf-app-price-cell,
+  .jf-app-result-cell,
+  .jf-app-fee-cell {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-1);
+  }
+
+  /* The ledger's Result: money right-aligned like every money column, each figure with a muted
+     word ("unrealised", "realised") in the body face. */
+  .jf-app-result-cell {
+    white-space: nowrap;
+  }
+
+  .jf-app-result-line {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+  }
+
+  .jf-app-result-word {
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 12px;
+  }
+
+  /* Dense investment tables (holdings, trades): multi-word headers may wrap onto two lines and
+     cells keep 8px at the sides, so the core columns fit the 1152px content area at 1440 (the
+     figures themselves stay on one line). */
+  .jf-app-compact-table {
+    min-width: 0;
+  }
+
+  .jf-app-compact-table .jf-table__th {
+    padding-inline: var(--space-2);
+    white-space: normal;
+  }
+
+  .jf-app-compact-table .jf-table__cell {
+    padding-inline: var(--space-2);
+  }
+
+  .jf-app-badge-link {
+    text-decoration: none;
+  }
+
+  /* A segmented choice (Buy / Sell, Units / Amount, chart modes): stays on one line. */
+  .jf-app-segmented {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--space-1);
+  }
+
+  .jf-app-segmented .jf-button[aria-pressed='true'] {
+    border-color: var(--teal);
+  }
+
+  .jf-app-block--tight {
+    gap: var(--space-2);
+  }
+
+  /* The Watched switch sits level with the fields beside it (they have a label row above). */
+  .jf-app-switch-field {
+    padding-top: var(--space-6);
+  }
+
+  .jf-app-preview {
+    min-height: 1.5em;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jf-app-kv-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .jf-app-next-buy__hint {
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+
+  /* The inline delete confirm: the question (it names the trade) on its own lines, the buttons
+     under it, narrow enough to sit beside a phone ledger's sticky Date column. */
+  .jf-app-confirm {
+    flex-wrap: wrap;
+    max-width: 13rem;
+  }
+
+  .jf-app-confirm__question {
+    flex-basis: 100%;
+    color: var(--text-bright);
+    font-weight: 700;
+    white-space: normal;
+  }
+
+  /* Exited holdings: a closed disclosure with a small uppercase summary. */
+  .jf-app-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .jf-app-details__summary {
+    width: fit-content;
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .jf-app-details__summary:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 767.98px) {
+    /* Forms stack one field per row; the segmented switches share the width; buttons are full. */
+    .jf-app-segmented .jf-button {
+      flex: 1 1 0;
+    }
+
+    .jf-app-form-actions .jf-button {
+      flex: 1 1 100%;
+    }
+
+    .jf-app-switch-field {
+      padding-top: 0;
+    }
   }
 
   /* Phone: a report section's counts and Show/Hide take their own line under the title, so every

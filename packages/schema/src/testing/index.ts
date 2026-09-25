@@ -1,5 +1,5 @@
 // `@joinr/schema/testing`: test databases, the generic seed and the domain dump.
-export { createTestDb, MIGRATIONS_DIR, type TestDb } from './testDb';
+export { COMMITTED_MIGRATION_COUNT, createTestDb, MIGRATIONS_DIR, type TestDb } from './testDb';
 export {
   clearSeededTables,
   SEED_META_KEY,

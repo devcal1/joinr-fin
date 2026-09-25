@@ -9,6 +9,7 @@ import {
   settings,
   trades,
 } from '@joinr/schema/db';
+import { COMMITTED_MIGRATION_COUNT } from '@joinr/schema/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   closeDatabase,
@@ -63,12 +64,15 @@ describe('openDatabase', () => {
 });
 
 describe('runMigrations', () => {
-  it('applies both migrations and creates app_meta', () => {
+  it('applies every committed migration and creates app_meta', () => {
     const database = open();
     expect(countAppliedMigrations(database.sqlite)).toBe(0);
 
     const result = runMigrations(database, MIGRATIONS_DIR);
-    expect(result).toEqual({ applied: 2, total: 2 });
+    expect(result).toEqual({
+      applied: COMMITTED_MIGRATION_COUNT,
+      total: COMMITTED_MIGRATION_COUNT,
+    });
 
     const columns = database.sqlite.prepare('PRAGMA table_info(app_meta)').all() as {
       name: string;

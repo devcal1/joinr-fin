@@ -1,4 +1,5 @@
 // Builds the Fastify app. No side effects at import; nothing listens until index.ts says so.
+import type { EngineApi } from '@joinr/engine';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Config } from './config';
 import { closeDatabase, type AppDatabase } from './db/database';
@@ -7,6 +8,7 @@ import { createMarketDataService } from './market/index';
 import type { MarketDataService } from './market/types';
 import { healthRoutes } from './routes/health';
 import { importRoutes } from './routes/import';
+import { investmentsRoutes } from './routes/investments';
 import { pricesRoutes } from './routes/prices';
 import { recordsRoutes } from './routes/records';
 import { statusRoutes } from './routes/status';
@@ -43,10 +45,12 @@ export interface BuildAppOptions {
   db: AppDatabase;
   /** Defaults to the root package.json version. */
   version?: string;
-  /** Clock for the health timestamp (tests). */
+  /** Clock for the health timestamp and the investments as-of date (tests). */
   now?: () => Date;
   /** Builds the scheduler and market data service. Defaults to `offServices` (tests). */
   services?: ServicesFactory;
+  /** The engine function set for the investments routes; defaults to the real engine (tests inject a fake). */
+  engine?: EngineApi;
 }
 
 export const SECURITY_HEADERS = {
@@ -85,6 +89,7 @@ export async function buildApp({
   version = APP_VERSION,
   now,
   services = offServices,
+  engine,
 }: BuildAppOptions): Promise<FastifyInstance> {
   // Fail before creating anything, so the caller only has the database to clean up.
   if (config.serveWeb) assertWebDist(config.webDistDir);
@@ -116,6 +121,14 @@ export async function buildApp({
   await app.register(importRoutes, { prefix: '/api', database: db, config, market });
   await app.register(statusRoutes, { prefix: '/api', database: db, config, market });
   await app.register(pricesRoutes, { prefix: '/api', market });
+  await app.register(investmentsRoutes, {
+    prefix: '/api',
+    database: db,
+    config,
+    market,
+    now,
+    engine,
+  });
   if (config.serveWeb) await registerWebApp(app, config.webDistDir);
   app.setNotFoundHandler(createNotFoundHandler(config.serveWeb));
 

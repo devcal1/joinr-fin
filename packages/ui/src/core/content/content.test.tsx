@@ -117,6 +117,14 @@ describe('KeyValueTable', () => {
     );
     expect(within(rows[0] as HTMLElement).getByRole('cell')).not.toHaveClass('jf-kv__value--num');
   });
+
+  it('sets the 38% label column on a colgroup, so a hidden caption cannot undo it', () => {
+    render(<KeyValueTable caption="Facts" items={[{ label: 'Name', value: 'Example Co' }]} />);
+    const table = screen.getByRole('table', { name: 'Facts' });
+    const cols = table.querySelectorAll('colgroup > col');
+    expect(cols).toHaveLength(2);
+    expect(cols[0]).toHaveClass('jf-kv__col-label');
+  });
 });
 
 describe('StatTile', () => {

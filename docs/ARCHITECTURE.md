@@ -29,7 +29,8 @@ A pnpm workspace with three kinds of member.
 
 ```
 apps/web ─────────► @joinr/ui, @joinr/schema (types and plain constants only, never /db)
-apps/server ──────► @joinr/importer, @joinr/schema   (+ @joinr/engine from Stage 2)
+apps/server ──────► @joinr/engine, @joinr/importer, @joinr/schema
+packages/engine   ► @joinr/schema (root entry only; @joinr/importer for golden tests only)
 packages/importer ► @joinr/schema, xlsx (SheetJS)
 packages/schema   ► drizzle-orm, zod, decimal.js     (the root entry has no drizzle import)
 tools/privacy-guard  (standalone, Node built-ins only)
@@ -40,7 +41,7 @@ tools/privacy-guard  (standalone, Node built-ins only)
 | `@joinr/web` | React 19 + Vite SPA. Code-based TanStack Router routes and TanStack Query. There is one route per page, plus `/styleguide` (the component gallery) and `/preview/screen/:variant` (the brand screens). |
 | `@joinr/server` | Fastify API, SQLite access and migrations. In production it also serves the SPA. |
 | `@joinr/ui` | Design tokens, global CSS, layout and content components, brand components and chart wrappers. It is split into `core`, `brand` and `charts`. |
-| `@joinr/engine` | Pure calculation functions (holdings, savings, FIRE). It has no I/O. Stage 2. |
+| `@joinr/engine` | Pure calculation functions: from Stage 2 the investments (FIFO parcels, realised gains by financial year, holding metrics, XIRR, allocation, contributions history, the investment timing); later savings and FIRE. No I/O and no clock: every "today" is an `asOf` input, and ESLint bans `Date.now()`, `new Date()` and node imports in its sources. It imports only the `@joinr/schema` root, so it could run in the browser; today only the server calls it. |
 | `@joinr/schema` | The shared data contract. The root entry holds enums, Zod schemas, API DTO types, the settings and record-browser registries, and pricing, decimal and date helpers; `/db` holds the Drizzle tables; `/testing` the in-memory test database, the generic seed and a table dump; `/fixtures` typed sample DTOs for UI tests. |
 | `@joinr/importer` | Reads a workbook export (SheetJS) into the database in one transaction and produces a reconciliation report. `/testing` builds a generic synthetic workbook for tests. |
 | `@joinr/privacy-guard` | The pre-commit check that keeps private material out of this public repo. |
@@ -96,13 +97,15 @@ Shutdown:
 | `db/database.ts`, `db/schema.ts`, `db/meta.ts` | The connection, migrations, the `app_meta` table and its helpers. |
 | `app.ts` | Fastify setup: the services, security and `cache-control` headers, the error handler, routes, SPA serving and the not-found handling. |
 | `db/backup.ts` | Pre-import backups (`VACUUM INTO`, newest 10 kept). |
-| `db/queries/*` | Shared queries: held units per instrument, "has imported data", stale-run cleanup, import-run DTOs. |
+| `db/queries/*` | Shared queries: held units per instrument, "has imported data" and "has app data" (with the D34 deletion marker), stale-run cleanup, import-run DTOs, and the typed settings reader (`readSettings`: each value parsed with its registry schema; an invalid one reads as null with a warning that never logs the value). |
 | `records/` | The record browser: one loader per registry entity, serialised to the registry's columns. |
 | `routes/health.ts` | `GET /api/health`. |
 | `routes/status.ts` | `GET /api/status` (header freshness). |
 | `routes/records.ts` | `GET /api/records`, `GET /api/records/:entity`. |
 | `routes/import.ts` | `POST /api/import` and the import runs. |
 | `routes/prices.ts` | Prices, refresh, manual overrides, price sources, market series. |
+| `routes/investments.ts` | The investment pages, the trade ledger, holding detail, and trade and holding changes. |
+| `investments/` | Builds engine inputs from the database and the price service (`load.ts`, `context.ts`), maps engine results to the API's DTOs (`page.ts`, `trades.ts`, `detail.ts`, `charts.ts`, `timing.ts`, `mappers.ts`), and runs the mutations (`mutations.ts`). |
 | `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. |
 | `scheduler/` | A small generic job scheduler that logs every run in `job_runs`. |
 | `cli/import.ts` | `pnpm import:workbook`. |
@@ -152,8 +155,49 @@ One function, `importWorkbook(db, { bytes, … })` in `@joinr/importer`, serves 
 - **Replace-all, idempotent.** An import replaces the imported tables. Ids restart at 1 after the delete (no AUTOINCREMENT), so importing the same bytes twice gives identical tables. Instruments are upserted by kind and symbol, which keeps price sources and manual prices set in the app.
 - **Reconciliation report.** Every check compares a sheet value (a tab total, held units, a History row, a count) with the value read back from the database inside the transaction. Each check is `match`, `explained` (with a reason code and, where relevant, a decision reference), `suspect`, `info` or `unexplained`. The target is zero unexplained.
 - **Corrections** are owner-approved data fixes kept outside the repo (`import-corrections.json` in `DATA_DIR`, or in `reference/` on the development PC; `IMPORT_CORRECTIONS_FILE` overrides). Each applied correction is listed in the report.
-- **Upload route.** The body is the raw `.xlsx` (25 MiB limit; a route-scoped parser accepts only `application/octet-stream` and the xlsx MIME type). One import runs at a time. While app-entered rows exist (`origin = 'app'` in a domain table, `instruments` or `settings`; `hasAppData()`), a real import answers `409 IMPORT_APP_DATA_EXISTS` before the confirm check, with no backup and no run row; dry runs still run, and only the CLI overrides, with `--yes --replace-app-data` (D34). When data exists, a real import needs `confirmReplace=true` and takes a `VACUUM INTO` backup first. A committed import tells the price service to refresh soon.
+- **Upload route.** The body is the raw `.xlsx` (25 MiB limit; a route-scoped parser accepts only `application/octet-stream` and the xlsx MIME type). One import runs at a time. While app-entered data exists (`origin = 'app'` in a domain table, `instruments` or `settings`, or the deletion marker of a workbook row deleted in the app; `hasAppData()`), a real import answers `409 IMPORT_APP_DATA_EXISTS` before the confirm check (and again right before importing), with no backup and no run row; dry runs still run, and only the CLI overrides, with `--yes --replace-app-data` (D34). When data exists, a real import needs `confirmReplace=true` and takes a `VACUUM INTO` backup first. A committed import tells the price service to refresh soon.
 - A crash mid-import leaves the data untouched (the transaction rolls back), and the next start marks the run `failed`.
+
+## Investments
+
+```
+GET /api/investments/:kind
+  price service: effective price per instrument (manual wins) ─┐
+  one read transaction: instruments, trades, dividends,        ├─► engine.computeInvestments × 4 kinds
+    settings, snapshots, budget, cash, other assets ───────────┘      (memoised per request)
+  ─► timing: budgetInvestment ─► parcelOptimiser ─► investCountdown · considerNext ─► nextBuyHint
+  ─► charts: snapshot values + contributionsAt / netPurchases ─► compressSeries
+  ─► DTOs (the server adds only display fields: symbol, name, price info, default fees, settings)
+```
+
+- **The engine owns every figure.** The server loads rows, passes the fee authority fields straight through (a `fee_rate` wins over `fee_cents`), takes `asOf` as the server-local date of the injected clock, and maps the results. Money is integer cents; units, prices and ratios are decimal strings.
+- **Unpriced holdings** are flagged and left out of every total; stale prices are used and flagged. A price that would value a position beyond safe-integer cents counts as no price, so one absurd price cannot fail every investment page.
+- **Ledger flags** are the stored review flags plus a live `oversell`; a stored `oversell` is ignored, because the engine's FIFO (buys before sells on a date) decides it and an imported one can go stale.
+- **Timing** reads the imported budget rows and settings until the live budget arrives (Stage 3); missing inputs are listed by key, never guessed.
+- **Charts** take market value and gain from the snapshots and recompute contributions and net purchases from the trades, so in-app trades and exited holdings count. A live point is added for the current month when no snapshot exists for it.
+- **Tests** inject a fake engine through `buildApp({ engine })`; the tests that need real FIFO results run only once the engine reports itself implemented.
+
+**Trade and holding changes.** Each runs in one `BEGIN IMMEDIATE` transaction:
+1. `409 IMPORT_IN_PROGRESS` while an upload import holds the import lock, before anything else.
+2. Validate (`400` with field paths; the per-kind rules and the units × price ceiling come from `@joinr/schema`, shared with the web form), then load the row (`404`).
+3. Amount-mode trades become units with `unitsFromAmount` (rounded down per kind). A new trade takes the next `seq` of its kind.
+4. **Oversell check:** the engine runs on that one instrument's trades before and after the change; if more units are oversold after, the transaction rolls back with `422 TRADE_OVERSELL`. An imported ledger that already oversold stays editable as long as a change does not make it worse.
+5. Write with the origin rules below, commit, then tell the price service when a holding started or stopped being held (and after every holding change).
+6. Answer with the row recomputed by the engine.
+
+**Origin rules and D34.**
+
+| Change | Effect |
+|---|---|
+| Create a trade or holding | `origin = 'app'`, no `sheet_ref`. |
+| Update a trade | `origin = 'app'`; `sheet_ref`, `correction_id` and `seq` kept; review flags cleared (`oversell` is live). |
+| Update a holding | `origin = 'app'` only when a column the importer writes changes, compared after normalising both sides, so a no-op save never flips it. The default fee is app-only: changing only it keeps `origin`. |
+| Delete a row with a `sheet_ref` | The `app_meta` key `app_edits.deleted_import_rows` records it (a count and the time), in the same transaction. |
+| Delete a row created in the app | Nothing is recorded. |
+
+`hasAppData()` is true while any `origin = 'app'` row or that marker exists, so the upload import refuses (`409 IMPORT_APP_DATA_EXISTS`). The upload checks again, synchronously, right before importing (the corrections file is read in between). A committed CLI import with `--yes --replace-app-data` clears the marker; a dry run leaves it.
+
+**Id reuse.** Instrument ids have no AUTOINCREMENT, so a deleted id can be reused. The price refresh therefore writes a price only when the instrument still has the kind and symbol it had when the run chose it.
 
 ## Price service and scheduler
 
@@ -186,7 +230,7 @@ DATA_DIR/
   - The server applies them at start-up.
   - Migrations are append-only: never edit one that has shipped.
   - The schema lives in `packages/schema` (Stage 1), and the migrations folder stays with the server. Later stages only add tables or nullable/defaulted columns.
-- **Provenance.** Imported rows carry `origin = 'import'` and a `sheet_ref` such as `ETFs!A31`. Rows the importer finds questionable carry review flags.
+- **Provenance.** Imported rows carry `origin = 'import'` and a `sheet_ref` such as `ETFs!A31`. Rows the importer finds questionable carry review flags. Rows created or edited in the app carry `origin = 'app'` (see [Investments](#investments) for the rules).
 - **Snapshots** (imported from History in Stage 1, recorded by the app from Stage 5) are immutable rows. Corrections are explicit edits, never silent recalculation.
 
 ## Styling
@@ -226,7 +270,7 @@ DATA_DIR/
 | Privacy guard | Vitest; the integration tests run the real hook in a temporary git repo | `tools/privacy-guard/test` |
 | End to end | Playwright at 1440 px and 375 px, installed Chrome | `e2e/` |
 | Importer | Vitest against an in-memory database and the generic synthetic workbook (no network, corrections off) | `packages/importer`, `apps/server/test` |
-| Golden values | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | importer (Stage 1), engine (Stage 2 on) |
+| Golden values | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | importer (Stage 1), engine and the investments API (Stage 2 on) |
 
 Each app, package and tool is a Vitest project, and the root `vitest.config.ts` runs them all.
 

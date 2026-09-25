@@ -1,5 +1,7 @@
-// Domain-data helpers for the import flow (stage-1.md §3.4, §4.8).
+// Domain-data helpers for the import flow (stage-1.md §3.4, §4.8) and the D34 deletion marker
+// (stage-2.md §3.3).
 import {
+  appMeta,
   DOMAIN_TABLES_DELETE_ORDER,
   importRuns,
   instruments,
@@ -9,9 +11,64 @@ import {
 import { eq } from 'drizzle-orm';
 import type { Db } from '../database';
 
+/** A Drizzle transaction handle (the `tx` of `db.transaction`). */
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
 /** The error recorded on runs that were still `running` when the server started. */
 export const INTERRUPTED_ERROR = 'interrupted';
 export const INTERRUPTED_CODE = 'INTERRUPTED';
+
+/**
+ * The app_meta key written when a row that came from the workbook (`sheet_ref` set) is deleted in
+ * the app: `{"count": n, "lastAt": "<ISO>"}`. While it exists `hasAppData` is true, so a re-import
+ * can no longer silently undo the deletion (D34).
+ */
+export const DELETED_IMPORT_ROWS_KEY = 'app_edits.deleted_import_rows';
+
+/** The marker's value: how many workbook rows were deleted in the app, and when the last was. */
+export interface DeletedImportRowsMarker {
+  count: number;
+  lastAt: string;
+}
+
+/** The marker, or null when absent. A malformed value reads as zero deletions so far. */
+export function readAppEditMarker(db: Db | Tx): DeletedImportRowsMarker | null {
+  const row = db
+    .select({ value: appMeta.value })
+    .from(appMeta)
+    .where(eq(appMeta.key, DELETED_IMPORT_ROWS_KEY))
+    .get();
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value) as Partial<Record<keyof DeletedImportRowsMarker, unknown>>;
+    const count =
+      typeof parsed.count === 'number' && Number.isSafeInteger(parsed.count) && parsed.count > 0
+        ? parsed.count
+        : 0;
+    return { count, lastAt: typeof parsed.lastAt === 'string' ? parsed.lastAt : '' };
+  } catch {
+    return { count: 0, lastAt: '' };
+  }
+}
+
+/**
+ * Records that a workbook row was deleted in the app: writes the marker, or adds one to its count.
+ * Call it inside the deleting transaction.
+ */
+export function markImportRowDeleted(tx: Db | Tx, now: Date): void {
+  const count = (readAppEditMarker(tx)?.count ?? 0) + 1;
+  const lastAt = now.toISOString();
+  const value = JSON.stringify({ count, lastAt } satisfies DeletedImportRowsMarker);
+  tx.insert(appMeta)
+    .values({ key: DELETED_IMPORT_ROWS_KEY, value, updatedAt: lastAt })
+    .onConflictDoUpdate({ target: appMeta.key, set: { value, updatedAt: lastAt } })
+    .run();
+}
+
+/** Deletes the marker. Called after a committed, successful import (never after a dry run). */
+export function clearAppEditMarker(db: Db | Tx): void {
+  db.delete(appMeta).where(eq(appMeta.key, DELETED_IMPORT_ROWS_KEY)).run();
+}
 
 /** True when any imported/domain table (or instruments) holds a row. */
 export function hasDomainData(db: Db): boolean {
@@ -23,9 +80,11 @@ export function hasDomainData(db: Db): boolean {
 
 /**
  * True when any app-entered row (`origin = 'app'`) exists in the domain tables, instruments or
- * settings. A re-import would replace these, so the upload route refuses it (D34).
+ * settings, or when the deletion marker exists (a workbook row was deleted in the app). A
+ * re-import would undo these, so the upload route refuses it (D34).
  */
-export function hasAppData(db: Db): boolean {
+export function hasAppData(db: Db | Tx): boolean {
+  if (readAppEditMarker(db) !== null) return true;
   for (const table of [instruments, settings, ...DOMAIN_TABLES_DELETE_ORDER]) {
     const row = db
       .select({ origin: table.origin })

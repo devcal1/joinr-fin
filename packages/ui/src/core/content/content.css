@@ -152,6 +152,11 @@
     table-layout: fixed;
   }
 
+  /* The label column's share, on the column itself (see KeyValueTable). */
+  .jf-kv__col-label {
+    width: 38%;
+  }
+
   .jf-kv__label,
   .jf-kv__value {
     padding: var(--space-2) var(--space-3);

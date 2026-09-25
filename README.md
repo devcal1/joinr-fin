@@ -123,6 +123,11 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `GET /api/prices`, `POST /api/prices/refresh` | Prices per instrument with their status; refresh now. |
 | `PUT`/`DELETE /api/prices/:instrumentId/manual`, `PUT /api/prices/:instrumentId/source` | Manual price overrides and the price source per instrument. |
 | `GET /api/market/series` | FX and bullion series (AUD/USD, silver and gold per ounce). |
+| `GET /api/investments/:kind` | One investment page (`stock`, `etf`, `managed_fund` or `crypto`): summary, holdings, allocation, realised gains by financial year, the next-buy timing, chart data and the fee settings. An unknown kind is `404`. |
+| `GET /api/investments/:kind/trades` | The kind's trade ledger, newest first, with each trade's FIFO result. |
+| `GET /api/instruments/:id` | One holding: the instrument, its row, parcels (lots), disposals, trades and dividends. |
+| `POST /api/instruments`, `PUT`/`DELETE /api/instruments/:id` | Add, edit or delete a holding (see below). |
+| `POST /api/trades`, `PUT`/`DELETE /api/trades/:id` | Add, edit or delete a trade (see below). |
 
 ```http
 GET /api/health
@@ -134,11 +139,47 @@ GET /api/health
   "version": "0.1.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
-  "db": { "ok": true, "journalMode": "wal", "migrations": 2 }
+  "db": { "ok": true, "journalMode": "wal", "migrations": 3 }
 }
 ```
 
-**`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`); a dry run is still allowed, and only the CLI can override (see below).
+### Investments
+
+Every figure on the investment pages comes from the pure engine (`@joinr/engine`): FIFO parcels by trade date (buys before sells on the same day), realised gains split at the 12-month anniversary, total return (unrealised + dividends) and XIRR. The server loads the rows in one read transaction, takes each holding's effective price from the price service (a manual price wins) and maps the results. A held holding without a price is flagged and left out of every total.
+
+**Trades.** `POST /api/trades` and `PUT /api/trades/:id` take:
+
+```json
+{
+  "instrumentId": 4,
+  "side": "buy",
+  "tradeDate": "2026-09-01",
+  "quantity": { "mode": "amount", "amountCents": 50000 },
+  "price": "50",
+  "fee": { "kind": "flat", "cents": 0 },
+  "note": "optional"
+}
+```
+
+- `quantity` is `{ "mode": "units", "units": "10" }` or, in amount mode, `{ "mode": "amount", "amountCents": … }`. Amount mode buys or sells `amount ÷ price` units, rounded down to 4 decimal places (stocks and ETFs), 6 (managed funds) or 8 (crypto); the fee is on top. An amount below one unit step is `400`.
+- `fee` is a flat `{ "kind": "flat", "cents": … }` or, for crypto only, a rate `{ "kind": "rate", "rate": "0.005" }` (a ratio of the order value).
+- Units and prices are decimal strings (up to 18 decimal places and 15 significant digits). The date may be up to tomorrow.
+- In units mode the order value (units × price) is limited to the amount-mode ceiling of $100,000,000,000 (`ORDER_VALUE_CENTS_MAX`); beyond it the answer is `400 quantity.units: the order value is too large`.
+- A change that would sell more units than are held at that date (more than before the change) is refused with `422 TRADE_OVERSELL`, and nothing is written. Deleting a buy that a later sell needs is refused the same way.
+- The answer is the trade's recomputed ledger row: `201` for a create, `200` for an update. A delete answers `{ "id": … }`.
+- The instrument of a trade cannot change. An update keeps the row's workbook reference and position (`seq`) and clears its review flags.
+
+**Holdings.** `POST /api/instruments` creates one (`kind`, `symbol` and every editable field; `409 INSTRUMENT_EXISTS` for the same kind and symbol). `PUT /api/instruments/:id` replaces the editable fields (name, currency, watched, target, sector, location, management fee, regions, dividend frequency, DRP, default fee, note); the kind and symbol cannot change, and the per-kind rules use the stored kind (for example regions only for ETFs and managed funds, a percentage fee only for crypto). `DELETE /api/instruments/:id` is refused with `409 INSTRUMENT_IN_USE` while trades or dividends reference the holding.
+
+**Default fees.** Each holding may have its own default trade fee; the trade form pre-fills it. Without one, stocks and ETFs use the default brokerage setting, crypto uses the crypto fee rate and managed funds use $0. The importer never writes these columns, so a re-import keeps them.
+
+**What blocks a re-import (D34).** An upload import is refused while the database holds data entered in the app, so a re-import can never silently undo an edit:
+- a trade or holding created in the app, or an imported one edited in the app (it becomes `origin = 'app'`);
+- a deleted row that came from the workbook (the app records the deletion in `app_meta`).
+
+Setting only a holding's default fee, or deleting a row that was created in the app, does not count. The command line can still replace everything: `pnpm import:workbook --yes --replace-app-data`, which also clears the deletion record. Every trade and holding change answers `409 IMPORT_IN_PROGRESS` while an upload import runs.
+
+**`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`, or a deleted workbook row; see [Investments](#investments)); a dry run is still allowed, and only the CLI can override (see below).
 
 | Answer | When |
 |---|---|
@@ -162,7 +203,7 @@ The app's data comes from the spreadsheet template's `.xlsx` export. The same im
 1. Export the Google Sheet as `.xlsx` and put it in `reference/` (git-ignored). The CLI picks the single `.xlsx` there, or takes a path.
 2. Preview: `pnpm import:workbook --dry-run`. Nothing is written except the run record.
 3. Import: `pnpm import:workbook --yes`. `--yes` confirms replacing data imported before. A backup is taken first (`<DATA_DIR>/backups/pre-import-YYYYMMDD-HHmmss.db`; the newest 10 are kept).
-   If the database holds data entered in the app (any row with `origin = 'app'`), a real import stops with exit 3 until you add `--replace-app-data` as well: `pnpm import:workbook --yes --replace-app-data`. The upload on the **Import** page refuses this case (`409 IMPORT_APP_DATA_EXISTS`); a dry run works either way.
+   If the database holds data entered in the app (any row with `origin = 'app'`, or a workbook row deleted in the app), a real import stops with exit 3 until you add `--replace-app-data` as well: `pnpm import:workbook --yes --replace-app-data`. The upload on the **Import** page refuses this case (`409 IMPORT_APP_DATA_EXISTS`); a dry run works either way.
 4. Open **Import** in the app for the full report. The target is **zero unexplained** checks. Suspect rows are imported as they are and flagged for review.
 
 CLI exit codes: `0` succeeded with nothing unexplained, `4` succeeded with unexplained checks, `1` failed, `2` usage, configuration or corrections error, `3` confirmation required (`--yes`, or `--yes --replace-app-data` over data entered in the app). The CLI is safe to run while the server runs; the server sees the new data on its next request.
@@ -177,7 +218,7 @@ An import **replaces** the imported investments, cash, budget, income, assets an
 
 - **Unit and component tests** use Vitest. Each app, package and tool is a Vitest project, and `pnpm test` runs them all. Server tests use Fastify's `inject` against a temporary `DATA_DIR`.
 - **End-to-end tests** use Playwright, at desktop and phone widths, against the installed Chrome. Screenshots go to `artifacts/screenshots/`.
-- **Golden tests** compare the importer (Stage 1) and the engine (Stage 2 on) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
+- **Golden tests** compare the importer (Stage 1), the engine and the investments API (Stage 2 on: import → database → API) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
 - **Synthetic workbook.** `buildSyntheticWorkbook()` (`@joinr/importer/testing`) builds a generic workbook in the template's layout, so the importer, the upload route and the e2e specs are tested without the private file. Synthetic imports always run with corrections off.
 - **No network in unit tests.** A setup file makes `fetch` fail; price providers are tested with mocked responses.
 

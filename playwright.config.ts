@@ -29,13 +29,21 @@ export default defineConfig({
       name: 'desktop',
       use: { viewport: { width: 1440, height: 900 } },
       dependencies: ['setup'],
-      testIgnore: /.*\.setup\.ts/,
+      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/],
     },
     {
       name: 'phone',
       use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true },
       dependencies: ['setup'],
-      testIgnore: /.*\.setup\.ts/,
+      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/],
+    },
+    // The app rows trades.spec.ts creates would make the import spec's upload answer 409 (D34), so
+    // it runs alone, after every desktop and phone spec (stage-2.md §7.6 step 6).
+    {
+      name: 'mutations',
+      use: { viewport: { width: 1440, height: 900 } },
+      testMatch: /trades\.spec\.ts/,
+      dependencies: ['desktop', 'phone'],
     },
   ],
   webServer: {

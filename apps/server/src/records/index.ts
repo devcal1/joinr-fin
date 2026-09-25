@@ -112,6 +112,8 @@ const loadInstruments: Loader = (db) => {
         regionOther: i.regionOtherRatio,
         dividendFreqMonths: i.dividendFreqMonths,
         drp: i.drp,
+        defaultFee: i.defaultFeeCents,
+        defaultFeeRate: i.defaultFeeRate,
         provider,
         providerSymbol,
         origin: i.origin,
@@ -268,8 +270,12 @@ const loadSnapshots: Loader = (db) =>
       return row(s.id, cells);
     });
 
-/** Remaining units × unit price in cents; only for AUD rows (other currencies are not converted). */
-function otherAssetValueCents(a: {
+/**
+ * Remaining units × unit price in cents; only for AUD rows (other currencies are not converted).
+ * Also the other-assets class value of the investments timing (stage-2.md §2.12, static until
+ * Stage 4).
+ */
+export function otherAssetValueCents(a: {
   units: string;
   soldUnits: string;
   unitPrice: string | null;
