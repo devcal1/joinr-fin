@@ -183,11 +183,19 @@ function etfResult(): InvestmentsResult {
   };
 }
 
+/** The other-assets class value the fake computeOtherAssets reports (stage-4.md §4.5). */
+const OTHER_ASSETS_VALUE = 226150;
+
 function engineFor(results: Partial<Record<InstrumentKind, InvestmentsResult>>): FakeEngine {
+  const neutral = fakeEngine();
   return fakeEngine({
     computeInvestments: (input) => results[input.kind] ?? emptyResult(input.kind, input.asOf),
     contributionsAt: ({ dates }) => dates.map((_, i) => (i + 1) * 100),
     netPurchases: ({ windows }) => windows.map((_, i) => i * 10),
+    computeOtherAssets: (input) => {
+      const r = neutral.computeOtherAssets(input);
+      return { ...r, totals: { ...r.totals, valueCents: OTHER_ASSETS_VALUE } };
+    },
   });
 }
 
@@ -363,7 +371,8 @@ describe('buildTiming (fake engine)', () => {
     // made included); the emergency-fund test cash leaves the loan out (offsets stay out, D56 off).
     const cash = 500000 + 2000000 + 300000;
     const emergencyFundCash = 500000 + 2000000;
-    const other = 180000 + 46150; // 1 × 1800 + 10 × 46.15, AUD rows
+    // Stage 4 (§4.5): the other-assets class value is the engine's (live spot and FX).
+    const other = OTHER_ASSETS_VALUE;
     // Latest snapshot (2026-07, step 2): cash / (stocks + etf + crypto + cash + mf + other).
     const snapTotal = 170000 + 340000 + 800000 + 2600000 + 150000 + 200000;
     const ratio = (a: number, b: number) =>

@@ -28,9 +28,22 @@ describe('router', () => {
   });
 
   it('renders a placeholder page with its name', async () => {
-    renderAt('/super');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Super' })).toBeInTheDocument();
+    renderAt('/history');
+    expect(await screen.findByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument();
   });
+
+  it.each([
+    ['/other-assets', 'Other Assets', 'Could not load other assets'],
+    ['/super', 'Super', 'Could not load super'],
+    ['/property', 'Property', 'Could not load property'],
+  ])(
+    'renders the Stage 4 page %s with its h1 even when the API is down',
+    async (path, title, error) => {
+      renderAt(path);
+      expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument();
+      expect(await screen.findByRole('note', { name: error })).toHaveClass('jf-callout--do-not');
+    },
+  );
 
   it.each([
     ['/cash', 'Cash', 'Could not load the cash page'],

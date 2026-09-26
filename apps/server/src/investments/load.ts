@@ -2,7 +2,8 @@
 // the investment and cash-flow pages and the timing chain need, read in ONE read transaction so a
 // concurrent CLI import (another process) cannot give a mixed snapshot, plus the DB row → engine
 // input conversions. The data is small (a personal ledger), so everything is loaded at once; the
-// engine sorts trades itself.
+// engine sorts trades itself. Stage 4 (stage-4.md §4.5) adds the price, sale, balance, valuation
+// and loan logs, the SG statements and the offset links.
 import type { EngineDividend, EngineInstrument, EngineTrade } from '@joinr/engine';
 import type { InstrumentKind, JobName } from '@joinr/schema';
 import {
@@ -14,16 +15,24 @@ import {
   incomeStreams,
   instruments,
   jobRuns,
+  loanBalanceEntries,
+  loanOffsetLinks,
   loans,
+  otherAssetPrices,
   otherAssets,
+  otherAssetSales,
   periodNotes,
   properties,
+  propertyValuations,
   savingsAdjustments,
   savingsGoals,
   settings,
   sideIncomeDeposits,
   snapshots,
+  superBalanceEntries,
   superEntries,
+  superFunds,
+  superSgOverrides,
   trades,
   yearlyExpenses,
   type TableRow,
@@ -52,6 +61,15 @@ export type LoanRow = TableRow<typeof loans>;
 export type OtherAssetRow = TableRow<typeof otherAssets>;
 export type DividendEventRow = TableRow<typeof dividendEvents>;
 export type JobRunRow = TableRow<typeof jobRuns>;
+// Stage 4 (stage-4.md §3.1).
+export type OtherAssetPriceRow = TableRow<typeof otherAssetPrices>;
+export type OtherAssetSaleRow = TableRow<typeof otherAssetSales>;
+export type SuperFundRow = TableRow<typeof superFunds>;
+export type SuperBalanceEntryRow = TableRow<typeof superBalanceEntries>;
+export type SuperSgOverrideRow = TableRow<typeof superSgOverrides>;
+export type PropertyValuationRow = TableRow<typeof propertyValuations>;
+export type LoanBalanceEntryRow = TableRow<typeof loanBalanceEntries>;
+export type LoanOffsetLinkRow = TableRow<typeof loanOffsetLinks>;
 
 /** A `settings` row's stored origin (null value JSON included), by key. */
 export type SettingOrigins = ReadonlyMap<string, TableRow<typeof settings>['origin']>;
@@ -89,7 +107,9 @@ export interface InvestmentData {
   goals: SavingsGoalRow[];
   /** Every super entry, by period then id. */
   superEntries: SuperEntryRow[];
+  /** Every property, in sort_order then id (Stage 4; by id before). */
   properties: PropertyRow[];
+  /** Every loan, in sort_order then id (Stage 4; by id before). */
   loans: LoanRow[];
   /** Every other asset, in sort_order then id. */
   otherAssets: OtherAssetRow[];
@@ -97,6 +117,23 @@ export interface InvestmentData {
   dividendEvents: DividendEventRow[];
   /** The latest `dividends` job run, or null. */
   lastDividendsRun: JobRunRow | null;
+  // ─── Stage 4 (stage-4.md §4.5) ───
+  /** Every other-asset price entry (D72), by asset, then as-of, then id. */
+  otherAssetPrices: OtherAssetPriceRow[];
+  /** Every other-asset sale (D72), by asset, then sale date, then id. */
+  otherAssetSales: OtherAssetSaleRow[];
+  /** Every super fund, in sort_order then id. */
+  superFunds: SuperFundRow[];
+  /** Every super balance entry (D69), by fund, then as-of, then id. */
+  superBalanceEntries: SuperBalanceEntryRow[];
+  /** Every SG statement month (an overlay), by month. */
+  superSgOverrides: SuperSgOverrideRow[];
+  /** Every property valuation, by property, then as-of, then id. */
+  propertyValuations: PropertyValuationRow[];
+  /** Every loan balance entry (D66), by loan, then as-of, then id. */
+  loanBalanceEntries: LoanBalanceEntryRow[];
+  /** Every offset link (D67), by account. */
+  loanOffsetLinks: LoanOffsetLinkRow[];
 }
 
 /** The latest job run of `name` (by start time, then id), or null. */
@@ -178,8 +215,12 @@ export function loadInvestmentData(db: Db, log?: SettingsLog): InvestmentData {
         .from(superEntries)
         .orderBy(asc(superEntries.periodMonth), asc(superEntries.id))
         .all(),
-      properties: tx.select().from(properties).orderBy(asc(properties.id)).all(),
-      loans: tx.select().from(loans).orderBy(asc(loans.id)).all(),
+      properties: tx
+        .select()
+        .from(properties)
+        .orderBy(asc(properties.sortOrder), asc(properties.id))
+        .all(),
+      loans: tx.select().from(loans).orderBy(asc(loans.sortOrder), asc(loans.id)).all(),
       otherAssets: tx
         .select()
         .from(otherAssets)
@@ -191,6 +232,66 @@ export function loadInvestmentData(db: Db, log?: SettingsLog): InvestmentData {
         .orderBy(asc(dividendEvents.instrumentId), asc(dividendEvents.exDate))
         .all(),
       lastDividendsRun: latestJobRun(tx, 'dividends'),
+      otherAssetPrices: tx
+        .select()
+        .from(otherAssetPrices)
+        .orderBy(
+          asc(otherAssetPrices.otherAssetId),
+          asc(otherAssetPrices.asOf),
+          asc(otherAssetPrices.id),
+        )
+        .all(),
+      otherAssetSales: tx
+        .select()
+        .from(otherAssetSales)
+        .orderBy(
+          asc(otherAssetSales.otherAssetId),
+          asc(otherAssetSales.saleDate),
+          asc(otherAssetSales.id),
+        )
+        .all(),
+      superFunds: tx
+        .select()
+        .from(superFunds)
+        .orderBy(asc(superFunds.sortOrder), asc(superFunds.id))
+        .all(),
+      superBalanceEntries: tx
+        .select()
+        .from(superBalanceEntries)
+        .orderBy(
+          asc(superBalanceEntries.fundId),
+          asc(superBalanceEntries.asOf),
+          asc(superBalanceEntries.id),
+        )
+        .all(),
+      superSgOverrides: tx
+        .select()
+        .from(superSgOverrides)
+        .orderBy(asc(superSgOverrides.periodMonth))
+        .all(),
+      propertyValuations: tx
+        .select()
+        .from(propertyValuations)
+        .orderBy(
+          asc(propertyValuations.propertyId),
+          asc(propertyValuations.asOf),
+          asc(propertyValuations.id),
+        )
+        .all(),
+      loanBalanceEntries: tx
+        .select()
+        .from(loanBalanceEntries)
+        .orderBy(
+          asc(loanBalanceEntries.loanId),
+          asc(loanBalanceEntries.asOf),
+          asc(loanBalanceEntries.id),
+        )
+        .all(),
+      loanOffsetLinks: tx
+        .select()
+        .from(loanOffsetLinks)
+        .orderBy(asc(loanOffsetLinks.accountId))
+        .all(),
     }),
     { behavior: 'deferred' },
   );

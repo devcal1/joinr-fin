@@ -3,9 +3,15 @@
 // stage-3.md §4.5): every page, ledger and detail builds on the generic seed; a trade
 // create/update/delete round trip leaves the domain tables as they were; and after importing the
 // synthetic workbook (corrections off) the four pages build and count the unpriced holdings the
-// price service reports.
+// price service reports. Stage 4 (stage-4.md §7.4 step 7): the timing chain's class values and
+// savings now come from the assets engines too, so the suite also waits for
+// ASSETS_ENGINE_IMPLEMENTED.
 import { join } from 'node:path';
-import { CASHFLOW_ENGINE_IMPLEMENTED, ENGINE_IMPLEMENTED } from '@joinr/engine';
+import {
+  ASSETS_ENGINE_IMPLEMENTED,
+  CASHFLOW_ENGINE_IMPLEMENTED,
+  ENGINE_IMPLEMENTED,
+} from '@joinr/engine';
 import {
   buildSyntheticWorkbook,
   IMPORTER_IMPLEMENTED,
@@ -34,7 +40,7 @@ import { AS_OF, NOW } from './helpers';
 
 const CAN_IMPORT = SYNTHETIC_WORKBOOK_IMPLEMENTED && IMPORTER_IMPLEMENTED;
 
-describe.skipIf(!ENGINE_IMPLEMENTED || !CASHFLOW_ENGINE_IMPLEMENTED)(
+describe.skipIf(!ENGINE_IMPLEMENTED || !CASHFLOW_ENGINE_IMPLEMENTED || !ASSETS_ENGINE_IMPLEMENTED)(
   'investments API with the real engine',
   { timeout: 60_000 },
   () => {

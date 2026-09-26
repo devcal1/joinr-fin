@@ -5,7 +5,8 @@ import type { JoinrDb } from '../db/index';
 /**
  * Every table the import writes (the replace-all set, instruments, settings and pricing), parents
  * before children. The Stage 3 overlays (`savings_adjustments`, `savings_goals`) and the
- * `dividend_events` cache are not dumped: the import never writes them (stage-3.md §3.2).
+ * `dividend_events` cache are not dumped: the import never writes them (stage-3.md §3.2); nor are
+ * the Stage 4 overlay (`super_sg_overrides`) and cache (`market_quote_history`) (stage-4.md §3.2).
  */
 export const DUMPED_TABLES: readonly { table: string; orderBy: string }[] = [
   { table: 'instruments', orderBy: 'id' },
@@ -28,6 +29,13 @@ export const DUMPED_TABLES: readonly { table: string; orderBy: string }[] = [
   { table: 'super_entries', orderBy: 'id' },
   { table: 'properties', orderBy: 'id' },
   { table: 'loans', orderBy: 'id' },
+  // Stage 4 (stage-4.md §3.2).
+  { table: 'other_asset_prices', orderBy: 'id' },
+  { table: 'other_asset_sales', orderBy: 'id' },
+  { table: 'super_balance_entries', orderBy: 'id' },
+  { table: 'property_valuations', orderBy: 'id' },
+  { table: 'loan_balance_entries', orderBy: 'id' },
+  { table: 'loan_offset_links', orderBy: 'account_id' },
 ];
 
 export type DomainDump = Record<string, Record<string, unknown>[]>;

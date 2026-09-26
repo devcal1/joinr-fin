@@ -16,6 +16,10 @@ type Simplify<T> = { [K in keyof T]: T[K] };
 type KeyedByInstrument<T extends { instrumentId?: number }> = Simplify<
   Omit<T, 'instrumentId'> & { instrumentId: number }
 >;
+/** Stage 4: `loan_offset_links` is keyed by its account, so the Zod schema requires it. */
+type KeyedByAccount<T extends { accountId?: number }> = Simplify<
+  Omit<T, 'accountId'> & { accountId: number }
+>;
 
 describe('Zod insert schemas match the Drizzle tables', () => {
   it('has the same types (compile time)', () => {
@@ -95,6 +99,31 @@ describe('Zod insert schemas match the Drizzle tables', () => {
     expectTypeOf<Out<typeof rows.newDividendEventSchema>>().toEqualTypeOf<
       typeof t.dividendEvents.$inferInsert
     >();
+    // Stage 4 (migration 0004).
+    expectTypeOf<Out<typeof rows.newOtherAssetPriceSchema>>().toEqualTypeOf<
+      typeof t.otherAssetPrices.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newOtherAssetSaleSchema>>().toEqualTypeOf<
+      typeof t.otherAssetSales.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newSuperBalanceEntrySchema>>().toEqualTypeOf<
+      typeof t.superBalanceEntries.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newSuperSgOverrideSchema>>().toEqualTypeOf<
+      typeof t.superSgOverrides.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newPropertyValuationSchema>>().toEqualTypeOf<
+      typeof t.propertyValuations.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newLoanBalanceEntrySchema>>().toEqualTypeOf<
+      typeof t.loanBalanceEntries.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newLoanOffsetLinkSchema>>().toEqualTypeOf<
+      KeyedByAccount<typeof t.loanOffsetLinks.$inferInsert>
+    >();
+    expectTypeOf<Out<typeof rows.newMarketQuoteHistorySchema>>().toEqualTypeOf<
+      typeof t.marketQuoteHistory.$inferInsert
+    >();
   });
 
   it('covers every table and every column (runtime)', () => {
@@ -126,6 +155,14 @@ describe('Zod insert schemas match the Drizzle tables', () => {
       [rows.newSavingsAdjustmentSchema, t.savingsAdjustments],
       [rows.newSavingsGoalSchema, t.savingsGoals],
       [rows.newDividendEventSchema, t.dividendEvents],
+      [rows.newOtherAssetPriceSchema, t.otherAssetPrices],
+      [rows.newOtherAssetSaleSchema, t.otherAssetSales],
+      [rows.newSuperBalanceEntrySchema, t.superBalanceEntries],
+      [rows.newSuperSgOverrideSchema, t.superSgOverrides],
+      [rows.newPropertyValuationSchema, t.propertyValuations],
+      [rows.newLoanBalanceEntrySchema, t.loanBalanceEntries],
+      [rows.newLoanOffsetLinkSchema, t.loanOffsetLinks],
+      [rows.newMarketQuoteHistorySchema, t.marketQuoteHistory],
     ];
     expect(pairs).toHaveLength(Object.keys(t.tables).length);
     for (const [schema, table] of pairs) {
@@ -183,5 +220,48 @@ describe('Zod insert schemas match the Drizzle tables', () => {
     expect(rows.newDividendEventSchema.safeParse({ ...event, amountPerUnit: '0.50' }).success).toBe(
       false,
     );
+  });
+
+  it('bounds the Stage 4 log rows (stage-4.md §3.1)', () => {
+    const price = { otherAssetId: 1, asOf: '2026-09-24', unitPrice: '120' };
+    expect(rows.newOtherAssetPriceSchema.safeParse(price).success).toBe(true);
+    expect(rows.newOtherAssetPriceSchema.safeParse({ ...price, unitPrice: '0' }).success).toBe(
+      true,
+    );
+    expect(rows.newOtherAssetPriceSchema.safeParse({ ...price, unitPrice: '-1' }).success).toBe(
+      false,
+    );
+    const sale = { otherAssetId: 1, saleDate: '2026-09-01', units: '2', proceedsCents: 50000 };
+    expect(rows.newOtherAssetSaleSchema.safeParse(sale).success).toBe(true);
+    expect(rows.newOtherAssetSaleSchema.safeParse({ ...sale, units: '0' }).success).toBe(false);
+    expect(rows.newOtherAssetSaleSchema.safeParse({ ...sale, proceedsCents: -1 }).success).toBe(
+      false,
+    );
+    const entry = { fundId: 1, asOf: '2026-08-31', balanceCents: 1000000, transferInCents: null };
+    expect(rows.newSuperBalanceEntrySchema.safeParse(entry).success).toBe(true);
+    expect(
+      rows.newSuperBalanceEntrySchema.safeParse({ ...entry, transferInCents: -5 }).success,
+    ).toBe(false);
+    expect(
+      rows.newSuperSgOverrideSchema.safeParse({ periodMonth: '2026-08', grossCents: 90000 })
+        .success,
+    ).toBe(true);
+    expect(
+      rows.newLoanBalanceEntrySchema.safeParse({
+        loanId: 1,
+        asOf: '2026-08-31',
+        balanceCents: -1,
+      }).success,
+    ).toBe(false);
+    expect(rows.newLoanOffsetLinkSchema.safeParse({ loanId: 1 }).success).toBe(false);
+    expect(rows.newLoanOffsetLinkSchema.safeParse({ accountId: 5, loanId: 1 }).success).toBe(true);
+    expect(
+      rows.newOtherAssetSchema.safeParse({
+        description: 'Example watch',
+        units: '1',
+        sortOrder: 1,
+        purchaseFxSource: 'guess',
+      }).success,
+    ).toBe(false);
   });
 });

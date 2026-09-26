@@ -1,11 +1,15 @@
 // Processing between extraction and writes (stage-1.md §4.4–§4.7): owner corrections (D27),
 // feed-row exclusions (D22/D23), the instrument set, suspect flags (D26), dividend re-keying (D28),
-// budget → cash account links and the account kinds kept across a re-import (D49). Pure: no DB.
+// budget → cash account links and the account kinds kept across a re-import (D49); Stage 4: the
+// balance-entry dates, the History-derived super contributions (D37 exclusion) and the fund that
+// receives SG kept across a re-import (stage-4.md §3.5). Pure: no DB.
 import {
+  addMonthsIso,
   BULLION_FEEDS,
   compareDecimals,
   INSTRUMENT_KINDS,
   JoinrDecimal,
+  multiplyToCents,
   normaliseDecimal,
   splitSymbol,
   type CashAccountKind,
@@ -24,6 +28,7 @@ import type {
   InstrumentDraft,
   LedgerRow,
   NoteRow,
+  SnapshotRow,
   WorkbookModel,
 } from './model';
 
@@ -458,16 +463,20 @@ export interface CarriedKinds {
   notCarried: string[];
 }
 
+/** A row as stored before the replace-all delete, or as imported: what the carry rules match on. */
+export interface NamedRow {
+  name: string;
+  sheetRef: string | null;
+}
+
 /**
- * A new account takes the kind of the stored account with the same name when that name is unique
- * among both the stored and the new accounts, else of the stored account with the same sheet ref
- * and name (a row added or removed above an account shifts the row-based refs, so the name wins
- * when it can). Everything else is `bank`, the importer's default.
+ * For each new row, the index of the stored row it continues (-1 for none): the stored row with
+ * the same name when that name is unique among both the stored and the new rows, else the stored
+ * row with the same sheet ref and name (a row added or removed above shifts the row-based refs, so
+ * the name wins when it can). Each stored row is matched at most once. D49's rule for account
+ * kinds, reused for the fund that receives SG (stage-4.md §3.5 item 3).
  */
-export function carryAccountKinds(
-  stored: readonly StoredAccountKind[],
-  next: readonly { name: string; sheetRef: string | null }[],
-): CarriedKinds {
+export function matchStoredRows(stored: readonly NamedRow[], next: readonly NamedRow[]): number[] {
   const key = (name: string) => name.trim();
   const tally = (names: readonly string[]) => {
     const counts = new Map<string, number>();
@@ -477,7 +486,7 @@ export function carryAccountKinds(
   const storedNames = tally(stored.map((s) => s.name));
   const nextNames = tally(next.map((a) => a.name));
   const used = new Set<number>();
-  const kinds = next.map((a): CashAccountKind => {
+  return next.map((a) => {
     const name = key(a.name);
     const unique = storedNames.get(name) === 1 && nextNames.get(name) === 1;
     const index = unique
@@ -489,12 +498,213 @@ export function carryAccountKinds(
             s.sheetRef === a.sheetRef &&
             key(s.name) === name,
         );
-    if (index < 0) return 'bank';
-    used.add(index);
-    return stored[index]!.kind;
+    if (index >= 0) used.add(index);
+    return index;
   });
+}
+
+/**
+ * A new account takes the kind of the stored account it continues (`matchStoredRows`). Everything
+ * else is `bank`, the importer's default.
+ */
+export function carryAccountKinds(
+  stored: readonly StoredAccountKind[],
+  next: readonly NamedRow[],
+): CarriedKinds {
+  const matches = matchStoredRows(stored, next);
+  const kinds = matches.map((index): CashAccountKind => (index < 0 ? 'bank' : stored[index]!.kind));
+  const used = new Set(matches.filter((i) => i >= 0));
   const notCarried = stored.filter((s, i) => s.kind !== 'bank' && !used.has(i)).map((s) => s.name);
   return { kinds, notCarried };
+}
+
+// ─── The fund that receives SG across a re-import (stage-4.md §3.5 item 3) ─────────────────────
+
+/** A super fund as stored before the replace-all delete. */
+export interface StoredSuperFund extends NamedRow {
+  receivesSg: boolean;
+}
+
+export interface CarriedSgFund {
+  /** One flag per new fund, in the new funds' order. */
+  receivesSg: boolean[];
+  /** Stored funds that received SG and that no imported fund continues. */
+  notCarried: number;
+}
+
+/**
+ * The new fund that continues the stored SG fund (`matchStoredRows`: a unique name, else the same
+ * sheet ref and name) receives SG; the flag is never set on any other fund.
+ */
+export function carrySgFund(
+  stored: readonly StoredSuperFund[],
+  next: readonly NamedRow[],
+): CarriedSgFund {
+  const matches = matchStoredRows(stored, next);
+  const receivesSg = matches.map((index) => index >= 0 && stored[index]!.receivesSg);
+  const used = new Set(matches.filter((i) => i >= 0));
+  const notCarried = stored.filter((s, i) => s.receivesSg && !used.has(i)).length;
+  return { receivesSg, notCarried };
+}
+
+// ─── Stage 4 dates and History-derived contributions (stage-4.md §3.5 items 2 and 4) ───────────
+
+/** The latest kept snapshot (by run date), or null. */
+export function latestSnapshot(snaps: readonly SnapshotRow[]): SnapshotRow | null {
+  let best: SnapshotRow | null = null;
+  for (const s of snaps) if (best === null || s.runDate >= best.runDate) best = s;
+  return best;
+}
+
+/**
+ * Balances unchanged since the last snapshot are dated at the last run date (`Net Worth!C51`), so
+ * the provisional period counts a balance as updated only when it changed after that snapshot:
+ * - every fund's entry, when the live total (`Super!B12`) equals the last frozen History row's Q;
+ * - a property loan's entry, when the property loans' current balances add up to that row's |AB|
+ *   and the loan started (if a start date is known) before the last run date.
+ * Everything else keeps the workbook as-of. The last run date is never used when it is after the
+ * as-of, so no entry is dated after the workbook's own date.
+ */
+export function dateBalanceEntries(model: WorkbookModel): void {
+  const lastRun = model.meta.lastRun;
+  const last = latestSnapshot(model.snapshots);
+  if (lastRun === null || last === null || lastRun > model.meta.asOf) return;
+  const q = last.values.super_value_cents;
+  if (
+    model.superFunds.length > 0 &&
+    model.superTotalCents !== null &&
+    typeof q === 'number' &&
+    q === model.superTotalCents
+  ) {
+    for (const f of model.superFunds) f.balanceAsOf = lastRun;
+  }
+  const ab = last.values.mortgage_balance_cents;
+  const propertyLoans = model.loans.filter((l) => l.propertyIndex !== null);
+  const total = propertyLoans.reduce((s, l) => s + l.currentBalanceCents, 0);
+  if (propertyLoans.length > 0 && typeof ab === 'number' && Math.abs(ab) === total) {
+    for (const l of propertyLoans) {
+      if (l.startDate === null || l.startDate < lastRun) l.balanceAsOf = lastRun;
+    }
+  }
+}
+
+/** The ledgers whose Retirement-tagged buys the template adds to History R (spec 04 §2.3). */
+export const RETIREMENT_BUY_KINDS: readonly InstrumentKind[] = ['stock', 'etf', 'managed_fund'];
+
+/** A trade as the D37 exclusion sees it. */
+export interface RetirementTradeLike {
+  kind: InstrumentKind;
+  date: string;
+  units: string;
+  price: string;
+  retirement: boolean;
+}
+
+/**
+ * Σ units × price (cents) of buys of Retirement-tagged Stocks, ETFs and Managed Funds holdings
+ * dated in `(from, to]`: what History R also holds when SheetOptions "Retirement - Contributions
+ * in Savings Rate" is Yes (spec 04 §2.3).
+ */
+export function retirementBuysCents(
+  trades: readonly RetirementTradeLike[],
+  from: string,
+  to: string,
+): number {
+  let total = 0;
+  for (const t of trades) {
+    if (!t.retirement || !RETIREMENT_BUY_KINDS.includes(t.kind)) continue;
+    if (!(t.date > from && t.date <= to)) continue;
+    if (!new JoinrDecimal(t.units).greaterThan(0)) continue;
+    total += multiplyToCents(t.units, t.price);
+  }
+  return total;
+}
+
+/** The snapshot windows `(from, to]` in run-date order; the first starts one month earlier. */
+export function snapshotWindows<T extends { runDate: string }>(
+  snaps: readonly T[],
+): { snap: T; from: string; to: string }[] {
+  const ordered = [...snaps].sort((a, b) =>
+    a.runDate < b.runDate ? -1 : a.runDate > b.runDate ? 1 : 0,
+  );
+  return ordered.map((snap, i) => ({
+    snap,
+    from: i === 0 ? addMonthsIso(snap.runDate, -1) : ordered[i - 1]!.runDate,
+    to: snap.runDate,
+  }));
+}
+
+/**
+ * The contribution a History row's R stands for (stage-4.md §3.5 item 2): R in cents, less the
+ * window's Retirement-tagged buys when `excludeRetirement` (D37; never below 0).
+ */
+export function derivedContributionCents(
+  rCents: number,
+  excludedCents: number,
+  excludeRetirement: boolean,
+): number {
+  if (!excludeRetirement || excludedCents <= 0) return rCents;
+  return Math.max(0, rCents - excludedCents);
+}
+
+/** True when SheetOptions "Retirement - Contributions in Savings Rate" is Yes. */
+export function includesRetirementContributions(model: WorkbookModel): boolean {
+  const plan = model.settings.find((p) => p.key === 'savings.includeRetirementContributions');
+  return plan?.status === 'value' && plan.value === true;
+}
+
+/**
+ * One `voluntary_contribution` per imported snapshot with a non-zero derived R (the frozen rows
+ * after the one-per-month rule, the rows migration 0004 reads): its period, dated at its run date,
+ * no fund, `sheet_ref` `History!R<row>`, appended in run-date order. Runs after corrections and
+ * the instrument set (the D37 exclusion reads the imported trades and retirement tags).
+ */
+export function deriveHistoryContributions(model: WorkbookModel, checks: Check[]): void {
+  const exclude = includesRetirementContributions(model);
+  const retirement = new Set(
+    model.instruments.filter((i) => i.isRetirement).map((i) => instrumentKey(i.kind, i.symbol)),
+  );
+  const trades: RetirementTradeLike[] = model.ledger
+    .filter((l) => !l.skipped)
+    .map((l) => ({
+      kind: l.kind,
+      date: l.date,
+      units: l.units,
+      price: l.price,
+      retirement: retirement.has(instrumentKey(l.kind, l.symbol)),
+    }));
+  let excludedRows = 0;
+  for (const { snap, from, to } of snapshotWindows(model.snapshots)) {
+    const r = snap.values.super_contrib_cents;
+    if (typeof r !== 'number' || r === 0) continue;
+    const excluded = exclude ? retirementBuysCents(trades, from, to) : 0;
+    const amount = derivedContributionCents(r, excluded, exclude);
+    if (amount !== r) excludedRows += 1;
+    if (amount === 0) continue;
+    model.superEntries.push({
+      kind: 'voluntary_contribution',
+      periodMonth: snap.periodMonth,
+      amountCents: amount,
+      sheetRef: `History!R${snap.row}`,
+      entryDate: snap.runDate,
+    });
+  }
+  if (excludedRows > 0) {
+    checks.push(
+      info(
+        'super.contributions.retirementExcluded',
+        'super',
+        'Retirement-tagged buys left out of the History contributions',
+        'feature_dropped',
+        `${excludedRows} History ${excludedRows === 1 ? 'row’s contribution includes' : 'rows’ contributions include'} buys of holdings tagged Retirement; those buys stay trades and were left out of the super contributions`,
+        {
+          unit: 'count',
+          expected: excludedRows,
+          refs: { decision: 'D37', entity: 'super-entries' },
+        },
+      ),
+    );
+  }
 }
 
 // ─── One row per period ─────────────────────────────────────────────────────────────────────────

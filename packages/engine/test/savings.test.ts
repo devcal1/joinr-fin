@@ -125,6 +125,7 @@ describe('computeSavings (§2.5)', () => {
         superCents: 20_000,
         mortgagePrincipalCents: 0,
         propertyDepositCents: 0,
+        offsetsCents: 0,
       },
       income: {
         salaryCents: 500_000,
@@ -322,5 +323,104 @@ describe('computeSavings: property, mortgage and nulls', () => {
     });
     // 0.4 + 0.4 cents: each would round to 0, the total rounds to 1 cent.
     expect(r.periods[1]).toMatchObject({ addedInvestmentsCents: 1, added: { tradesCents: 1 } });
+  });
+});
+
+describe('computeSavings: Stage 4 offsets and other-asset sales (stage-4.md §2.9)', () => {
+  const base: SavingsInput = {
+    ...input,
+    trades: [],
+    otherAssetPurchases: [],
+    sideIncome: [],
+    dividends: [],
+    adjustments: [],
+  };
+  const withOffsets = (latest: number | null, now: number | null | undefined): SavingsInput => ({
+    ...base,
+    snapshots: [
+      snapshot('2026-01-31', 1_000_000, { offsetCents: null }),
+      snapshot('2026-02-28', 1_150_000),
+      snapshot('2026-03-31', 1_100_000, { offsetCents: latest }),
+    ],
+    live: { ...live, offsetCents: now },
+  });
+
+  it('adds the change in offsets to the provisional period when both sides are known (§11 fix 7)', () => {
+    const r = computeSavings(withOffsets(2_000_000, 2_050_000));
+    const p = r.periods.at(-1)!;
+    // Cash 11,000 → 11,800 (gain 800); 500 moved into the offset stays saved.
+    expect(p.added).toEqual({
+      tradesCents: 0,
+      otherAssetsCents: 0,
+      superCents: 0,
+      mortgagePrincipalCents: 0,
+      propertyDepositCents: 0,
+      offsetsCents: 50_000,
+    });
+    expect(p.addedInvestmentsCents).toBe(50_000);
+    expect(p.raw.savingsCents).toBe(80_000 + 50_000);
+    // A transfer out of the offset is a negative part.
+    expect(
+      computeSavings(withOffsets(2_000_000, 1_900_000)).periods.at(-1)!.added!.offsetsCents,
+    ).toBe(-100_000);
+  });
+
+  it('counts no change in offsets when either side is null or omitted', () => {
+    for (const [latest, now] of [
+      [null, 2_050_000],
+      [2_000_000, null],
+      [2_000_000, undefined],
+      [null, null],
+    ] as const) {
+      const p = computeSavings(withOffsets(latest, now)).periods.at(-1)!;
+      expect(p.added!.offsetsCents).toBe(0);
+      expect(p.addedInvestmentsCents).toBe(0);
+    }
+  });
+
+  it('keeps closed periods at 0 when only the latest snapshot carries offsets', () => {
+    const r = computeSavings(withOffsets(2_000_000, 2_050_000));
+    expect(r.periods.slice(1, 3).map((p) => p.added!.offsetsCents)).toEqual([0, 0]);
+  });
+
+  it('gives the Stage 3 figures unchanged without offsets or sales', () => {
+    const stage3 = computeSavings(input);
+    const withNulls = computeSavings({
+      ...input,
+      snapshots: input.snapshots.map((s) => ({ ...s, offsetCents: null })),
+      live: { ...live, offsetCents: null },
+    });
+    expect(withNulls).toEqual(stage3);
+    for (const p of stage3.periods.slice(1)) expect(p.added!.offsetsCents).toBe(0);
+  });
+
+  it('takes an other-asset sale as a negative added investment (§11 fix 16)', () => {
+    const r = computeSavings({
+      ...base,
+      live: null,
+      snapshots: [
+        snapshot('2026-01-31', 1_000_000),
+        snapshot('2026-02-28', 1_040_000),
+        snapshot('2026-03-31', 1_020_000),
+      ],
+      otherAssetPurchases: [
+        { date: '2026-02-10', amountCents: 50_000 },
+        { date: '2026-02-20', amountCents: -40_000 },
+        { date: '2026-03-15', amountCents: -30_000 },
+      ],
+    });
+    // Feb: a 500 purchase and a 400 sale net to 100; the cash gain of 400 includes the proceeds.
+    expect(r.periods[1]).toMatchObject({
+      addedInvestmentsCents: 10_000,
+      added: { otherAssetsCents: 10_000 },
+      raw: { savingsCents: 50_000 },
+    });
+    // Mar: a 300 sale alone; the proceeds landed in cash, so the sale saves nothing.
+    expect(r.periods[2]).toMatchObject({
+      cashGainCents: -20_000,
+      addedInvestmentsCents: -30_000,
+      added: { otherAssetsCents: -30_000 },
+      raw: { savingsCents: -50_000 },
+    });
   });
 });

@@ -55,3 +55,13 @@ export function endedAnchorMonth(page: Pick<CashPageResponse, 'asOf' | 'kpis'>):
   if (anchor === null || page.asOf < year.end) return null;
   return periodLabel(anchor.slice(0, 7));
 }
+
+/** "Linked to <loan> (change it on the Property page)". */
+export function linkedLoanText(name: string): string {
+  return `Linked to ${name} (change it on the Property page)`;
+}
+
+/** "This also removes its link to <loan>". */
+export function unlinkText(name: string): string {
+  return `This also removes its link to ${name}.`;
+}

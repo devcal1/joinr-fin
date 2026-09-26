@@ -29,15 +29,19 @@ import {
   dividends,
   incomeStreams,
   instruments,
+  loanBalanceEntries,
   loans,
+  otherAssetPrices,
   otherAssets,
   periodNotes,
   priceSources,
   prices,
   properties,
+  propertyValuations,
   settings,
   sideIncomeDeposits,
   snapshots,
+  superBalanceEntries,
   superEntries,
   superFunds,
   trades,
@@ -55,8 +59,10 @@ import {
   withinCents,
   withinDecimal,
 } from './checks';
+import { parseNumericText } from './context';
 import {
   budgetEnd,
+  bullionMetal,
   cashEnd,
   cgtSlotSkipped,
   historyRows,
@@ -78,11 +84,19 @@ import {
   OTHER_ASSETS,
   PROPERTY,
   sheetRef,
+  SHEET_OPTIONS,
   SIDE_INCOME,
   SUPER,
 } from './layout';
 import type { Check, Exclusion, LedgerRow, WorkbookModel } from './model';
-import { instrumentKey, type CorrectionOutcome } from './process';
+import {
+  derivedContributionCents,
+  instrumentKey,
+  retirementBuysCents,
+  snapshotWindows,
+  type CorrectionOutcome,
+  type RetirementTradeLike,
+} from './process';
 import type { SheetReader } from './reader';
 import type { PriceTreatment, Tx, WriteResult } from './writer';
 
@@ -151,6 +165,11 @@ interface Db {
   settings: (typeof settings.$inferSelect)[];
   priceSources: (typeof priceSources.$inferSelect)[];
   prices: (typeof prices.$inferSelect)[];
+  // Stage 4 (stage-4.md §3.5).
+  otherAssetPrices: (typeof otherAssetPrices.$inferSelect)[];
+  superBalanceEntries: (typeof superBalanceEntries.$inferSelect)[];
+  propertyValuations: (typeof propertyValuations.$inferSelect)[];
+  loanBalanceEntries: (typeof loanBalanceEntries.$inferSelect)[];
 }
 
 function readBack(tx: Tx): Db {
@@ -183,6 +202,10 @@ function readBack(tx: Tx): Db {
     settings: tx.select().from(settings).all(),
     priceSources: tx.select().from(priceSources).all(),
     prices: tx.select().from(prices).all(),
+    otherAssetPrices: tx.select().from(otherAssetPrices).all(),
+    superBalanceEntries: tx.select().from(superBalanceEntries).all(),
+    propertyValuations: tx.select().from(propertyValuations).all(),
+    loanBalanceEntries: tx.select().from(loanBalanceEntries).all(),
   };
 }
 
@@ -243,6 +266,10 @@ export function reconcile(input: ReconcileInput): ReconcileOutput {
     properties: db.properties.length,
     loans: db.loans.length,
     settings: db.settings.filter((s) => input.written.settingKeys.includes(s.key)).length,
+    'other-asset-prices': db.otherAssetPrices.length,
+    'super-balance-entries': db.superBalanceEntries.length,
+    'property-valuations': db.propertyValuations.length,
+    'loan-balance-entries': db.loanBalanceEntries.length,
   };
   return { checks: dedupeIds(sorted), counts };
 }
@@ -546,24 +573,60 @@ function countChecks({ r, model, db, outcomes }: Ctx): Check[] {
   );
   {
     let expected = 0;
-    for (let row = OTHER_ASSETS.firstRow; row <= OTHER_ASSETS.lastRow; row++)
-      if (!r.isBlank(OTHER_ASSETS.sheet, `F${row}`)) expected++;
+    let priced = 0;
+    const s = OTHER_ASSETS.sheet;
+    for (let row = OTHER_ASSETS.firstRow; row <= OTHER_ASSETS.lastRow; row++) {
+      if (r.isBlank(s, `F${row}`)) continue;
+      expected++;
+      // D72: a manual row (no bullion link) with a numeric price gets its first price entry.
+      const k = sheetNumber(r, s, `K${row}`);
+      if (bullionMetal(r, row) === null && k !== null && k >= 0) priced++;
+    }
     out.push(countCheck('other-assets', 'Other assets', expected, db.otherAssets.length));
+    out.push(
+      countCheck(
+        'other-asset-prices',
+        'Other asset price entries',
+        priced,
+        db.otherAssetPrices.length,
+      ),
+    );
   }
   {
     let expected = 0;
     for (let row = SUPER.fundsFrom; row <= SUPER.fundsTo; row++)
       if (!r.isBlank(SUPER.sheet, `A${row}`)) expected++;
     out.push(countCheck('super-funds', 'Super funds', expected, db.superFunds.length));
+    // D69: one balance entry per fund.
+    out.push(
+      countCheck(
+        'super-balance-entries',
+        'Super balance entries',
+        expected,
+        db.superBalanceEntries.length,
+      ),
+    );
     const entries = [SUPER.reportedGain, SUPER.voluntary].filter((a) => {
       const n = r.number(SUPER.sheet, a);
       return n !== null && n !== 0;
     }).length;
-    out.push(countCheck('super-entries', 'Super entries', entries, db.superEntries.length));
+    // Plus one History-derived contribution per imported snapshot with a non-zero derived R.
+    const derived = historyContributionExpectations(r, db).length;
+    out.push(
+      countCheck('super-entries', 'Super entries', entries + derived, db.superEntries.length),
+    );
   }
   {
     const slots = propertyColumns().filter((c) => propertySlotUsed(r, c));
     out.push(countCheck('properties', 'Properties', slots.length, db.properties.length));
+    out.push(
+      countCheck(
+        'property-valuations',
+        'Property valuations',
+        slots.length,
+        db.propertyValuations.length,
+      ),
+    );
     const nz = (s: string, a: string) => {
       const n = r.number(s, a);
       return n !== null && n !== 0;
@@ -590,6 +653,15 @@ function countChecks({ r, model, db, outcomes }: Ctx): Check[] {
     )
       expectedLoans++;
     out.push(countCheck('loans', 'Loans', expectedLoans, db.loans.length));
+    // D66: one balance entry per loan (no start entries).
+    out.push(
+      countCheck(
+        'loan-balance-entries',
+        'Loan balance entries',
+        expectedLoans,
+        db.loanBalanceEntries.length,
+      ),
+    );
   }
   {
     const expected = model.settings.filter((p) => p.status === 'value').length;
@@ -1338,42 +1410,133 @@ function cashflowChecks({ r, model, db, written }: Ctx): Check[] {
 
 // ─── Other assets, super, property ──────────────────────────────────────────────────────────────
 
-function otherAssetTotals(db: Db): { value: number; gain: number; nonAud: number; n: number } {
-  // Template (spec 04 §1.3): M = IF(H>0, H-ABS(L), ""), N = IF(AND(J<>"",M>0), M*J, ""),
-  // O = M*K, P = IF(AND(N<>"",O<>"",M>0), O-N, ""); D3 = SUM(O), D4 = SUM(P).
+/** A cell's number, or its numeric text parsed (null otherwise). */
+function sheetNumber(r: SheetReader, sheet: string, addr: string): number | null {
+  const n = r.number(sheet, addr);
+  if (n !== null) return n;
+  const c = r.cell(sheet, addr);
+  return c?.t === 's' && typeof c.v === 'string' ? parseNumericText(c.v) : null;
+}
+
+interface OtherAssetTotals {
+  /** App side (cents): D3 = Σ O, D4 = Σ P, Σ N. */
+  value: number;
+  gain: number;
+  cost: number;
+  /** Non-AUD rows whose live rate the workbook does not give (no cached O, or M × K = 0). */
+  unchecked: number;
+  n: number;
+}
+
+/**
+ * The app side of `D3`, `D4` and Σ `N` (template, spec 04 §1.3: M = IF(H>0, H-ABS(L), ""),
+ * N = IF(AND(J<>"",M>0), M*J*fx(G), ""), O = M*K*fx(live), P = IF(AND(N<>"",O<>"",M>0), O-N, "")),
+ * from the stored rows. A non-AUD row's live rate is the sheet's own `O ÷ (M × K)` (stage-4.md §3.5
+ * item 5, as the golden adapter) and its cost goes through the imported purchase rate.
+ */
+function otherAssetTotals(r: SheetReader, db: Db): OtherAssetTotals {
   let value = new JoinrDecimal(0);
   let gain = new JoinrDecimal(0);
-  let nonAud = 0;
+  let cost = new JoinrDecimal(0);
+  let unchecked = 0;
+  const s = OTHER_ASSETS.sheet;
   for (const a of db.otherAssets) {
-    if (a.currency !== 'AUD') {
-      nonAud++;
-      continue;
-    }
     const units = new JoinrDecimal(a.units);
     if (units.lessThanOrEqualTo(0)) continue; // M is blank
     const remaining = units.minus(new JoinrDecimal(a.soldUnits).abs());
-    const rowValue = remaining.times(new JoinrDecimal(a.unitPrice ?? '0'));
-    value = value.plus(rowValue);
-    if (a.unitCost !== null && remaining.greaterThan(0)) {
-      gain = gain.plus(rowValue.minus(remaining.times(new JoinrDecimal(a.unitCost))));
+    const aud = a.currency === 'AUD';
+    const purchaseFx = aud ? new JoinrDecimal(1) : fxOrNull(a.purchaseFxRate);
+    const rowCost =
+      a.unitCost !== null && remaining.greaterThan(0) && purchaseFx !== null
+        ? remaining.times(new JoinrDecimal(a.unitCost)).times(purchaseFx)
+        : null;
+    if (rowCost !== null) cost = cost.plus(rowCost);
+    let liveFx: Dec | null = new JoinrDecimal(1);
+    if (!aud) {
+      const row = rowOf(a.sheetRef);
+      const o = r.number(s, `O${row}`);
+      const m = r.number(s, `M${row}`);
+      const k = r.number(s, `K${row}`);
+      const mk = m === null || k === null ? null : new JoinrDecimal(m).times(new JoinrDecimal(k));
+      liveFx = o === null || mk === null || mk.isZero() ? null : new JoinrDecimal(o).dividedBy(mk);
     }
+    if (liveFx === null) {
+      unchecked++;
+      continue;
+    }
+    const rowValue = remaining.times(new JoinrDecimal(a.unitPrice ?? '0')).times(liveFx);
+    value = value.plus(rowValue);
+    if (rowCost !== null) gain = gain.plus(rowValue.minus(rowCost));
   }
   return {
     value: decimalToCents(value),
     gain: decimalToCents(gain),
-    nonAud,
+    cost: decimalToCents(cost),
+    unchecked,
     n: db.otherAssets.length,
   };
 }
 
-function assetChecks({ r, db }: Ctx): Check[] {
+const fxOrNull = (rate: string | null): Dec | null =>
+  rate === null ? null : new JoinrDecimal(rate);
+
+/** The sheet side of Σ N: every data row's cached purchase value (numbers only). */
+function sheetOtherAssetCost(r: SheetReader): { cents: number; n: number } {
+  const s = OTHER_ASSETS.sheet;
+  const values: number[] = [];
+  for (let row = OTHER_ASSETS.firstRow; row <= OTHER_ASSETS.lastRow; row++) {
+    if (r.isBlank(s, `F${row}`)) continue;
+    const n = r.number(s, `N${row}`);
+    if (n !== null) values.push(n);
+  }
+  return { cents: sumToCents(values), n: values.length };
+}
+
+/** The SheetOptions ID of "Retirement - Contributions in Savings Rate" (the D37 switch). */
+const RETIREMENT_CONTRIBUTIONS_ID = ((): number | null => {
+  const source = SETTINGS.find((d) => d.key === 'savings.includeRetirementContributions')?.source;
+  return source && 'id' in source ? source.id : null;
+})();
+
+/**
+ * The History-derived contributions the workbook implies (stage-4.md §3.5 item 2), read from the
+ * sheet for the imported snapshots: R in cents, less the window's buys of Retirement-tagged
+ * holdings when SheetOptions says Yes (D37; recomputed from the stored trades and tags), non-zero
+ * only.
+ */
+function historyContributionExpectations(r: SheetReader, db: Db): number[] {
+  const idRow =
+    RETIREMENT_CONTRIBUTIONS_ID === null
+      ? undefined
+      : sheetOptionRows(r).get(RETIREMENT_CONTRIBUTIONS_ID);
+  const exclude = idRow !== undefined && r.bool(SHEET_OPTIONS.sheet, `L${idRow}`) === true;
+  const tradesLike: RetirementTradeLike[] = db.trades.map((t) => ({
+    kind: t.kind,
+    date: t.tradeDate,
+    units: t.units,
+    price: t.price,
+    retirement: t.retirement,
+  }));
+  const out: number[] = [];
+  for (const { snap, from, to } of snapshotWindows(db.snapshots)) {
+    const rCell = r.number(HISTORY.sheet, `R${rowOf(snap.sheetRef)}`);
+    const rCents = rCell === null ? 0 : centsFromNumber(rCell);
+    if (rCents === 0) continue;
+    const excluded = exclude ? retirementBuysCents(tradesLike, from, to) : 0;
+    const amount = derivedContributionCents(rCents, excluded, exclude);
+    if (amount !== 0) out.push(amount);
+  }
+  return out;
+}
+
+function assetChecks({ r, db, written }: Ctx): Check[] {
   const out: Check[] = [];
-  const oa = otherAssetTotals(db);
-  const nonAud = (): Partial<Check> & { status: Check['status'] } => ({
+  const oa = otherAssetTotals(r, db);
+  const unchecked = (): Partial<Check> & { status: Check['status'] } => ({
     status: 'info',
-    reason: `${oa.nonAud} non-AUD row(s): FX is not checked in Stage 1`,
+    reason: `${oa.unchecked} non-AUD row(s) have no cached value or units × price in the workbook, so their FX conversion cannot be checked`,
   });
-  const oaMismatch = oa.nonAud > 0 ? nonAud : () => ({ status: 'unexplained' as const });
+  const oaMismatch = oa.unchecked > 0 ? unchecked : () => ({ status: 'unexplained' as const });
   out.push(
     money(
       {
@@ -1402,6 +1565,21 @@ function assetChecks({ r, db }: Ctx): Check[] {
       oaMismatch,
     ),
   );
+  // Σ N: the cost of the remaining units, a non-AUD row's through its imported purchase rate.
+  const sheetCost = sheetOtherAssetCost(r);
+  out.push(
+    money(
+      {
+        id: 'otherAssets.cost',
+        section: 'other_assets',
+        label: 'Other assets cost',
+        sheetRef: sheetRef(OTHER_ASSETS.sheet, 'N3'),
+      },
+      sheetCost.cents,
+      oa.cost,
+      Math.max(1, sheetCost.n, oa.n),
+    ),
+  );
   // Super.
   const auto = SUPER.autoLines.map((a) => r.number(SUPER.sheet, a) ?? 0);
   const totalCell = r.number(SUPER.sheet, SUPER.total) ?? 0;
@@ -1424,19 +1602,51 @@ function assetChecks({ r, db }: Ctx): Check[] {
   );
   const entries = (kind: string) =>
     db.superEntries.filter((e) => e.kind === kind).reduce((s, e) => s + e.amountCents, 0);
+  const b16Ref = sheetRef(SUPER.sheet, SUPER.voluntary);
   out.push(
     money(
       {
         id: 'super.contribution',
         section: 'super',
         label: 'Voluntary super contributions',
-        sheetRef: sheetRef(SUPER.sheet, SUPER.voluntary),
+        sheetRef: b16Ref,
       },
       cents(r.number(SUPER.sheet, SUPER.voluntary)),
-      entries('voluntary_contribution'),
+      db.superEntries.filter((e) => e.sheetRef === b16Ref).reduce((s, e) => s + e.amountCents, 0),
       1,
     ),
   );
+  // The History-derived contributions (stage-4.md §3.5 item 2): Σ R of the imported snapshots,
+  // less the D37 retirement buys, vs Σ the stored entries.
+  const history = historyContributionExpectations(r, db);
+  const derived = db.superEntries.filter((e) => (e.sheetRef ?? '').startsWith('History!R'));
+  out.push(
+    money(
+      {
+        id: 'super.contributions.history',
+        section: 'super',
+        label: 'Super contributions from the History rows',
+        sheetRef: sheetRef(HISTORY.sheet, 'R3'),
+      },
+      history.reduce((s, c) => s + c, 0),
+      derived.reduce((s, e) => s + e.amountCents, 0),
+      Math.max(1, history.length, derived.length),
+    ),
+  );
+  // The fund that receives SG, set in the app, kept across the re-import (§3.5 item 3).
+  if (written.sgFundNotCarried > 0) {
+    const n = written.sgFundNotCarried;
+    out.push(
+      info(
+        'super.sgFundNotCarried',
+        'super',
+        'Fund that receives SG not carried over',
+        null,
+        'The fund that receives SG could not be carried over; choose it again on the Super page',
+        { unit: 'count', expected: n, actual: 0, diff: -n, refs: { entity: 'super-funds' } },
+      ),
+    );
+  }
   out.push(
     money(
       {
@@ -1677,11 +1887,9 @@ function netWorthChecks(c: Ctx, holdings: HoldingValues): Check[] {
   }
   // Headline lines.
   const cash = db.cashAccounts.filter((a) => !a.isOffset).reduce((x, a) => x + a.balanceCents, 0);
-  const oa = otherAssetTotals(db);
-  const nonAudSheet = db.otherAssets
-    .filter((a) => a.currency !== 'AUD')
-    .reduce((x, a) => x + cents(r.number(OTHER_ASSETS.sheet, `O${rowOf(a.sheetRef)}`)), 0);
-  const other = oa.value + nonAudSheet;
+  // Non-AUD rows are valued through the workbook's own live rate (stage-4.md §3.5 item 5).
+  const oa = otherAssetTotals(r, db);
+  const other = oa.value;
   const superApp = db.superFunds.reduce((x, f) => x + f.balanceCents, 0) + holdings.retirementCents;
   const property = db.properties.reduce((x, p) => x + p.currentValueCents, 0);
   const a = NET_WORTH.assets;
@@ -1736,11 +1944,11 @@ function netWorthChecks(c: Ctx, holdings: HoldingValues): Check[] {
       other,
       Math.max(1, oa.n),
       () =>
-        oa.nonAud > 0
+        oa.unchecked > 0
           ? {
               status: 'info',
               reason:
-                'Non-AUD rows use the workbook’s own FX conversion; FX is not checked in Stage 1',
+                'Some non-AUD rows have no cached value in the workbook, so their FX conversion cannot be checked',
             }
           : { status: 'unexplained' },
     ),
@@ -1806,8 +2014,11 @@ function netWorthChecks(c: Ctx, holdings: HoldingValues): Check[] {
           reasonCode: 'sheet_error_value' as const,
           reason: 'The difference is the holdings value the sheet lost to error prices',
         }
-      : oa.nonAud > 0
-        ? { status: 'info' as const, reason: 'Non-AUD other assets: FX is not checked in Stage 1' }
+      : oa.unchecked > 0
+        ? {
+            status: 'info' as const,
+            reason: 'Some non-AUD other assets have no cached value, so their FX cannot be checked',
+          }
         : { status: 'unexplained' as const };
   };
   const c12 = cents(r.number(s, NET_WORTH.totalAssets));

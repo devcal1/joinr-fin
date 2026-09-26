@@ -1,6 +1,6 @@
-// The engine's public types (stage-2.md §2.2 and stage-3.md §2.2, FROZEN). Names, fields and
-// signatures here do not change; the engine owner adds internal modules freely. Imports: the
-// `@joinr/schema` root only.
+// The engine's public types (stage-2.md §2.2, stage-3.md §2.2 and stage-4.md §2.2, FROZEN). Names,
+// fields and signatures here do not change; the engine owner adds internal modules freely.
+// Imports: the `@joinr/schema` root only.
 import type {
   AllocationAggressiveness,
   AssetClass,
@@ -18,10 +18,18 @@ import type {
   IsoDate,
   IsoMonth,
   KpiTrend,
+  LoanEntryFlag,
+  LoanFlag,
+  Metal,
+  OtherAssetFlag,
   PayFrequency,
+  PaymentFrequency,
   PriceStatus,
   SavingsPeriodStatus,
   SettingKey,
+  SuperCapStatus,
+  SuperContributionType,
+  SuperFlag,
   TradeSide,
   YearBasis,
 } from '@joinr/schema';
@@ -511,6 +519,11 @@ export interface SavingsSnapshotInput {
   mortgageBalanceCents: Cents | null;
   /** History AD (cumulative). */
   mortgagePrincipalPaidCents: Cents | null;
+  /**
+   * Stage 4 (additive, stage-4.md §2.9): Σ offset accounts at the run date. Stage 4 passes it for
+   * the latest snapshot only (null for every earlier one); null → no Δ offsets.
+   */
+  offsetCents?: Cents | null;
 }
 
 /** The provisional period's live values. */
@@ -524,6 +537,8 @@ export interface SavingsLiveInput {
   propertyPurchaseCents: Cents | null;
   mortgageBalanceCents: Cents | null;
   mortgagePrincipalPaidCents: Cents | null;
+  /** Stage 4 (additive, §2.9): Σ offset accounts now (null when no offset account exists). */
+  offsetCents?: Cents | null;
 }
 
 export interface SavingsInput {
@@ -533,6 +548,10 @@ export interface SavingsInput {
   live: SavingsLiveInput | null;
   /** Every trade of every kind (added investments). */
   trades: readonly EngineTrade[];
+  /**
+   * Other-asset flows. Stage 4 (stage-4.md §2.4 step 9, §11 fix 16): purchases positive, sales as
+   * negative amounts (`computeOtherAssets(…).savingsFlows`).
+   */
   otherAssetPurchases: readonly { date: IsoDate; amountCents: Cents }[];
   /** Deposits (D57). */
   sideIncome: readonly { date: IsoDate; amountCents: Cents }[];
@@ -573,6 +592,8 @@ export interface SavingsPeriod {
     superCents: Cents;
     mortgagePrincipalCents: Cents;
     propertyDepositCents: Cents;
+    /** Stage 4 (additive, §2.9, §11 fix 7): Δ offsets; 0 unless both sides are non-null. */
+    offsetsCents: Cents;
   } | null;
   income: {
     salaryCents: Cents | null;
@@ -1013,4 +1034,617 @@ export interface EngineApi {
   cashDeficitMonths: CashDeficitMonthsFn;
   compressCashflow: CompressCashflowFn;
   yearWindow: YearWindowFn;
+  // Stage 4 (stage-4.md §2.2).
+  computeOtherAssets: ComputeOtherAssetsFn;
+  otherAssetsCostHeldAt: OtherAssetsCostHeldAtFn;
+  computeSuper: ComputeSuperFn;
+  computeProperty: ComputePropertyFn;
+  amortise: AmortiseFn;
+  assetsSnapshotColumns: AssetsSnapshotColumnsFn;
 }
+
+// ═══ Stage 4: other assets, super and property (stage-4.md §2.2, FROZEN) ════════════════════════
+
+// ─── Other assets (§2.4) ────────────────────────────────────────────────────────────────────────
+
+export interface EngineOtherAssetSale {
+  id: number;
+  saleDate: IsoDate;
+  units: DecimalString;
+  proceedsCents: Cents;
+}
+
+export type EngineOtherAssetPricing =
+  | {
+      source: 'manual';
+      /** The latest price entry, in the asset's currency. */
+      unitPrice: DecimalString | null;
+      priceAsOf: IsoDate | null;
+    }
+  | {
+      source: 'bullion';
+      metal: Metal;
+      ozPerUnit: DecimalString;
+      /** XAG/XAU_AUD_OZ (§4.5); null = no value. */
+      spot: { audPerOz: DecimalString; asOf: IsoDate; fresh: boolean } | null;
+      /** The row's last known AUD unit price (the import's cached price). */
+      fallbackUnitPrice: DecimalString | null;
+      fallbackAsOf: IsoDate | null;
+    };
+
+export interface EngineOtherAsset {
+  id: number;
+  /** Null → the D73 assumed date. */
+  purchaseDate: IsoDate | null;
+  /** Bought (template H). */
+  units: DecimalString;
+  /** The workbook's sold units (L): no proceeds known. */
+  legacySoldUnits: DecimalString;
+  /** Per unit, in `currency` (J). */
+  unitCost: DecimalString | null;
+  /** 'AUD', an ISO 4217 code, or 'GBX' (UK pence). */
+  currency: string;
+  /** AUD per 1 unit of `currency` at purchase; ignored for AUD. */
+  purchaseFxRate: DecimalString | null;
+  pricing: EngineOtherAssetPricing;
+  sales: readonly EngineOtherAssetSale[];
+}
+
+export interface OtherAssetsInput {
+  asOf: IsoDate;
+  /** Display order. */
+  assets: readonly EngineOtherAsset[];
+  /** Live AUD per 1 unit by currency code ('GBX' = GBP ÷ 100); AUD implicit. */
+  fxRates: Readonly<Record<string, DecimalString>>;
+  /** D73: the first snapshot's run date; null without snapshots. */
+  assumedDate: IsoDate | null;
+  /** otherAssets.stalePriceDays ?? 90 (whole days ≥ 1). */
+  stalePriceDays: number;
+  /** History AJ, AK (chart history). */
+  snapshots: readonly {
+    periodMonth: IsoMonth;
+    runDate: IsoDate;
+    otherValueCents: Cents | null;
+    otherGainCents: Cents | null;
+  }[];
+  chart: { unit: ChartDateUnit; count: number | null };
+}
+
+/** The cost of the units sold (at purchase FX); realised = proceeds − cost. */
+export interface OtherAssetSaleResult {
+  id: number;
+  saleDate: IsoDate;
+  units: DecimalString;
+  proceedsCents: Cents;
+  costCents: Cents | null;
+  realisedCents: Cents | null;
+}
+
+export interface OtherAssetResult {
+  id: number;
+  /** M = units − legacy sold − Σ sales (never below 0; 'oversold'). */
+  remainingUnits: DecimalString;
+  /** N = remaining × unit cost × purchase FX. */
+  costCents: Cents | null;
+  /** Today's AUD price per unit. */
+  unitPriceAud: DecimalString | null;
+  /** O = remaining × unitPriceAud. */
+  valueCents: Cents | null;
+  /** P = value − cost (both rounded: the row adds up). */
+  gainCents: Cents | null;
+  /** Q = unrounded gain ÷ unrounded cost. */
+  gainRatio: DecimalString | null;
+  /** R fixed: (value ÷ cost)^(365.25 ÷ heldDays) − 1. */
+  cagrRatio: DecimalString | null;
+  /** purchaseDate ?? assumedDate. */
+  effectiveDate: IsoDate | null;
+  /** D73. */
+  dateAssumed: boolean;
+  /** asOf − effectiveDate. */
+  heldDays: number | null;
+  /** §2.4 table. */
+  priceStatus: PriceStatus;
+  priceAsOf: IsoDate | null;
+  /** Sale date order. */
+  sales: OtherAssetSaleResult[];
+  /** Σ non-null realised. */
+  realisedCents: Cents;
+  flags: OtherAssetFlag[];
+}
+
+export interface OtherAssetsChartPoint {
+  label: string;
+  period: IsoMonth;
+  date: IsoDate;
+  live: boolean;
+  costCents: Cents | null;
+  valueCents: Cents | null;
+  gainCents: Cents | null;
+  gainRatio: DecimalString | null;
+}
+
+export interface OtherAssetsResult {
+  /** Input order. */
+  assets: OtherAssetResult[];
+  totals: {
+    /** D3 = Σ row values. */
+    valueCents: Cents;
+    /** Over rows with both a value and a cost; D4 = Σ gains. */
+    costCents: Cents;
+    gainCents: Cents;
+    /** D5 = Σ unrounded gains ÷ Σ unrounded costs (those rows). */
+    gainRatio: DecimalString | null;
+    realisedCents: Cents;
+    proceedsCents: Cents;
+    unpricedCount: number;
+    staleCount: number;
+    assumedDateCount: number;
+    /** Flag purchase_fx_missing (the cost is unknown). */
+    fxMissingCount: number;
+    /** Flag live_fx_missing (the value is unknown). */
+    liveFxMissingCount: number;
+  };
+  /** Date, asset, id order. */
+  savingsFlows: { assetId: number; date: IsoDate; amountCents: Cents; kind: 'purchase' | 'sale' }[];
+  chart: OtherAssetsChartPoint[];
+  /** History AJ, AK (= totals). */
+  snapshot: { otherValueCents: Cents; otherGainCents: Cents };
+}
+
+// ─── Super (§2.5) ───────────────────────────────────────────────────────────────────────────────
+
+export interface EngineSuperFund {
+  id: number;
+  receivesSg: boolean;
+  archived: boolean;
+  balances: readonly {
+    id: number;
+    asOf: IsoDate;
+    balanceCents: Cents;
+    /** Money moved in from outside the tracked funds (not a gain). */
+    transferInCents: Cents | null;
+  }[];
+}
+
+export interface EngineSuperContribution {
+  id: number;
+  fundId: number | null;
+  date: IsoDate;
+  kind: 'voluntary_contribution' | 'salary_sacrifice' | 'after_tax';
+  amountCents: Cents;
+}
+
+export interface SuperInput {
+  asOf: IsoDate;
+  /** History Q. */
+  snapshots: readonly { periodMonth: IsoMonth; runDate: IsoDate; superValueCents: Cents | null }[];
+  funds: readonly EngineSuperFund[];
+  /** Member contributions (never SG). */
+  contributions: readonly EngineSuperContribution[];
+  /** Statement figures (before contributions tax). */
+  sgOverrides: readonly { periodMonth: IsoMonth; grossCents: Cents }[];
+  /** pay.grossAnnualSalaryCents. */
+  grossAnnualSalaryCents: Cents | null;
+  /** pay.jobStartDate. */
+  jobStartDate: IsoDate | null;
+  /**
+   * super.sgRate: your employer's rate for every month; null → SUPER_SG_RATES for each month's FY
+   * (§3.2).
+   */
+  sgRatio: DecimalString | null;
+  /** super.contributionsTaxRate ?? SUPER_CONTRIBUTIONS_TAX_DEFAULT. */
+  contributionsTaxRatio: DecimalString;
+  /** tax.marginalRate. */
+  marginalTaxRatio: DecimalString | null;
+  /** super.importedContributionType ?? 'salary_sacrifice'. */
+  importedContributionType: SuperContributionType;
+  /** super.concessionalCapCents + …CapFy (§3.3). */
+  concessionalCapOverride: { cents: Cents; financialYear: number } | null;
+  chart: { unit: ChartDateUnit; count: number | null };
+}
+
+export interface SuperContributionResult {
+  id: number;
+  fundId: number | null;
+  date: IsoDate;
+  kind: EngineSuperContribution['kind'];
+  amountCents: Cents;
+  /** An imported (untyped) entry read through importedContributionType. */
+  estimate: boolean;
+  /** The concessional amount (salary sacrifice, typed or read). */
+  preTaxCents: Cents | null;
+  /** After contributions tax where it applies. */
+  fundReceivesCents: Cents;
+  /** What it cost in take-home pay (the savings rate); null: §2.5. */
+  netPayCostCents: Cents | null;
+  concessional: boolean;
+}
+
+export interface SuperSgMonth {
+  /** The month the SG was earned (as on a payslip). */
+  month: IsoMonth;
+  source: 'statement' | 'estimate' | 'none';
+  grossCents: Cents;
+  fundReceivesCents: Cents;
+  fundId: number | null;
+  /** The FY whose cap counts it (§2.5 step 7). */
+  capFinancialYear: number;
+}
+
+export interface SuperFlows {
+  sgGrossCents: Cents;
+  sgFundCents: Cents;
+  memberFundCents: Cents;
+  memberNetPayCents: Cents;
+  concessionalCents: Cents;
+  nonConcessionalCents: Cents;
+  /** Σ balance entries' transfers in (not gains). */
+  transferInCents: Cents;
+}
+
+export interface SuperPeriod {
+  periodMonth: IsoMonth;
+  runDate: IsoDate;
+  /** The Stage 3 windows (§2.3). */
+  after: IsoDate | null;
+  through: IsoDate;
+  /** 'first' | 'closed' | 'provisional'. */
+  status: SavingsPeriodStatus;
+  /** Q (provisional: Σ latest fund balances). */
+  valueCents: Cents | null;
+  /** Not a valuation point: its flows move to the next period. */
+  notUpdated: boolean;
+  /** The window's flows (null for the baseline). */
+  flows: SuperFlows | null;
+  /** The previous valuation point (start of the merged window). */
+  gainFrom: IsoDate | null;
+  /** Value − the value at gainFrom (valuation periods). */
+  changeCents: Cents | null;
+  /**
+   * The flows over (gainFrom, through] (= flows when a closed period is not merged). The provisional
+   * period counts SG and contributions only to the oldest latest balance of the open funds (D79).
+   */
+  gainFlows: SuperFlows | null;
+  /** D69: change − gainFlows' sgFund, memberFund, transferIn. */
+  gainCents: Cents | null;
+  /** History T = gain ÷ (value − gain). */
+  gainRatio: DecimalString | null;
+  /** Modified Dietz for the merged window. */
+  returnRatio: DecimalString | null;
+}
+
+export interface SuperFundResult {
+  id: number;
+  receivesSg: boolean;
+  archived: boolean;
+  balanceCents: Cents | null;
+  balanceAsOf: IsoDate | null;
+  /** asOf order. */
+  entries: {
+    id: number;
+    asOf: IsoDate;
+    balanceCents: Cents;
+    transferInCents: Cents | null;
+    flowsCents: Cents | null;
+    gainCents: Cents | null;
+  }[];
+}
+
+export interface SuperCapYear {
+  /** [start, end), the FY start year. */
+  financialYear: number;
+  start: IsoDate;
+  end: IsoDate;
+  /** asOf ≥ end. */
+  complete: boolean;
+  capCents: Cents;
+  capSource: 'statutory' | 'setting';
+  /** SG counted in this FY so far (§2.5 step 7). */
+  sgGrossCents: Cents;
+  sgFundCents: Cents;
+  sgSource: 'estimate' | 'statement' | 'mixed' | 'none';
+  salarySacrificeCents: Cents;
+  importedEstimateCents: Cents;
+  totalCents: Cents;
+  projectedCents: Cents;
+  ratio: DecimalString;
+  projectedRatio: DecimalString;
+  status: SuperCapStatus;
+  nonConcessionalCents: Cents;
+  /** Σ pre-tax salary sacrifice (typed or read) + after-tax amounts. */
+  memberCents: Cents;
+  /** What the fund receives; the take-home cost (nulls count 0). */
+  memberFundCents: Cents;
+  memberNetPayCents: Cents;
+  /** Untyped (imported) contributions dated in the FY. */
+  estimateCount: number;
+}
+
+export interface SuperChartPoint {
+  label: string;
+  period: IsoMonth;
+  date: IsoDate;
+  live: boolean;
+  valueCents: Cents | null;
+  gainCents: Cents | null;
+  returnRatio: DecimalString | null;
+  memberNetPayCents: Cents | null;
+  memberFundCents: Cents | null;
+  sgFundCents: Cents | null;
+}
+
+export interface SuperResult {
+  /** Super!B12: Σ non-archived funds' latest balances ≤ asOf. */
+  totalCents: Cents;
+  funds: SuperFundResult[];
+  /** Date desc, then id desc. */
+  contributions: SuperContributionResult[];
+  /** Every month the previous or the current FY's cap counts, up to asOf's. */
+  sgMonths: SuperSgMonth[];
+  /** Run-date order; the provisional last. */
+  periods: SuperPeriod[];
+  annualised: {
+    cumulativeRatio: DecimalString | null;
+    returnRatio: DecimalString | null;
+    from: IsoDate | null;
+    through: IsoDate | null;
+    days: number | null;
+  };
+  /** [asOf's FY, the FY before]. */
+  capYears: SuperCapYear[];
+  chart: SuperChartPoint[];
+  snapshot: {
+    /** History Q, R. */
+    superValueCents: Cents;
+    superContribCents: Cents;
+    /** History S, T (provisional). */
+    superGainCents: Cents | null;
+    superGainRatio: DecimalString | null;
+  };
+  flags: SuperFlag[];
+}
+
+// ─── Property and loans (§2.6, §2.7) ────────────────────────────────────────────────────────────
+
+export interface EngineProperty {
+  id: number;
+  purchaseDate: IsoDate | null;
+  isPrimaryResidence: boolean;
+  purchaseValueCents: Cents;
+  netRentToDateCents: Cents;
+  valuations: readonly { id: number; asOf: IsoDate; valueCents: Cents }[];
+}
+
+/** repaymentsCents: typed or null. */
+export interface EngineLoanEntry {
+  id: number;
+  asOf: IsoDate;
+  balanceCents: Cents;
+  repaymentsCents: Cents | null;
+}
+
+export interface EngineLoan {
+  id: number;
+  propertyId: number | null;
+  /** Both set and before the first entry → the log's start point (§2.6). */
+  startDate: IsoDate | null;
+  startBalanceCents: Cents | null;
+  annualRate: DecimalString | null;
+  compoundingPerYear: number | null;
+  paymentCents: Cents | null;
+  paymentFrequency: PaymentFrequency;
+  entries: readonly EngineLoanEntry[];
+  /** Linked offset accounts' current balances (D67). */
+  offsets: readonly { accountId: number; balanceCents: Cents }[];
+}
+
+export interface PropertyInput {
+  asOf: IsoDate;
+  properties: readonly EngineProperty[];
+  loans: readonly EngineLoan[];
+  /** History X, Y, AB, AC, AD. */
+  snapshots: readonly {
+    periodMonth: IsoMonth;
+    runDate: IsoDate;
+    propertyValueCents: Cents | null;
+    propertyPurchaseCents: Cents | null;
+    mortgageBalanceCents: Cents | null;
+    mortgageInterestFeesCents: Cents | null;
+    mortgagePrincipalPaidCents: Cents | null;
+  }[];
+  chart: { unit: ChartDateUnit; count: number | null };
+}
+
+export interface AmortisationInput {
+  balanceCents: Cents;
+  annualRate: DecimalString;
+  compoundingPerYear: number;
+  paymentCents: Cents;
+  paymentFrequency: PaymentFrequency;
+  offsetCents: Cents;
+  /** The payment grid's anchor (§2.3). */
+  anchorDate: IsoDate;
+  /** The balance's date: the first payment is the first grid date after it. */
+  balanceDate: IsoDate;
+}
+
+export interface AmortisationResult {
+  /** (1 + r/m)^(m/p) − 1. */
+  periodicRatio: DecimalString;
+  /** The first grid date after balanceDate. */
+  firstPaymentDate: IsoDate;
+  /** max(0, balance − offset) × periodic ratio. */
+  firstPeriodInterestCents: Cents;
+  payments: number | null;
+  payoffDate: IsoDate | null;
+  totalInterestCents: Cents | null;
+  /** Yearly, cumulative interest. */
+  points: { date: IsoDate; balanceCents: Cents; interestCents: Cents }[];
+  flag: 'payment_below_interest' | 'never_repaid' | null;
+}
+
+export interface LoanEntryResult {
+  /** Null = the loan's start point (its start fields). */
+  id: number | null;
+  start: boolean;
+  asOf: IsoDate;
+  balanceCents: Cents;
+  paymentsCounted: number | null;
+  repaymentsCents: Cents | null;
+  repaymentsTyped: boolean;
+  principalCents: Cents | null;
+  interestFeesCents: Cents | null;
+  cumulativePrincipalCents: Cents | null;
+  cumulativeInterestFeesCents: Cents;
+  flags: LoanEntryFlag[];
+}
+
+export interface LoanResult {
+  id: number;
+  propertyId: number | null;
+  /** The latest entry ≤ asOf. */
+  balanceCents: Cents;
+  balanceAsOf: IsoDate;
+  /** startBalance ?? the first entry's balance. */
+  startBalanceCents: Cents;
+  /** startDate ?? the first entry's date (§2.3). */
+  paymentAnchorDate: IsoDate;
+  offsetCents: Cents;
+  /** max(0, b − o), max(0, o − b). */
+  netBalanceCents: Cents;
+  excessOffsetCents: Cents;
+  /** asOf order. */
+  entries: LoanEntryResult[];
+  /** Cumulative (D66). */
+  repaymentsCents: Cents;
+  principalPaidCents: Cents;
+  interestFeesCents: Cents;
+  nextPeriodInterestCents: Cents | null;
+  /** With the linked offsets. */
+  schedule: AmortisationResult | null;
+  /** Only when offsetCents > 0. */
+  scheduleWithoutOffset: AmortisationResult | null;
+  interestSavedCents: Cents | null;
+  monthsSaved: number | null;
+  flags: LoanFlag[];
+}
+
+export interface PropertyResultRow {
+  id: number;
+  isPrimaryResidence: boolean;
+  /** The latest valuation ≤ asOf. */
+  valueCents: Cents;
+  valuationDate: IsoDate;
+  purchaseValueCents: Cents;
+  netRentCents: Cents;
+  /** X21, X22. */
+  gainCents: Cents;
+  gainRatio: DecimalString | null;
+  /** X23 fixed. */
+  cagrRatio: DecimalString | null;
+  heldDays: number | null;
+  loanIds: number[];
+  /** Net of linked offsets (D67). */
+  debtCents: Cents;
+  equityCents: Cents;
+  lvrRatio: DecimalString | null;
+}
+
+export interface PropertyChartPoint {
+  label: string;
+  period: IsoMonth;
+  date: IsoDate;
+  live: boolean;
+  valueCents: Cents | null;
+  purchaseCents: Cents | null;
+  mortgageCents: Cents | null;
+  equityCents: Cents | null;
+  lvrRatio: DecimalString | null;
+  interestFeesCents: Cents | null;
+  principalPaidCents: Cents | null;
+}
+
+export interface PropertiesResult {
+  /** Input order. */
+  properties: PropertyResultRow[];
+  /** Every loan; totals count those with a property. */
+  loans: LoanResult[];
+  totals: {
+    /** F6, F7, F8, F9. */
+    purchaseCents: Cents;
+    valueCents: Cents;
+    gainCents: Cents;
+    gainRatio: DecimalString | null;
+    /** |F10| gross, net. */
+    mortgageCents: Cents;
+    offsetCents: Cents;
+    netMortgageCents: Cents;
+    /** F11 (D66), AC, … */
+    principalPaidCents: Cents;
+    interestFeesCents: Cents;
+    repaymentsCents: Cents;
+    /** Net Worth C21. */
+    startBalanceCents: Cents;
+    /** F12 fixed, Z net. */
+    lvrRatio: DecimalString | null;
+    equityCents: Cents;
+  };
+  chart: PropertyChartPoint[];
+  /** X, Y, Z, AA, AB, AC, AD, AE. */
+  snapshot: {
+    propertyValueCents: Cents;
+    propertyPurchaseCents: Cents;
+    propertyEquityCents: Cents;
+    propertyGainCents: Cents;
+    mortgageBalanceCents: Cents;
+    mortgageInterestFeesCents: Cents;
+    mortgagePrincipalPaidCents: Cents;
+    propertyGainRatio: DecimalString;
+    mortgageOffsetCents: Cents;
+  };
+  /** The Stage 3 SavingsLiveInput parts (§2.8). */
+  savingsLive: {
+    propertyPurchaseCents: Cents | null;
+    mortgageBalanceCents: Cents | null;
+    mortgagePrincipalPaidCents: Cents | null;
+  };
+}
+
+// ─── The Stage 5 seam (§2.8) ────────────────────────────────────────────────────────────────────
+
+export interface AssetsSnapshotColumns {
+  superValueCents: Cents;
+  superContribCents: Cents;
+  superGainCents: Cents | null;
+  superGainRatio: DecimalString | null;
+  propertyValueCents: Cents;
+  propertyPurchaseCents: Cents;
+  propertyEquityCents: Cents;
+  propertyGainCents: Cents;
+  mortgageBalanceCents: Cents;
+  mortgageInterestFeesCents: Cents;
+  mortgagePrincipalPaidCents: Cents;
+  propertyGainRatio: DecimalString;
+  otherValueCents: Cents;
+  otherGainCents: Cents;
+  /** No History column yet: Stage 5 decides how to store it. */
+  mortgageOffsetCents: Cents;
+}
+
+// ─── Stage 4 function signatures (FROZEN) ───────────────────────────────────────────────────────
+
+export type ComputeOtherAssetsFn = (input: OtherAssetsInput) => OtherAssetsResult;
+/** The chart's cost line (the sheet's Z, fixed), one per date. */
+export type OtherAssetsCostHeldAtFn = (i: {
+  assets: readonly EngineOtherAsset[];
+  assumedDate: IsoDate | null;
+  dates: readonly IsoDate[];
+}) => Cents[];
+export type ComputeSuperFn = (input: SuperInput) => SuperResult;
+export type ComputePropertyFn = (input: PropertyInput) => PropertiesResult;
+export type AmortiseFn = (input: AmortisationInput) => AmortisationResult;
+export type AssetsSnapshotColumnsFn = (i: {
+  otherAssets: OtherAssetsResult;
+  super: SuperResult;
+  property: PropertiesResult;
+}) => AssetsSnapshotColumns;

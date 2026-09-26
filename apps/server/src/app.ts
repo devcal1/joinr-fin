@@ -19,11 +19,14 @@ import { dividendsRoutes } from './routes/dividends';
 import { healthRoutes } from './routes/health';
 import { importRoutes } from './routes/import';
 import { investmentsRoutes } from './routes/investments';
+import { otherAssetsRoutes } from './routes/otherAssets';
 import { pricesRoutes } from './routes/prices';
+import { propertyRoutes } from './routes/property';
 import { recordsRoutes } from './routes/records';
 import { settingsRoutes } from './routes/settings';
 import { sideIncomeRoutes } from './routes/sideIncome';
 import { statusRoutes } from './routes/status';
+import { superRoutes } from './routes/super';
 import { createScheduler } from './scheduler/index';
 import type { Scheduler } from './scheduler/types';
 import { APP_VERSION } from './version';
@@ -170,6 +173,10 @@ export async function buildApp({
   await app.register(budgetRoutes, cashflow);
   await app.register(dividendsRoutes, cashflow);
   await app.register(settingsRoutes, cashflow);
+  // Stage 4 (stage-4.md §4.2): the same options object.
+  await app.register(otherAssetsRoutes, cashflow);
+  await app.register(superRoutes, cashflow);
+  await app.register(propertyRoutes, cashflow);
   if (config.serveWeb) await registerWebApp(app, config.webDistDir);
   app.setNotFoundHandler(createNotFoundHandler(config.serveWeb));
 

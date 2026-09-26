@@ -18,7 +18,7 @@ import type {
 import { seedGenericData } from '@joinr/schema/testing';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { vi } from 'vitest';
-import { buildApp, offServices } from '../../src/app';
+import { buildApp, offServices, type ServicesFactory } from '../../src/app';
 import type { Config } from '../../src/config';
 import {
   closeDatabase,
@@ -170,6 +170,8 @@ export async function startApp(
     dividendEvents?: DividendEventsService;
     seed?: boolean;
     now?: () => Date;
+    /** Stage 4: the services factory (e.g. a spy on the price job's notify). */
+    services?: ServicesFactory;
   } = {},
 ): Promise<TestApp> {
   const tempDir = await makeTempDir();
@@ -183,7 +185,9 @@ export async function startApp(
     db: database,
     now: o.now ?? (() => NOW),
     engine: o.engine ?? fakeEngine(),
-    services: events ? (deps) => ({ ...offServices(deps), dividendEvents: events }) : undefined,
+    services:
+      o.services ??
+      (events ? (deps) => ({ ...offServices(deps), dividendEvents: events }) : undefined),
   });
   return {
     app,

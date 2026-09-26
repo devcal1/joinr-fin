@@ -282,8 +282,11 @@ export type DividendEventKey = z.output<typeof dividendEventKeySchema>;
 
 // ─── Settings ───────────────────────────────────────────────────────────────────────────────────
 
-/** The most keys one `PATCH /api/settings` body may change. */
-export const SETTINGS_PATCH_MAX_KEYS = 20;
+/**
+ * The most keys one `PATCH /api/settings` body may change (Stage 4: 30, above the 22 editable
+ * keys, so one PATCH can hold every editable key; stage-4.md §3.2).
+ */
+export const SETTINGS_PATCH_MAX_KEYS = 30;
 
 /**
  * The largest whole number an editable integer setting without a registry maximum accepts
@@ -323,7 +326,7 @@ export interface SettingsPatch {
 }
 
 /**
- * `PATCH /api/settings` body: 1–20 keys, each in EDITABLE_SETTING_KEYS (else
+ * `PATCH /api/settings` body: 1–SETTINGS_PATCH_MAX_KEYS keys, each in EDITABLE_SETTING_KEYS (else
  * `values.<key>: not editable here`), each value parsed with `settingValueSchema(key)`, or null
  * (stored as JSON null, read as unset). A parsed value must also meet the write bounds: a ratio
  * within the registry's min..max (`values.<key>: must be between 0 and 1`), money up to
@@ -407,6 +410,8 @@ export interface CashAccountDto {
   entryCount: number;
   /** Delete needs budgetRowCount 0. */
   budgetRowCount: number;
+  /** Stage 4 (D67, additive): the loan an offset account is linked to; null otherwise. */
+  linkedLoan: { id: number; name: string } | null;
 }
 
 export interface CashBalanceEntryDto {
@@ -473,6 +478,8 @@ export interface SavingsPeriodDto {
     superCents: number;
     mortgagePrincipalCents: number;
     propertyDepositCents: number;
+    /** Stage 4 (additive; §11 fix 7): Δ offset balances; 0 unless both sides are known. */
+    offsetsCents: number;
   } | null;
   income: {
     salaryCents: number | null;
@@ -611,7 +618,10 @@ export interface CashPageResponse {
   charts: CashChartsDto;
   /** The Cash page's keys (§3.3). */
   settings: SettingsSliceDto;
-  /** Other assets / super / mortgage come from the import until Stage 4. */
+  /**
+   * Stage 3: other assets / super / mortgage came from the import until Stage 4. Always false from
+   * Stage 4 (the live engines feed the provisional period); Stage 5 may drop it.
+   */
   staticUntilStage4: boolean;
 }
 

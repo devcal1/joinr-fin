@@ -1,4 +1,4 @@
-// The frozen public API (stage-2.md §2.2, stage-3.md §2.2): the `engine` value satisfies
+// The frozen public API (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2): the `engine` value satisfies
 // EngineApi member by member, and the functions keep their exact signatures (checked by tsc in
 // `pnpm typecheck`).
 import { INSTRUMENT_KINDS } from '@joinr/schema';
@@ -39,6 +39,13 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.cashDeficitMonths).toEqualTypeOf<EngineApi['cashDeficitMonths']>();
     expectTypeOf(api.compressCashflow).toEqualTypeOf<EngineApi['compressCashflow']>();
     expectTypeOf(api.yearWindow).toEqualTypeOf<EngineApi['yearWindow']>();
+    // Stage 4.
+    expectTypeOf(api.computeOtherAssets).toEqualTypeOf<EngineApi['computeOtherAssets']>();
+    expectTypeOf(api.otherAssetsCostHeldAt).toEqualTypeOf<EngineApi['otherAssetsCostHeldAt']>();
+    expectTypeOf(api.computeSuper).toEqualTypeOf<EngineApi['computeSuper']>();
+    expectTypeOf(api.computeProperty).toEqualTypeOf<EngineApi['computeProperty']>();
+    expectTypeOf(api.amortise).toEqualTypeOf<EngineApi['amortise']>();
+    expectTypeOf(api.assetsSnapshotColumns).toEqualTypeOf<EngineApi['assetsSnapshotColumns']>();
 
     const members: (keyof EngineApi)[] = [
       'computeInvestments',
@@ -68,6 +75,12 @@ describe('@joinr/engine public API', () => {
       'cashDeficitMonths',
       'compressCashflow',
       'yearWindow',
+      'computeOtherAssets',
+      'otherAssetsCostHeldAt',
+      'computeSuper',
+      'computeProperty',
+      'amortise',
+      'assetsSnapshotColumns',
     ];
     expect(Object.keys(api.engine).sort()).toEqual([...members].sort());
     for (const name of members) expect(api.engine[name]).toBe(api[name]);
@@ -77,6 +90,7 @@ describe('@joinr/engine public API', () => {
     expect(api.MATCHING_STRATEGIES).toEqual(['fifo']);
     expectTypeOf(api.ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
     expectTypeOf(api.CASHFLOW_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
+    expectTypeOf(api.ASSETS_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
   });
 
   it('gives the FY or calendar year containing a date (§2.3)', () => {

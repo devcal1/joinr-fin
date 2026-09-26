@@ -748,11 +748,33 @@
 
   /* Update balances: the money field fills the Balance cell; the older-than note wraps under it. */
   .jf-app-balance-edit {
+    /* The containing block of the visually hidden labels inside (Stage 4: "Still current, <item>"),
+       so in a table that scrolls in its container they cannot widen the page (as jf-app-anchor). */
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-1);
     min-width: 9rem;
+  }
+
+  /* Update prices (STYLE-9): "Still current" is words, so the body face, not the numeric cell's
+     mono; the row's latest price date and markers sit under the field, right-aligned. */
+  .jf-app-balance-edit .jf-check__label {
+    font-family: var(--font-sans);
+  }
+
+  .jf-app-price-edit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+  }
+
+  /* Mark current (UX-6, STYLE-10) under a stale price's marker, in the Price cell. */
+  .jf-app-mark-current {
+    align-self: flex-end;
   }
 
   .jf-app-older-note {
@@ -823,6 +845,270 @@
 
     .jf-app-note-cell {
       max-width: 20ch;
+    }
+  }
+
+  /* ── Assets (Stage 4: other assets, super, property) ── */
+
+  /* A tile value that is words, not a figure ("All prices current", the spot line): body face. */
+  .jf-app-tile-text {
+    font-family: var(--font-sans);
+    font-size: var(--fs-body);
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  /* A state marker (a badge or a pill) and a row of them (stage-4.md §6.1 UX-12). A marker keeps
+     the body face even inside a numeric (monospaced) cell. */
+  .jf-app-marker {
+    display: inline-flex;
+    flex: none;
+    font-family: var(--font-sans);
+  }
+
+  .jf-app-markers {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  /* A table's first cell: the name or date, then its extra lines and (on a phone) its markers. */
+  .jf-app-first-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .jf-app-first-cell__main {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  /* An item's name: a link to its valuation source (bright text on a quiet underline; the table's
+     only teal cell stays the total). A URL-named item's short name stays on one line. */
+  .jf-app-item-name {
+    color: var(--text-bright);
+  }
+
+  .jf-app-item-link {
+    text-decoration: underline;
+    text-decoration-color: var(--text-muted);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  .jf-app-item-link:hover,
+  .jf-app-item-link:focus-visible {
+    text-decoration-color: var(--teal);
+    text-decoration-thickness: 2px;
+  }
+
+  .jf-app-item-name--url {
+    white-space: nowrap;
+  }
+
+  /* The FX line under a foreign unit cost: words in the body face, wrapping at spaces only. */
+  .jf-app-fx-line {
+    min-width: 9rem;
+    max-width: 14rem;
+    font-family: var(--font-sans);
+    white-space: normal;
+  }
+
+  /* A stack of a value and its action, left-aligned (the loan's offset accounts). */
+  .jf-app-kv-stack--start {
+    align-items: flex-start;
+  }
+
+  /* A badge beside a figure that a visible foot note explains (the loan log's Check). */
+  .jf-app-rate-check {
+    display: inline-flex;
+  }
+
+  /* A foot note that starts with the marker it explains (every SG month an estimate). */
+  .jf-app-footnote-marker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* The SG-fund Select and its Save on one row (the callout and the Funds section bar, UX-24). */
+  .jf-app-sg-picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .jf-app-sg-picker__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-2);
+  }
+
+  .jf-app-sg-picker__row > .jf-field {
+    width: min(100%, 16rem);
+  }
+
+  .jf-section-bar__actions .jf-app-sg-picker__row .jf-field__label {
+    color: var(--text-secondary);
+  }
+
+  /* In a section bar the Save button stays beside the Select (from 768 px). */
+  @media (min-width: 768px) {
+    .jf-section-bar__actions .jf-app-sg-picker__row {
+      flex-wrap: nowrap;
+    }
+  }
+
+  /* A small heading inside a section (Employer SG, Investment option notes) with its action. */
+  .jf-app-subhead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .jf-app-subhead__title {
+    color: var(--teal);
+    font-size: var(--fs-h3);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* The option notes: month, note and Edit per line. */
+  .jf-app-note-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    list-style: none;
+  }
+
+  .jf-app-note-list__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .jf-app-note-list__item:first-child {
+    border-top: 0;
+  }
+
+  .jf-app-note-list__month {
+    min-width: 6rem;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  /* A form row whose two fields share the width (the option note's month and text). */
+  .jf-app-form-row {
+    display: grid;
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  /* A group of checkboxes with a legend (the offsets form). */
+  .jf-app-fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .jf-app-fieldset > legend {
+    margin-bottom: var(--space-2);
+    padding: 0;
+  }
+
+  /* Wide assets tables (loan log, fund history, contributions, sales, super periods): multi-word
+     headers wrap and cells keep 8px at the sides, so the log tables fit the 1152 px content area
+     at 1440 px (UX-20); the figures themselves stay on one line. */
+  .jf-app-loan-log .jf-table__th,
+  .jf-app-funds-table .jf-table__th,
+  .jf-app-contributions-table .jf-table__th,
+  .jf-app-assets-table .jf-table__th,
+  .jf-app-sales-table .jf-table__th,
+  .jf-app-fund-history .jf-table__th,
+  .jf-app-sg-table .jf-table__th {
+    padding-inline: var(--space-2);
+    white-space: normal;
+  }
+
+  .jf-app-loan-log .jf-table__cell,
+  .jf-app-funds-table .jf-table__cell,
+  .jf-app-contributions-table .jf-table__cell,
+  .jf-app-assets-table .jf-table__cell,
+  .jf-app-sales-table .jf-table__cell,
+  .jf-app-fund-history .jf-table__cell,
+  .jf-app-sg-table .jf-table__cell {
+    padding-inline: var(--space-2);
+  }
+
+  /* The assets table may scroll inside its container at 1440 px (11 columns, a URL-named item's
+     short name kept on one line): from 1200 px its Actions column (the last) stays in view at the
+     right edge, as the item stays at the left, so Edit, Sell and Price history are never off-screen
+     (STYLE-10; Mark current is in the Price cell). Below 1200 px both sticky columns would leave
+     too little room for the figures, so the table simply scrolls. The hairline shows only while
+     the table overflows. */
+  @media (min-width: 1200px) {
+    .jf-app-assets-table .jf-table__th:last-child,
+    .jf-app-assets-table .jf-table__cell:last-child {
+      position: sticky;
+      right: 0;
+      z-index: 1;
+      border-left: 1px solid transparent;
+    }
+
+    .jf-app-assets-table .jf-table__scroll[role='region'] .jf-table__th:last-child,
+    .jf-app-assets-table .jf-table__scroll[role='region'] .jf-table__cell:last-child {
+      border-left-color: var(--hairline);
+    }
+  }
+
+  /* A header's words never split mid-word; a first-column name wraps at spaces only. */
+  .jf-app-loan-log .jf-table__th,
+  .jf-app-super-periods .jf-table__th {
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-app-form-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .jf-app-sg-picker__row > .jf-field {
+      width: 100%;
+    }
+
+    /* A phone's sticky first column must leave room for the figures: a URL-named item's short
+       name wraps there (the whole-word rule applies from 768 px). */
+    .jf-app-item-name--url {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .jf-app-assets-table .jf-table__cell--first,
+    .jf-app-assets-table .jf-table__th--first {
+      max-width: 11rem;
     }
   }
 }

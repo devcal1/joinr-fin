@@ -8,6 +8,7 @@ import {
   ALLOCATION_AGGRESSIVENESS,
   CHART_DATE_UNITS,
   PAY_FREQUENCIES,
+  SUPER_CONTRIBUTION_TYPES,
   YEAR_BASES,
   type AllocationAggressiveness,
   type PayFrequency,
@@ -28,7 +29,10 @@ export type SettingCategory =
   | 'property'
   | 'charts'
   | 'features'
-  | 'fire';
+  | 'fire'
+  // Stage 4 (stage-4.md §3.3).
+  | 'super'
+  | 'assets';
 
 export const SETTING_KEYS = [
   'pay.dayOfMonth',
@@ -86,6 +90,13 @@ export const SETTING_KEYS = [
   'fire.yearlySpendOverrideCents',
   // Stage 3 (stage-3.md §3.3): app-only (no workbook source).
   'savings.yearBasis',
+  // Stage 4 (stage-4.md §3.3): app-only (no workbook source).
+  'otherAssets.stalePriceDays',
+  'super.sgRate',
+  'super.contributionsTaxRate',
+  'super.concessionalCapCents',
+  'super.concessionalCapFy',
+  'super.importedContributionType',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -178,6 +189,12 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'fire.preservationAge', label: 'Preservation age', category: 'fire', type: 'integer', min: 0, max: 120, source: cell(FIRE_TAB_PREFIX, 'E10'), defaultValue: null },
   { key: 'fire.yearlySpendOverrideCents', label: 'Yearly spend override', category: 'fire', type: 'money', min: 0, source: cell(FIRE_TAB_PREFIX, 'E48'), defaultValue: null, onlyWhenTyped: true },
   { key: 'savings.yearBasis', label: 'Year for the cash figures', category: 'savings', type: 'enum', enumValues: YEAR_BASES, source: null, defaultValue: 'fy' },
+  { key: 'otherAssets.stalePriceDays', label: 'Other assets: a price is stale after (days)', category: 'assets', type: 'integer', min: 1, max: 3650, source: null, defaultValue: 90 },
+  { key: 'super.sgRate', label: "Your employer's SG rate (blank: the legal minimum)", category: 'super', type: 'ratio', min: 0, max: 1, source: null, defaultValue: null },
+  { key: 'super.contributionsTaxRate', label: 'Super contributions tax', category: 'super', type: 'ratio', min: 0, max: 1, source: null, defaultValue: '0.15' },
+  { key: 'super.concessionalCapCents', label: 'Concessional cap override (this financial year only)', category: 'super', type: 'money', min: 0, source: null, defaultValue: null },
+  { key: 'super.concessionalCapFy', label: 'Concessional cap override: financial year', category: 'super', type: 'integer', min: 1900, max: 2200, source: null, defaultValue: null },
+  { key: 'super.importedContributionType', label: 'Imported contributions are', category: 'super', type: 'enum', enumValues: SUPER_CONTRIBUTION_TYPES, source: null, defaultValue: 'salary_sacrifice' },
 ];
 
 const SETTINGS_BY_KEY: ReadonlyMap<string, SettingDef> = new Map(SETTINGS.map((s) => [s.key, s]));
@@ -196,15 +213,17 @@ export function settingDef(key: SettingKey): SettingDef {
 /**
  * True for a key the workbook provides (its registry `source` is set): an import writes it, so an
  * in-app edit of it counts as app data (D34, stage-3.md §3.3 rule 2). App-only keys
- * (`savings.yearBasis`) never do.
+ * (`savings.yearBasis`, the Stage 4 `otherAssets.*` and `super.*` keys) never do.
  */
 export function isWorkbookSetting(key: SettingKey): boolean {
   return settingDef(key).source !== null;
 }
 
 /**
- * The keys the app edits in Stage 3 (`PATCH /api/settings`; stage-3.md §3.3). The Budget page
- * edits the first nine, the Cash page the rest. Stage 5 extends the list to every key.
+ * The keys the app edits (`PATCH /api/settings`). Stage 3 (stage-3.md §3.3): the Budget page edits
+ * the first nine, the Cash page the next six. Stage 4 (stage-4.md §3.3) appends the Super page's
+ * two workbook keys and the five editable app-only keys (`super.concessionalCapFy` is written by
+ * the server with the cap, never edited). Stage 5 extends the list to every key.
  */
 export const EDITABLE_SETTING_KEYS = [
   'pay.frequency',
@@ -222,6 +241,14 @@ export const EDITABLE_SETTING_KEYS = [
   'savings.includeMortgagePrincipal',
   'savings.yearBasis',
   'property.offsetsIncludeEmergencyFund',
+  // Stage 4.
+  'pay.grossAnnualSalaryCents',
+  'tax.marginalRate',
+  'otherAssets.stalePriceDays',
+  'super.sgRate',
+  'super.contributionsTaxRate',
+  'super.concessionalCapCents',
+  'super.importedContributionType',
 ] as const satisfies readonly SettingKey[];
 export type EditableSettingKey = (typeof EDITABLE_SETTING_KEYS)[number];
 

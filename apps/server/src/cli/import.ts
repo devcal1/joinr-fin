@@ -153,6 +153,11 @@ const ENTITY_LABELS: Partial<Record<RecordEntityId, string>> = {
   properties: 'properties',
   loans: 'loans',
   settings: 'settings',
+  // Stage 4 (stage-4.md §3.5 item 5).
+  'other-asset-prices': 'other-asset prices',
+  'super-balance-entries': 'super balance entries',
+  'property-valuations': 'property valuations',
+  'loan-balance-entries': 'loan balance entries',
 };
 
 function printSummary(

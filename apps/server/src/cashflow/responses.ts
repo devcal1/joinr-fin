@@ -14,6 +14,11 @@ import type {
   YearlyExpenseMutationResponse,
 } from '@joinr/schema';
 import type { FastifyBaseLogger } from 'fastify';
+import {
+  OTHER_ASSETS_PAGE_SETTING_KEYS,
+  PROPERTY_PAGE_SETTING_KEYS,
+  SUPER_PAGE_SETTING_KEYS,
+} from '../assets/constants';
 import { hasAppData } from '../db/queries/domain';
 import { HttpError } from '../errors';
 import { budgetRowDtos, yearlyExpenseDto } from './budget';
@@ -114,9 +119,18 @@ export function dividendResponse(
   return { dividend };
 }
 
+/** Every page's settings keys (stage-3.md §3.3, stage-4.md §3.3), in the slice's order. */
+const PAGE_SETTING_KEYS: readonly (readonly EditableSettingKey[])[] = [
+  BUDGET_PAGE_SETTING_KEYS,
+  CASH_PAGE_SETTING_KEYS,
+  SUPER_PAGE_SETTING_KEYS,
+  OTHER_ASSETS_PAGE_SETTING_KEYS,
+  PROPERTY_PAGE_SETTING_KEYS,
+];
+
 /**
- * The settings slice of the page(s) whose keys the patch named (the Budget page's nine, the Cash
- * page's six, or both), and `hasAppData` after the write.
+ * The settings slice of every page whose keys the patch named (Budget, Cash, Super, Other Assets,
+ * Property; a key on two pages brings both), and `hasAppData` after the write.
  */
 export function settingsResponse(
   deps: FinanceDeps,
@@ -126,8 +140,7 @@ export function settingsResponse(
   const ctx = createFinanceContext(deps, log);
   const named = new Set<string>(keys);
   const slice = [
-    ...(BUDGET_PAGE_SETTING_KEYS.some((k) => named.has(k)) ? BUDGET_PAGE_SETTING_KEYS : []),
-    ...(CASH_PAGE_SETTING_KEYS.some((k) => named.has(k)) ? CASH_PAGE_SETTING_KEYS : []),
+    ...new Set(PAGE_SETTING_KEYS.filter((page) => page.some((k) => named.has(k))).flat()),
   ];
   return {
     settings: settingsSliceDto(ctx.data.settings, ctx.data.settingOrigins, slice),

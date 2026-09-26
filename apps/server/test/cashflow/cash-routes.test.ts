@@ -457,21 +457,69 @@ describe('PUT /api/period-notes/:kind/:periodMonth', () => {
     expect(readAppEditMarker(db())?.count).toBe(1);
   });
 
-  it('refuses the provisional month (400) and other note kinds (404)', async () => {
+  it('refuses the provisional month (400) and unknown note kinds (404)', async () => {
     const provisional = await call(ctx.app, {
       method: 'PUT',
       url: '/api/period-notes/spend/2026-09',
       payload: { note: 'x' },
     });
     expect(errorOf(provisional.body).message).toBe('periodMonth: not a recorded period');
-    for (const kind of ['super_option', 'other']) {
-      const res = await call(ctx.app, {
+    const other = await call(ctx.app, {
+      method: 'PUT',
+      url: '/api/period-notes/other/2026-07',
+      payload: { note: 'x' },
+    });
+    expect(other.status).toBe(404);
+  });
+
+  // Stage 4 (stage-4.md §4.2, §4.5): the super investment-option log (D69).
+  it('saves a super_option note on any month up to the as-of month and returns it', async () => {
+    // The provisional month and a month no snapshot has are both fine for this kind.
+    for (const month of ['2026-09', '2025-11']) {
+      const res = await call<PeriodNoteResponse>(ctx.app, {
         method: 'PUT',
-        url: `/api/period-notes/${kind}/2026-07`,
-        payload: { note: 'x' },
+        url: `/api/period-notes/super_option/${month}`,
+        payload: { note: ' Growth option ' },
       });
-      expect(res.status, kind).toBe(404);
+      expect(res.status).toBe(200);
+      expect(res.body.note).toEqual({
+        periodMonth: month,
+        kind: 'super_option',
+        note: 'Growth option',
+        origin: 'app',
+        sheetRef: null,
+      });
     }
+    expect(note('super_option', '2026-09')).toMatchObject({ origin: 'app' });
+    expect(await hasAppDataOf(ctx.app)).toBe(true);
+  });
+
+  it('keeps an unchanged workbook super_option note; refuses a month after the as-of month', async () => {
+    const same = await call<PeriodNoteResponse>(ctx.app, {
+      method: 'PUT',
+      url: '/api/period-notes/super_option/2026-06',
+      payload: { note: 'Switched to the balanced option' },
+    });
+    expect(same.body.note).toMatchObject({ kind: 'super_option', origin: 'import' });
+    expect(await hasAppDataOf(ctx.app)).toBe(false);
+    const later = await call(ctx.app, {
+      method: 'PUT',
+      url: '/api/period-notes/super_option/2026-10',
+      payload: { note: 'x' },
+    });
+    expect(later.status).toBe(400);
+    expect(errorOf(later.body)).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'periodMonth: after this month',
+    });
+    // Deleting the workbook note writes the marker.
+    const removed = await call<PeriodNoteResponse>(ctx.app, {
+      method: 'PUT',
+      url: '/api/period-notes/super_option/2026-06',
+      payload: { note: '' },
+    });
+    expect(removed.body).toEqual({ note: null });
+    expect(readAppEditMarker(db())?.count).toBe(1);
   });
 });
 

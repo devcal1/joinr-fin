@@ -1,9 +1,11 @@
-// Replace-all writes inside the import transaction (stage-1.md §4.8, stage-3.md §3.5). Every row
-// is validated with its Zod insert schema first; instruments are upserted by (kind, symbol) so
-// their ids (and the price data hanging off them) survive re-imports; cash account kinds are
-// carried over by name or sheet ref (D49); the overlay tables (savings adjustments and goals, the
-// dividend-events cache) are never touched.
+// Replace-all writes inside the import transaction (stage-1.md §4.8, stage-3.md §3.5,
+// stage-4.md §3.5). Every row is validated with its Zod insert schema first; instruments are
+// upserted by (kind, symbol) so their ids (and the price data hanging off them) survive re-imports;
+// cash account kinds (D49) and the fund that receives SG are carried over by name or sheet ref; the
+// overlay tables (savings adjustments and goals, SG statements) and the caches (dividend events,
+// the market series history) are never touched.
 import {
+  compareDecimals,
   decimalFromNumber,
   derivePriceSource,
   isSettingKey,
@@ -14,15 +16,19 @@ import {
   newDividendSchema,
   newIncomeStreamSchema,
   newInstrumentSchema,
+  newLoanBalanceEntrySchema,
   newLoanSchema,
+  newOtherAssetPriceSchema,
   newOtherAssetSchema,
   newPeriodNoteSchema,
   newPriceSchema,
   newPriceSourceSchema,
   newPropertySchema,
+  newPropertyValuationSchema,
   newSettingSchema,
   newSideIncomeDepositSchema,
   newSnapshotSchema,
+  newSuperBalanceEntrySchema,
   newSuperEntrySchema,
   newSuperFundSchema,
   newTradeSchema,
@@ -37,15 +43,19 @@ import {
   dividends,
   incomeStreams,
   instruments,
+  loanBalanceEntries,
   loans,
+  otherAssetPrices,
   otherAssets,
   periodNotes,
   priceSources,
   prices,
   properties,
+  propertyValuations,
   settings,
   sideIncomeDeposits,
   snapshots,
+  superBalanceEntries,
   superEntries,
   superFunds,
   trades,
@@ -55,8 +65,8 @@ import {
 import { asc, eq, notInArray } from 'drizzle-orm';
 import type { z } from 'zod';
 import { WorkbookFormatError } from './errors';
-import type { InstrumentDraft, WorkbookModel } from './model';
-import { carryAccountKinds, instrumentKey } from './process';
+import type { InstrumentDraft, OtherAssetRow, WorkbookModel } from './model';
+import { carryAccountKinds, carrySgFund, instrumentKey } from './process';
 
 export type Tx = Parameters<Parameters<JoinrDb['transaction']>[0]>[0];
 
@@ -75,6 +85,18 @@ export interface WriteResult {
   settingKeys: string[];
   /** Names of the stored non-bank accounts whose kind no imported account took (D49). */
   kindsNotCarried: string[];
+  /** Stored funds that received SG and that no imported fund continues (stage-4.md §3.5 item 3). */
+  sgFundNotCarried: number;
+}
+
+/**
+ * True when a row gets its first price entry (stage-4.md §3.5 item 1): a manual row with a
+ * price. A negative price cannot be a price entry (the extractor reports it).
+ */
+export function hasPriceEntry(a: OtherAssetRow): boolean {
+  return (
+    a.priceSource === 'manual' && a.unitPrice !== null && compareDecimals(a.unitPrice, '0') >= 0
+  );
 }
 
 function valid<S extends z.ZodType>(schema: S, row: unknown, ref: string): z.output<S> {
@@ -313,9 +335,23 @@ function storedAccountKinds(tx: Tx) {
     .all();
 }
 
+/** The stored funds and which one receives SG, read before the replace-all delete (§3.5 item 3). */
+function storedSuperFunds(tx: Tx) {
+  return tx
+    .select({
+      name: superFunds.name,
+      sheetRef: superFunds.sheetRef,
+      receivesSg: superFunds.receivesSg,
+    })
+    .from(superFunds)
+    .orderBy(asc(superFunds.sortOrder), asc(superFunds.id))
+    .all();
+}
+
 /** Replaces the imported data (inside `tx`). */
 export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): WriteResult {
   const carried = carryAccountKinds(storedAccountKinds(tx), model.cashAccounts);
+  const sgFund = carrySgFund(storedSuperFunds(tx), model.superFunds);
   for (const table of DOMAIN_TABLES_DELETE_ORDER) tx.delete(table).run();
   const ids = upsertInstruments(tx, model);
   const priceTreatment = writePricing(tx, model, ids, runStart);
@@ -542,26 +578,53 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
       .run();
   }
 
+  const otherAssetIds = model.otherAssets.map((a, i) =>
+    insertId(
+      tx
+        .insert(otherAssets)
+        .values(
+          valid(
+            newOtherAssetSchema,
+            {
+              description: a.description,
+              url: a.url,
+              purchaseDate: a.purchaseDate,
+              units: a.units,
+              soldUnits: a.soldUnits,
+              currency: a.currency,
+              unitCost: a.unitCost,
+              unitPrice: a.unitPrice,
+              unitPriceAsOf: a.unitPrice === null ? null : model.meta.asOf,
+              priceSource: a.priceSource,
+              metal: a.metal,
+              unitOfMeasure: a.unitOfMeasure,
+              ozPerUnit: a.ozPerUnit,
+              sortOrder: i + 1,
+              note: null,
+              ...imported,
+              sheetRef: a.sheetRef,
+              purchaseFxRate: a.purchaseFxRate,
+              purchaseFxSource: a.purchaseFxSource,
+              purchaseFxDate: a.purchaseFxDate,
+            },
+            a.sheetRef,
+          ),
+        )
+        .run(),
+    ),
+  );
+
+  // D72: a manual row's price as the first entry of its price history, at the workbook as-of.
   model.otherAssets.forEach((a, i) => {
-    tx.insert(otherAssets)
+    if (!hasPriceEntry(a)) return;
+    tx.insert(otherAssetPrices)
       .values(
         valid(
-          newOtherAssetSchema,
+          newOtherAssetPriceSchema,
           {
-            description: a.description,
-            url: a.url,
-            purchaseDate: a.purchaseDate,
-            units: a.units,
-            soldUnits: a.soldUnits,
-            currency: a.currency,
-            unitCost: a.unitCost,
+            otherAssetId: otherAssetIds[i]!,
+            asOf: model.meta.asOf,
             unitPrice: a.unitPrice,
-            unitPriceAsOf: a.unitPrice === null ? null : model.meta.asOf,
-            priceSource: a.priceSource,
-            metal: a.metal,
-            unitOfMeasure: a.unitOfMeasure,
-            ozPerUnit: a.ozPerUnit,
-            sortOrder: i + 1,
             note: null,
             ...imported,
             sheetRef: a.sheetRef,
@@ -572,17 +635,42 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
       .run();
   });
 
+  const fundIds = model.superFunds.map((f, i) =>
+    insertId(
+      tx
+        .insert(superFunds)
+        .values(
+          valid(
+            newSuperFundSchema,
+            {
+              name: f.name,
+              balanceCents: f.balanceCents,
+              balanceAsOf: f.balanceAsOf,
+              sortOrder: i + 1,
+              archived: false,
+              ...imported,
+              sheetRef: f.sheetRef,
+              receivesSg: sgFund.receivesSg[i] ?? false,
+            },
+            f.sheetRef,
+          ),
+        )
+        .run(),
+    ),
+  );
+
+  // D69: one balance entry per fund (the fund's balance and date are its denormalised copy).
   model.superFunds.forEach((f, i) => {
-    tx.insert(superFunds)
+    tx.insert(superBalanceEntries)
       .values(
         valid(
-          newSuperFundSchema,
+          newSuperBalanceEntrySchema,
           {
-            name: f.name,
+            fundId: fundIds[i]!,
+            asOf: f.balanceAsOf,
             balanceCents: f.balanceCents,
-            balanceAsOf: model.meta.asOf,
-            sortOrder: i + 1,
-            archived: false,
+            transferInCents: null,
+            note: null,
             ...imported,
             sheetRef: f.sheetRef,
           },
@@ -601,7 +689,7 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
             periodMonth: e.periodMonth,
             kind: e.kind,
             fundId: null,
-            entryDate: null,
+            entryDate: e.entryDate,
             amountCents: e.amountCents,
             note: null,
             ...imported,
@@ -641,27 +729,73 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
     ),
   );
 
-  model.loans.forEach((l, i) => {
-    tx.insert(loans)
+  // One valuation per property, at the workbook as-of (its value and date are the copy).
+  model.properties.forEach((p, i) => {
+    tx.insert(propertyValuations)
       .values(
         valid(
-          newLoanSchema,
+          newPropertyValuationSchema,
           {
-            propertyId: l.propertyIndex === null ? null : (propertyIds[l.propertyIndex] ?? null),
-            name: l.name,
-            lender: null,
-            startDate: l.startDate,
-            interestPeriodsPerYear: l.interestPeriodsPerYear,
-            annualRate: l.annualRate,
-            paymentCents: l.paymentCents,
-            paymentFrequency: 'monthly',
-            startBalanceCents: l.startBalanceCents,
-            currentBalanceCents: l.currentBalanceCents,
-            balanceAsOf: model.meta.asOf,
-            paymentsPaidCents: l.paymentsPaidCents,
-            paymentsPaidDerived: l.paymentsPaidDerived,
-            sortOrder: i + 1,
-            archived: false,
+            propertyId: propertyIds[i]!,
+            asOf: model.meta.asOf,
+            valueCents: p.currentValueCents,
+            note: null,
+            ...imported,
+            sheetRef: p.sheetRef,
+          },
+          p.sheetRef,
+        ),
+      )
+      .run();
+  });
+
+  const loanIds = model.loans.map((l, i) =>
+    insertId(
+      tx
+        .insert(loans)
+        .values(
+          valid(
+            newLoanSchema,
+            {
+              propertyId: l.propertyIndex === null ? null : (propertyIds[l.propertyIndex] ?? null),
+              name: l.name,
+              lender: null,
+              startDate: l.startDate,
+              interestPeriodsPerYear: l.interestPeriodsPerYear,
+              annualRate: l.annualRate,
+              paymentCents: l.paymentCents,
+              // The sheet's "$/month" convention; the owner can change it in the app (§3.5 item 4).
+              paymentFrequency: 'monthly',
+              startBalanceCents: l.startBalanceCents,
+              currentBalanceCents: l.currentBalanceCents,
+              balanceAsOf: l.balanceAsOf,
+              paymentsPaidCents: l.paymentsPaidCents,
+              paymentsPaidDerived: l.paymentsPaidDerived,
+              sortOrder: i + 1,
+              archived: false,
+              note: null,
+              ...imported,
+              sheetRef: l.sheetRef,
+            },
+            l.sheetRef,
+          ),
+        )
+        .run(),
+    ),
+  );
+
+  // D66: one balance entry per loan, its current balance; no start entry (the loan's start fields
+  // give the log's start point).
+  model.loans.forEach((l, i) => {
+    tx.insert(loanBalanceEntries)
+      .values(
+        valid(
+          newLoanBalanceEntrySchema,
+          {
+            loanId: loanIds[i]!,
+            asOf: l.balanceAsOf,
+            balanceCents: l.currentBalanceCents,
+            repaymentsCents: null,
             note: null,
             ...imported,
             sheetRef: l.sheetRef,
@@ -678,5 +812,6 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
     priceTreatment,
     settingKeys,
     kindsNotCarried: carried.notCarried,
+    sgFundNotCarried: sgFund.notCarried,
   };
 }

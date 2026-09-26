@@ -23,6 +23,14 @@ export const RECORD_ENTITY_IDS = [
   'savings-adjustments',
   'savings-goals',
   'dividend-events',
+  // Stage 4 (stage-4.md §3.2).
+  'other-asset-prices',
+  'other-asset-sales',
+  'super-balance-entries',
+  'super-sg-overrides',
+  'property-valuations',
+  'loan-balance-entries',
+  'loan-offset-links',
 ] as const;
 export type RecordEntityId = (typeof RECORD_ENTITY_IDS)[number];
 
@@ -86,6 +94,13 @@ export const RECORD_ENTITY_TABLES: Readonly<Record<RecordEntityId, string>> = {
   'savings-adjustments': 'savings_adjustments',
   'savings-goals': 'savings_goals',
   'dividend-events': 'dividend_events',
+  'other-asset-prices': 'other_asset_prices',
+  'other-asset-sales': 'other_asset_sales',
+  'super-balance-entries': 'super_balance_entries',
+  'super-sg-overrides': 'super_sg_overrides',
+  'property-valuations': 'property_valuations',
+  'loan-balance-entries': 'loan_balance_entries',
+  'loan-offset-links': 'loan_offset_links',
 };
 
 const col = (id: string, label: string, type: RecordColumnType): RecordColumn => ({
@@ -317,6 +332,9 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('metal', 'Metal', 'text'),
       col('unitOfMeasure', 'Unit of measure', 'text'),
       col('value', 'Value', 'money'),
+      // Stage 4 (appended).
+      col('purchaseFxRate', 'FX rate at purchase', 'price'),
+      col('purchaseFxSource', 'FX rate source', 'text'),
     ],
   },
   'super-funds': {
@@ -328,6 +346,8 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('name', 'Name', 'text'),
       col('balance', 'Balance', 'money'),
       col('balanceAsOf', 'Balance as of', 'date'),
+      // Stage 4 (appended).
+      col('receivesSg', 'Receives SG', 'boolean'),
     ],
   },
   'super-entries': {
@@ -340,6 +360,8 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('kind', 'Kind', 'text'),
       col('fund', 'Fund', 'text'),
       col('amount', 'Amount', 'money'),
+      // Stage 4 (appended).
+      col('date', 'Date', 'date'),
     ],
   },
   properties: {
@@ -441,6 +463,93 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('fetchedAt', 'Fetched', 'timestamp'),
       col('dismissed', 'Dismissed', 'boolean'),
     ],
+  },
+  // ─── Stage 4 (stage-4.md §3.2) ───
+  'other-asset-prices': {
+    id: 'other-asset-prices',
+    label: 'Other asset prices',
+    group: 'assets',
+    defaultSort: { columnId: 'asOf', desc: true },
+    columns: [
+      col('asset', 'Asset', 'text'),
+      col('asOf', 'As of', 'date'),
+      col('unitPrice', 'Unit price', 'price'),
+      col('currency', 'Currency', 'text'),
+      col('note', 'Note', 'text'),
+      col('sheetRef', 'Sheet ref', 'text'),
+    ],
+  },
+  'other-asset-sales': {
+    id: 'other-asset-sales',
+    label: 'Other asset sales',
+    group: 'assets',
+    defaultSort: { columnId: 'date', desc: true },
+    columns: [
+      col('asset', 'Asset', 'text'),
+      col('date', 'Date', 'date'),
+      col('units', 'Units', 'quantity'),
+      col('proceeds', 'Proceeds', 'money'),
+      col('note', 'Note', 'text'),
+    ],
+  },
+  'super-balance-entries': {
+    id: 'super-balance-entries',
+    label: 'Super balance history',
+    group: 'assets',
+    defaultSort: { columnId: 'asOf', desc: true },
+    columns: [
+      col('fund', 'Fund', 'text'),
+      col('asOf', 'As of', 'date'),
+      col('balance', 'Balance', 'money'),
+      col('transferIn', 'Transfer in', 'money'),
+      col('note', 'Note', 'text'),
+      col('sheetRef', 'Sheet ref', 'text'),
+    ],
+  },
+  'super-sg-overrides': {
+    id: 'super-sg-overrides',
+    label: 'Super SG statements',
+    group: 'assets',
+    defaultSort: { columnId: 'period', desc: true },
+    columns: [
+      col('period', 'Month earned', 'month'),
+      col('gross', 'Before tax', 'money'),
+      col('note', 'Note', 'text'),
+    ],
+  },
+  'property-valuations': {
+    id: 'property-valuations',
+    label: 'Property valuations',
+    group: 'assets',
+    defaultSort: { columnId: 'asOf', desc: true },
+    columns: [
+      col('property', 'Property', 'text'),
+      col('asOf', 'As of', 'date'),
+      col('value', 'Value', 'money'),
+      col('note', 'Note', 'text'),
+      col('sheetRef', 'Sheet ref', 'text'),
+    ],
+  },
+  'loan-balance-entries': {
+    id: 'loan-balance-entries',
+    label: 'Loan balance history',
+    group: 'assets',
+    defaultSort: { columnId: 'asOf', desc: true },
+    columns: [
+      col('loan', 'Loan', 'text'),
+      col('asOf', 'As of', 'date'),
+      col('balance', 'Balance', 'money'),
+      col('repayments', 'Repayments', 'money'),
+      col('note', 'Note', 'text'),
+      col('sheetRef', 'Sheet ref', 'text'),
+    ],
+  },
+  'loan-offset-links': {
+    id: 'loan-offset-links',
+    label: 'Offset links',
+    group: 'assets',
+    defaultSort: { columnId: 'account' },
+    columns: [col('account', 'Account', 'text'), col('loan', 'Loan', 'text')],
   },
 };
 

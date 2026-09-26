@@ -279,7 +279,57 @@ describe('MoneyField', () => {
   });
 });
 
+describe('Checkbox labelSuffix (Stage 4)', () => {
+  it('appends words to the accessible name only, through the input’s aria-label', () => {
+    const { container } = render(
+      <Checkbox
+        label="Still current"
+        labelSuffix=", Example watch"
+        checked={false}
+        onChange={() => undefined}
+      />,
+    );
+    const box = screen.getByRole('checkbox', { name: 'Still current, Example watch' });
+    expect(box).toHaveAttribute('aria-label', 'Still current, Example watch');
+    // The visible label is the label alone (no hidden suffix span, so no stray space in Chrome).
+    expect(container.querySelector('label')).toHaveTextContent(/^Still current$/);
+    expect(container.querySelector('label .jf-visually-hidden')).toBeNull();
+  });
+
+  it('a switch takes it too; without it the name is the label', () => {
+    render(
+      <Switch
+        label="Receives SG"
+        labelSuffix=", Example Super"
+        checked
+        onChange={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('switch', { name: 'Receives SG, Example Super' })).toBeChecked();
+    render(<Checkbox label="Plain" checked={false} onChange={() => undefined} />);
+    expect(screen.getByRole('checkbox', { name: 'Plain' })).toBeInTheDocument();
+  });
+});
+
 describe('NumberField', () => {
+  it('labelHidden hides the label visually but keeps it as the accessible name (Stage 4)', () => {
+    const { container } = render(
+      <NumberField
+        label="Price, Example watch"
+        value="12.5"
+        onChange={() => undefined}
+        labelHidden
+      />,
+    );
+    expect(screen.getByRole('textbox', { name: 'Price, Example watch' })).toBeInTheDocument();
+    expect(container.querySelector('label')).toHaveClass('jf-field__label', 'jf-visually-hidden');
+  });
+
+  it('shows its label by default', () => {
+    const { container } = render(<NumberField label="Units" value="" onChange={() => undefined} />);
+    expect(container.querySelector('label')).not.toHaveClass('jf-visually-hidden');
+  });
+
   function renderNumber(initial: string, props: { maxDp?: number; allowNegative?: boolean } = {}) {
     return render(
       <Controlled initial={initial}>

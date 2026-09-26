@@ -2,6 +2,7 @@
 // (corrections, exclusions, suspects, re-keying) refine before anything is written.
 import type {
   BudgetItemKind,
+  FxRateSource,
   InstrumentKind,
   IsoDate,
   IsoMonth,
@@ -228,6 +229,15 @@ export interface OtherAssetRow {
   metal: Metal | null;
   unitOfMeasure: UnitOfMeasure;
   ozPerUnit: string | null;
+  /**
+   * Stage 4 (stage-4.md §3.5 item 1): a non-AUD row's AUD per unit of its currency at purchase,
+   * N ÷ (M × J) from the sheet's cached cells (12 significant digits; GBX rows hold the per-penny
+   * rate); null when it cannot be derived (the FX backfill fills it later).
+   */
+  purchaseFxRate: string | null;
+  purchaseFxSource: FxRateSource | null;
+  /** The purchase date G the sheet's historical close comes from. */
+  purchaseFxDate: IsoDate | null;
 }
 
 export interface SuperFundRow {
@@ -235,6 +245,12 @@ export interface SuperFundRow {
   sheetRef: string;
   name: string;
   balanceCents: number;
+  /**
+   * The date of the fund's one balance entry (stage-4.md §3.5 item 2): the last run date when the
+   * live total equals the last frozen History row's Q, else the workbook as-of. Set by
+   * `dateBalanceEntries`.
+   */
+  balanceAsOf: IsoDate;
 }
 
 export interface SuperEntryRow {
@@ -242,6 +258,11 @@ export interface SuperEntryRow {
   periodMonth: IsoMonth;
   amountCents: number;
   sheetRef: string;
+  /**
+   * Stage 4 (stage-4.md §3.5 item 2): the Super!B16 entry's min(period month end, workbook as-of),
+   * a History-derived contribution's run date; null for the reported gain.
+   */
+  entryDate: IsoDate | null;
 }
 
 export interface PropertyRow {
@@ -269,6 +290,12 @@ export interface LoanRow {
   paymentsPaidCents: number | null;
   paymentsPaidDerived: boolean;
   sheetRef: string;
+  /**
+   * The date of the loan's one balance entry (stage-4.md §3.5 item 4): the last run date for a
+   * property loan when the property loans' total equals the last frozen History row's |AB| and it
+   * started before that date, else the workbook as-of. Set by `dateBalanceEntries`.
+   */
+  balanceAsOf: IsoDate;
 }
 
 export interface SnapshotRow {
@@ -316,6 +343,8 @@ export interface WorkbookModel {
   sideIncome: SideIncomeDepositRow[];
   otherAssets: OtherAssetRow[];
   superFunds: SuperFundRow[];
+  /** Super!B12 (the live total) in cents; null when it is not a number. */
+  superTotalCents: number | null;
   superEntries: SuperEntryRow[];
   properties: PropertyRow[];
   loans: LoanRow[];

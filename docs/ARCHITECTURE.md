@@ -41,7 +41,7 @@ tools/privacy-guard  (standalone, Node built-ins only)
 | `@joinr/web` | React 19 + Vite SPA. Code-based TanStack Router routes and TanStack Query. There is one route per page, plus `/styleguide` (the component gallery) and `/preview/screen/:variant` (the brand screens). |
 | `@joinr/server` | Fastify API, SQLite access and migrations. In production it also serves the SPA. |
 | `@joinr/ui` | Design tokens, global CSS, layout and content components, brand components and chart wrappers. It is split into `core`, `brand` and `charts`. |
-| `@joinr/engine` | Pure calculation functions: from Stage 2 the investments (FIFO parcels, realised gains by financial year, holding metrics, XIRR, allocation, contributions history, the investment timing); later savings and FIRE. No I/O and no clock: every "today" is an `asOf` input, and ESLint bans `Date.now()`, `new Date()` and node imports in its sources. It imports only the `@joinr/schema` root, so it could run in the browser; today only the server calls it. |
+| `@joinr/engine` | Pure calculation functions: from Stage 2 the investments (FIFO parcels, realised gains by financial year, holding metrics, XIRR, allocation, contributions history, the investment timing); from Stage 3 cash, savings, budget, side income and dividends; from Stage 4 other assets, super, property and loans (with an amortisation schedule) and the live History columns; later FIRE. No I/O and no clock: every "today" is an `asOf` input, and ESLint bans `Date.now()`, `new Date()` and node imports in its sources. It imports only the `@joinr/schema` root, so it could run in the browser; today only the server calls it. |
 | `@joinr/schema` | The shared data contract. The root entry holds enums, Zod schemas, API DTO types, the settings and record-browser registries, and pricing, decimal and date helpers; `/db` holds the Drizzle tables; `/testing` the in-memory test database, the generic seed and a table dump; `/fixtures` typed sample DTOs for UI tests. |
 | `@joinr/importer` | Reads a workbook export (SheetJS) into the database in one transaction and produces a reconciliation report. `/testing` builds a generic synthetic workbook for tests. |
 | `@joinr/privacy-guard` | The pre-commit check that keeps private material out of this public repo. |
@@ -106,6 +106,8 @@ Shutdown:
 | `routes/prices.ts` | Prices, refresh, manual overrides, price sources, market series. |
 | `routes/investments.ts` | The investment pages, the trade ledger, holding detail, and trade and holding changes. |
 | `routes/{cash,sideIncome,budget,dividends,settings}.ts` | The cash-flow pages and their changes (Stage 3), the dividend suggestions and the settings PATCH. |
+| `routes/{otherAssets,super,property}.ts` | The Other Assets, Super and Property pages and their changes (Stage 4). |
+| `assets/` | The Stage 4 engine inputs (`inputs.ts`), the page builders (`otherAssets.ts`, `super.ts`, `property.ts`), the mutations (`mutations/`), the responses and the pages' settings keys (`constants.ts`). |
 | `investments/` | Loads every finance row in one read transaction (`load.ts`), maps engine results to the investment DTOs (`page.ts`, `trades.ts`, `detail.ts`, `charts.ts`, `timing.ts`, `mappers.ts`), and runs the trade and holding mutations (`mutations.ts`). |
 | `cashflow/` | The finance context (`context.ts`: one request's rows, prices and memoised engine results), the engine inputs (`inputs.ts`), the page builders (`cash.ts`, `sideIncome.ts`, `budget.ts`, `dividends.ts`), the mutations (`mutations/`), the responses and the owner-confirmed constants (`constants.ts`). |
 | `market/dividends/` | The dividend-events service: Yahoo chart events and closes cached in `dividend_events` by a daily `dividends` job. |
@@ -219,7 +221,7 @@ GET /api/cash · /api/side-income · /api/budget · /api/dividends (and the inve
 
 - **One context.** `createFinanceContext` reads the prices first, then every row in one read transaction, and computes each engine result at most once per request. The investment routes use the same context, so the next-buy timing reads the live budget and cash.
 - **Owner-confirmed constants** (D59) live in `cashflow/constants.ts`: `LOANS_COUNT_FOR_EMERGENCY_FUND = false` (loans you've made are left out of the emergency-fund test) and `GOALS_CASH_BASIS = 'available'` (the savings goals start from available cash). The DTOs report both, so the web copy follows a change.
-- **Engine inputs** (`cashflow/inputs.ts`): the snapshots' stored cash, super, salary, property and mortgage columns; the provisional period's live values (Total Cash, the current pay through `monthlyPayCents`, voluntary super after the latest snapshot, the property and mortgage as imported until Stage 4); every trade, AUD other-asset purchase, deposit and dividend; the adjustments; the budget rows in sort order with the linked account's name.
+- **Engine inputs** (`cashflow/inputs.ts`): the snapshots' stored cash, super, salary, property and mortgage columns (the latest snapshot also carries the offset accounts' balances at its run date); the provisional period's live values (Total Cash, the current pay through `monthlyPayCents`, and from Stage 4 the super, property, mortgage and offset parts taken from the assets engines' results); every trade, other-asset purchase or sale (the assets engine's dated flows), deposit and dividend; the adjustments; the budget rows in sort order with the linked account's name.
 - **Mutations** run in one `BEGIN IMMEDIATE` transaction each, answer `409 IMPORT_IN_PROGRESS` first while an upload import runs, compare "changed" after normalising both sides (so a no-op save never flips `origin`), write the deletion marker for a workbook row, and answer with the row's DTO rebuilt from a fresh context.
 - **Balance history (D58):** a balance save upserts `(account, as_of)`; the account's `balance_cents`/`balance_as_of` are a copy of its latest entry, kept in step on every save and delete.
 - **Recorded periods:** an adjustment is accepted only on a closed period's month (every snapshot month but the first), a period note on any snapshot month; the provisional month's label can still change.
@@ -236,18 +238,54 @@ GET /api/cash · /api/side-income · /api/budget · /api/dividends (and the inve
 
 **Dividend events.** `market/dividends/` implements the frozen `DividendEventsService` (`refresh`, `status`). In mode `live` or `fake` it registers a `dividends` job (daily when `PRICE_REFRESH_MINUTES` > 0, manual otherwise) that fetches Yahoo chart events and daily closes for the stocks, ETFs and managed funds with trades, converts timestamps to the exchange's local date, and upserts `dividend_events` without touching `dismissed_at`. It waits while the price job runs and shares its rate-limit cool-down. The page reads the cache: the engine turns events into suggestions (due, upcoming, dismissed) and the server adds the status, the cache counts and the last run's error (URLs removed, at most 200 characters).
 
+## Other assets, super and property
+
+```
+GET /api/other-assets · /api/super · /api/property (and every page that reads the finance context)
+  price service: prices and the market series (bullion spot, FX) ─┐
+  the same read transaction, plus the price and sale logs, super funds and balance logs,       │
+    SG statements, valuations, loan balance logs and offset links ───────────────────────────┐ │
+  FinanceContext (memoised per request) ◄──────────────────────────────────────────────────┘ ◄┘
+    computeOtherAssets · computeSuper · computeProperty (amortise inside) · assetsSnapshotColumns
+  ─► page builders ─► DTOs (the server adds names, notes, origins, counts and the market tiles)
+  ─► the Cash page's provisional savings period and the other-assets class value
+```
+
+- **Engine inputs** (`assets/inputs.ts`, pure and unit-tested row by row):
+  - Other assets: a hand-priced item takes its latest price entry on or before the as-of date; a bullion item takes the metal's spot series × its ounces per unit, with its last known price as the fallback; a foreign item takes the live FX rate (USD from AUD/USD, other currencies from their `FX_<CCY>AUD` series, UK pence from the pound ÷ 100) and the rate on its purchase date. An undated item uses the first recorded month's date, marked assumed; the date is never written to the row.
+  - Super: the funds with their balance logs (a transfer in from outside the tracked funds is not a gain), the member contributions (dated by their entry date, else the first day of the month), the SG statement months and the pay, tax and super settings with their defaults.
+  - Property: the properties with their valuations; the loans with their start fields, their balance logs and their linked offset accounts that are still flagged Offset.
+- **The live savings input** comes from the engine results only: the super contributions' take-home cost since the latest snapshot, the property and mortgage parts, the offset balances and the other-asset purchases and sales. The other-assets class value on the investment pages is the engine's total, at live spot and FX.
+- **The History seam.** `assetsSnapshotColumns` gives the live History figures for super, property, the mortgage and other assets. Stage 5 records them with each month.
+- **Logs and copies.** Prices, fund balances, valuations and loan balances are logs keyed by (parent, date). Each save upserts its entry, then sets the parent's denormalised copy (the latest entry), and each delete recomputes it. A fund, a property and a loan keep at least one entry (`409 LAST_BALANCE_ENTRY`). A loan's start date and balance give the first point of its log; no start entry is stored.
+- **Mutations** follow the Stage 3 order: `409 IMPORT_IN_PROGRESS` first, then validation, load (`404`), the cross-row rules (`422 SALE_OVERSELL`, `409 FUND_IN_USE`, `409 PROPERTY_HAS_LOAN`, a 400 for a bullion item in a price save, a month after this one, an account that is not an offset), one `BEGIN IMMEDIATE` transaction, and a response rebuilt from a fresh context. A change to an item's currency or purchase date, or a bullion item, tells the price service to run, so it fetches the rate on the purchase date and the spot.
+- **Offsets (D67).** A loan's offset links are replaced as a set; an account linked to another loan moves. Turning an account's Offset flag off on the Cash page removes its link in the same transaction, and deleting the account cascades it.
+
+**D34 in Stage 4.**
+
+| Kind of data | Counts as app data |
+|---|---|
+| Import-owned rows created or changed in the app: items, price entries, sales, funds, fund balances, contributions, option notes, properties, valuations, loans, loan balances and offset links | Yes (`origin = 'app'`) |
+| A workbook row deleted in the app | Yes (the deletion marker) |
+| Choosing the fund that receives employer SG (the flag alone) | No: the fund keeps its origin, and the importer carries the flag across a re-import by fund name |
+| SG statement months (an overlay) and the market series history (a cache) | No |
+| The app-only settings (stale-price days, your employer's SG rate, contributions tax, the cap override and its financial year, how imported contributions are read) | No |
+| The workbook's salary, marginal tax rate and job start date edited in the app | Yes |
+
 ## Price service and scheduler
 
 ```
 scheduler ──(every PRICE_REFRESH_MINUTES, or "Refresh now")──► prices job
   prices job: series (AUD/USD, silver, gold) ─► instruments by provider ─► FX to AUD
-              ─► one write transaction (prices, market_quotes) ─► job_runs row
+              (incl. the currencies other assets use) ─► purchase-date FX backfill
+              ─► one write transaction (prices, market_quotes, market_quote_history) ─► job_runs row
 ```
 
 - **Providers:** the Yahoo chart API for listed securities, futures and FX; CoinGecko for crypto; a deterministic `fake` provider for tests and demos (`MARKET_DATA_MODE=fake`). `off` never fetches. Every request has a 10-second timeout, and a run has a 90-second deadline.
 - **Resilience:** a failed fetch keeps the last good price, repeated failures back off, and a rate-limited provider cools down. A manual price always wins over a fetched one.
 - **Status** is computed, never stored: `fresh`, `stale`, `failed`, `manual` or `none`. Prices seeded from the workbook show as stale until the first refresh.
 - **Bullion** is priced from the built-in series (silver and gold per ounce in AUD), not from holdings.
+- **Other assets (Stage 4):** the job also refreshes the FX rate of every currency an other asset uses, and fills a foreign item's rate on its purchase date from the day's close (at most 10 items a run, each pair tried at most once a day, never over a rate typed in the app). The series written each run are kept as one row per series per day in `market_quote_history`, which draws the spot price charts.
 - **Scheduler:** generic and reusable (Stage 3 adds the `dividends` job, Stage 5 the month-end snapshot job, Stage 7 backups). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
 
 ## Data
@@ -307,7 +345,7 @@ DATA_DIR/
 | Privacy guard | Vitest; the integration tests run the real hook in a temporary git repo | `tools/privacy-guard/test` |
 | End to end | Playwright at 1440 px and 375 px, installed Chrome | `e2e/` |
 | Importer | Vitest against an in-memory database and the generic synthetic workbook (no network, corrections off) | `packages/importer`, `apps/server/test` |
-| Golden values | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | importer (Stage 1), engine and the investments API (Stage 2 on) |
+| Golden values | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | importer (Stage 1), engine and the investments API (Stage 2 on), the cash-flow API (Stage 3), the other assets, super and property APIs (Stage 4) |
 
 Each app, package and tool is a Vitest project, and the root `vitest.config.ts` runs them all.
 

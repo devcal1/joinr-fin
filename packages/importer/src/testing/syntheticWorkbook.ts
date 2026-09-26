@@ -960,7 +960,16 @@ function otherAssetsSheet(t: Totals): WorkSheet {
       .n(`K${a.r}`, a.price, a.priceFormula);
     if (a.sold !== undefined) sb.n(`L${a.r}`, a.sold);
     const remaining = a.units - Math.abs(a.sold ?? 0);
-    sb.n(`M${a.r}`, remaining, `IF(AND(H${a.r}<>"",H${a.r}>0),H${a.r}-abs(L${a.r}),"")`);
+    const r = a.r;
+    sb.n(`M${r}`, remaining, `IF(AND(H${r}<>"",H${r}>0),H${r}-abs(L${r}),"")`);
+    // The template's cached purchase value, current value and gain (every row is AUD here).
+    sb.n(`N${r}`, remaining * a.cost, `IF(AND(J${r}<>"",M${r}>0,M${r}<>""),M${r}*J${r},"")`)
+      .n(`O${r}`, remaining * a.price, `IF(M${r}<>"",M${r}*K${r},"")`)
+      .n(
+        `P${r}`,
+        remaining * a.price - remaining * a.cost,
+        `IF(AND(N${r}<>"",O${r}<>"",M${r}>0),O${r}-N${r},"")`,
+      );
     value += remaining * a.price;
     cost += remaining * a.cost;
   }

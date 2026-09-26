@@ -20,9 +20,9 @@ import { SchedulerStoppedError, systemClock } from '../scheduler/index';
 import type { JobContext, JobResult, Scheduler } from '../scheduler/types';
 import { listPriceItems, listSeries, priceItemFor } from './items';
 import { createCoinGeckoProvider } from './providers/coingecko';
-import { createFakeProvider } from './providers/fake';
+import { createFakeFxClosesClient, createFakeProvider } from './providers/fake';
 import { clockSleep } from './providers/http';
-import { createYahooProvider } from './providers/yahoo';
+import { createYahooFxClosesClient, createYahooProvider } from './providers/yahoo';
 import {
   Cooldowns,
   RUN_DEADLINE_MS,
@@ -68,7 +68,8 @@ function buildProviders(
   const now = () => clock.now();
   if (mode === 'fake') {
     const fake = createFakeProvider({ now });
-    return { yahoo: fake, coingecko: fake };
+    // Stage 4 (stage-4.md §4.6): the fake FX closes for the purchase-date backfill.
+    return { yahoo: fake, coingecko: fake, fxCloses: createFakeFxClosesClient({ now }) };
   }
   // Resolved at call time, so a test's global fetch guard (or a later polyfill) applies.
   const fetchImpl: typeof fetch = o.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
@@ -81,13 +82,27 @@ function buildProviders(
       timeoutMs: o.requestTimeoutMs,
     }),
     coingecko: createCoinGeckoProvider({ fetchImpl, now, timeoutMs: o.requestTimeoutMs }),
+    // Stage 4: Yahoo's daily FX closes, with the provider's spacing, timeout and User-Agent.
+    fxCloses: createYahooFxClosesClient({
+      fetchImpl,
+      sleep: clockSleep(clock),
+      now,
+      spacingMs: o.yahooSpacingMs,
+      timeoutMs: o.requestTimeoutMs,
+    }),
   };
 }
 
+/**
+ * Stage 1 rules; Stage 4 counts the FX backfill beside the instruments and series: a backfill
+ * failure alone makes the run `partial`, a filled rate counts as a success, and a deadline that
+ * left backfill assets unattempted makes the run incomplete.
+ */
 function jobStatus(outcome: RefreshOutcome): JobResult['status'] {
-  const failed = outcome.failed + outcome.series.failed;
-  const ok = outcome.ok + outcome.series.ok;
-  const incomplete = failed > 0 || (outcome.aborted && outcome.skipped > 0);
+  const fx = outcome.fxBackfill;
+  const failed = outcome.failed + outcome.series.failed + fx.failed;
+  const ok = outcome.ok + outcome.series.ok + fx.filled;
+  const incomplete = failed > 0 || (outcome.aborted && outcome.skipped + fx.skipped > 0);
   if (!incomplete) return 'succeeded';
   return ok > 0 ? 'partial' : 'failed';
 }
@@ -159,6 +174,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
           byProvider: outcome.byProvider,
           series: outcome.series,
           searches: outcome.searches,
+          fxBackfill: outcome.fxBackfill,
           deadlineHit: deadline.signal.aborted,
           durationMs,
         },

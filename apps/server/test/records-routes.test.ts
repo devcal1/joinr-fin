@@ -10,8 +10,13 @@ import {
 import {
   cashAccounts,
   dividendEvents,
+  loanOffsetLinks,
+  loans,
+  otherAssets,
+  otherAssetSales,
   savingsAdjustments,
   savingsGoals,
+  superSgOverrides,
   yearlyExpenses,
 } from '@joinr/schema/db';
 import { seedGenericData, type SeedResult } from '@joinr/schema/testing';
@@ -51,8 +56,9 @@ async function getPage(entity: string): Promise<RecordsPageResponse> {
 const DECIMAL_RE = /^-?(?:0|[1-9]\d*)(?:\.\d*[1-9])?$/;
 
 /**
- * The seed writes no Stage 3 overlays or dividend events (stage-3.md §3.6); these tests add one
- * of each (generic values) so every record page has rows.
+ * The seed writes no Stage 3 overlays or dividend events (stage-3.md §3.6), and no Stage 4 sales,
+ * SG statements or offset links (stage-4.md §3.6); these tests add one of each (generic values) so
+ * every record page has rows.
  */
 function seedWithOverlays(): SeedResult {
   const seeded = seedGenericData(database.db, { now: NOW });
@@ -91,6 +97,36 @@ function seedWithOverlays(): SeedResult {
       },
     ])
     .run();
+  const [silver] = database.db
+    .select()
+    .from(otherAssets)
+    .all()
+    .filter((a) => a.priceSource === 'bullion');
+  database.db
+    .insert(otherAssetSales)
+    .values({
+      otherAssetId: silver!.id,
+      saleDate: '2026-07-15',
+      units: '2',
+      proceedsCents: 9000,
+      note: 'Sold to a dealer',
+    })
+    .run();
+  database.db
+    .insert(superSgOverrides)
+    .values({ periodMonth: '2026-08', grossCents: 90000, note: 'From the payslip' })
+    .run();
+  const [offset] = database.db
+    .select()
+    .from(cashAccounts)
+    .all()
+    .filter((a) => a.isOffset);
+  const [mortgage] = database.db
+    .select()
+    .from(loans)
+    .all()
+    .filter((l) => l.propertyId !== null);
+  database.db.insert(loanOffsetLinks).values({ accountId: offset!.id, loanId: mortgage!.id }).run();
   return seeded;
 }
 
@@ -127,6 +163,15 @@ describe('GET /api/records', () => {
     expect(counts['side-income']).toBe(3);
     expect(counts['savings-goals']).toBe(2);
     expect(counts['dividend-events']).toBe(2);
+    // Stage 4 (stage-4.md §3.6): two entries per log in the seed, one of each added here.
+    expect(counts['other-asset-prices']).toBe(2);
+    expect(counts['super-balance-entries']).toBe(2);
+    expect(counts['property-valuations']).toBe(2);
+    expect(counts['loan-balance-entries']).toBe(4);
+    expect(counts['super-entries']).toBe(5);
+    expect(counts['other-asset-sales']).toBe(1);
+    expect(counts['super-sg-overrides']).toBe(1);
+    expect(counts['loan-offset-links']).toBe(1);
   });
 });
 
@@ -260,6 +305,42 @@ describe('GET /api/records/:entity', () => {
       ['ASX:XYZ', true],
     ]);
     expect(events.rows[1]!.id).toMatch(/^\d+:2026-06-30$/);
+  });
+
+  it('lists the Stage 4 entities with their parents and the appended columns', async () => {
+    const prices = await getPage('other-asset-prices');
+    expect(prices.rows.map((r) => [r.cells.asset, r.cells.asOf, r.cells.currency])).toEqual([
+      ['Example watch', '2026-08-31', 'AUD'],
+      ['Example watch', '2026-03-31', 'AUD'],
+    ]);
+    const sales = await getPage('other-asset-sales');
+    expect(sales.rows[0]!.cells).toMatchObject({ asset: 'Silver bar', units: '2', proceeds: 9000 });
+    const balances = await getPage('super-balance-entries');
+    expect(balances.rows.map((r) => [r.cells.fund, r.cells.asOf, r.cells.transferIn])).toEqual([
+      ['Example Super', '2026-08-31', null],
+      ['Example Super', '2026-05-31', null],
+    ]);
+    const statements = await getPage('super-sg-overrides');
+    expect(statements.rows[0]!.cells).toEqual({
+      period: '2026-08',
+      gross: 90000,
+      note: 'From the payslip',
+    });
+    const valuations = await getPage('property-valuations');
+    expect(valuations.rows.map((r) => r.cells.asOf)).toEqual(['2026-08-31', '2025-08-31']);
+    const loanEntries = await getPage('loan-balance-entries');
+    expect(loanEntries.rows.map((r) => r.cells.loan)).toContain('Example car loan');
+    const links = await getPage('loan-offset-links');
+    expect(links.rows[0]!.cells).toEqual({
+      account: 'Example Bank – Offset',
+      loan: 'Example property mortgage',
+    });
+    const funds = await getPage('super-funds');
+    expect(funds.rows[0]!.cells.receivesSg).toBe(true);
+    const entries = await getPage('super-entries');
+    expect(entries.rows.filter((r) => r.cells.date !== null)).toHaveLength(4);
+    const assets = await getPage('other-assets');
+    expect(assets.rows.every((r) => r.cells.purchaseFxRate === null)).toBe(true);
   });
 
   it('maps every History value column of the snapshots', async () => {

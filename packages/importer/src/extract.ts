@@ -4,8 +4,11 @@ import {
   BULLION_FEEDS,
   centsFromNumber,
   decimalFromNumber,
+  IMPORT_SIGNIFICANT_DIGITS,
   isoMonthOf,
   addMonthsIso,
+  JoinrDecimal,
+  normaliseDecimal,
   normaliseSheetLabel,
   PAY_FREQUENCY_SHEET_VALUES,
   SETTINGS,
@@ -692,6 +695,26 @@ export function bullionMetal(r: SheetReader, row: number): Metal | null {
   return null;
 }
 
+/**
+ * A non-AUD row's AUD per unit of its currency at purchase (stage-4.md §3.5 item 1): the sheet's
+ * cached `N ÷ (M × J)`, which is its historical close on the purchase date (GBX rows: the
+ * per-penny rate), with 12 significant digits. Null unless N, M and J are numbers, `M × J ≠ 0` and
+ * the rate is positive.
+ */
+export function purchaseFxRateOf(
+  n: number | null,
+  m: number | null,
+  unitCost: string | null,
+): string | null {
+  if (n === null || m === null || unitCost === null) return null;
+  const denominator = new JoinrDecimal(m).times(new JoinrDecimal(unitCost));
+  if (denominator.isZero()) return null;
+  const rate = new JoinrDecimal(n)
+    .dividedBy(denominator)
+    .toSignificantDigits(IMPORT_SIGNIFICANT_DIGITS, JoinrDecimal.ROUND_HALF_EVEN);
+  return rate.greaterThan(0) ? normaliseDecimal(rate) : null;
+}
+
 export function extractOtherAssets(ctx: ExtractContext): OtherAssetRow[] {
   const { r } = ctx;
   const s = OTHER_ASSETS.sheet;
@@ -708,22 +731,45 @@ export function extractOtherAssets(ctx: ExtractContext): OtherAssetRow[] {
     const sold = ctx.num(s, `L${row}`, 'other_assets');
     const price = ctx.num(s, `K${row}`, 'other_assets');
     const metal = bullionMetal(r, row);
+    const currency = ctx.text(s, `I${row}`) ?? 'AUD';
+    const unitCost = ctx.decimal(s, `J${row}`, 'other_assets');
+    const purchaseDate = r.date(s, `G${row}`);
+    const purchaseFxRate =
+      currency === 'AUD'
+        ? null
+        : purchaseFxRateOf(r.number(s, `N${row}`), r.number(s, `M${row}`), unitCost);
     out.push({
       row,
       sheetRef: sheetRef(s, `F${row}`),
       description,
       url: link ?? (/^https?:\/\//i.test(description) ? description : null),
-      purchaseDate: r.date(s, `G${row}`),
+      purchaseDate,
       units: units === null ? '0' : decimalFromNumber(units),
       soldUnits: sold === null ? '0' : decimalFromNumber(Math.abs(sold)),
-      currency: ctx.text(s, `I${row}`) ?? 'AUD',
-      unitCost: ctx.decimal(s, `J${row}`, 'other_assets'),
+      currency,
+      unitCost,
       unitPrice: price === null ? null : decimalFromNumber(price),
       priceSource: metal === null ? 'manual' : 'bullion',
       metal,
       unitOfMeasure: metal === null ? 'each' : 'oz',
       ozPerUnit: metal === null ? null : '1',
+      purchaseFxRate,
+      purchaseFxSource: purchaseFxRate === null ? null : 'import',
+      purchaseFxDate: purchaseFxRate === null ? null : purchaseDate,
     });
+    if (metal === null && price !== null && price < 0) {
+      const ref = sheetRef(s, `K${row}`);
+      ctx.push(
+        info(
+          `otherAssets.negativePrice.${ref}`,
+          'other_assets',
+          `Other asset price at ${ref} is negative`,
+          'unsupported_value',
+          'A price history entry cannot be negative; the row was imported without a price entry',
+          { sheetRef: ref },
+        ),
+      );
+    }
   }
   const lastData = out.at(-1)?.row ?? 0;
   const interior = blanks.filter((b) => b < lastData);
@@ -754,10 +800,22 @@ export function superEntryPeriod(meta: Meta): string {
   return isoMonthOf(meta.lastRun !== null ? addMonthsIso(meta.lastRun, 1) : meta.asOf);
 }
 
+/** The last day of a `YYYY-MM` month. */
+export function lastDayOfMonth(month: string): IsoDate {
+  const [y, m] = month.split('-').map(Number) as [number, number];
+  const day = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${month}-${String(day).padStart(2, '0')}`;
+}
+
 export function extractSuper(
   ctx: ExtractContext,
   meta: Meta,
-): { funds: SuperFundRow[]; entries: SuperEntryRow[]; notes: NoteRow[] } {
+): {
+  funds: SuperFundRow[];
+  entries: SuperEntryRow[];
+  notes: NoteRow[];
+  totalCents: number | null;
+} {
   const { r } = ctx;
   const s = SUPER.sheet;
   const funds: SuperFundRow[] = [];
@@ -769,8 +827,11 @@ export function extractSuper(
       sheetRef: sheetRef(s, `A${row}`),
       name: r.text(s, `A${row}`)!,
       balanceCents: balance === null ? 0 : centsFromNumber(balance),
+      // The workbook as-of until dateBalanceEntries applies the last-run rule (§3.5 item 2).
+      balanceAsOf: meta.asOf,
     });
   }
+  const total = r.number(s, SUPER.total);
   const period = superEntryPeriod(meta);
   const entries: SuperEntryRow[] = [];
   const gain = ctx.num(s, SUPER.reportedGain, 'super');
@@ -780,15 +841,19 @@ export function extractSuper(
       periodMonth: period,
       amountCents: centsFromNumber(gain),
       sheetRef: sheetRef(s, SUPER.reportedGain),
+      entryDate: null,
     });
   }
   const voluntary = ctx.num(s, SUPER.voluntary, 'super');
   if (voluntary !== null && voluntary !== 0) {
+    // The live month's contribution lands in the provisional window: min(month end, as-of).
+    const monthEnd = lastDayOfMonth(period);
     entries.push({
       kind: 'voluntary_contribution',
       periodMonth: period,
       amountCents: centsFromNumber(voluntary),
       sheetRef: sheetRef(s, SUPER.voluntary),
+      entryDate: monthEnd < meta.asOf ? monthEnd : meta.asOf,
     });
   }
   const notes: NoteRow[] = [];
@@ -804,7 +869,7 @@ export function extractSuper(
       sheetRef: sheetRef(s, `F${row}`),
     });
   }
-  return { funds, entries, notes };
+  return { funds, entries, notes, totalCents: total === null ? null : centsFromNumber(total) };
 }
 
 // ─── Property, liabilities, spare liability ─────────────────────────────────────────────────────
@@ -892,6 +957,7 @@ export function extractProperty(ctx: ExtractContext): {
       paymentsPaidCents: absCents(n(rows.paid)),
       paymentsPaidDerived: derived,
       sheetRef: sheetRef(s, `${col}${rows.currentBalance}`),
+      balanceAsOf: ctx.asOf,
     });
   });
   if (placeholders > 0) {
@@ -955,6 +1021,7 @@ export function extractLiabilities(ctx: ExtractContext): LoanRow[] {
       paymentsPaidCents: absCents(n(rows.paid)),
       paymentsPaidDerived: false,
       sheetRef: sheetRef(s, `${col}${rows.currentBalance}`),
+      balanceAsOf: ctx.asOf,
     });
   });
   return loans;
@@ -982,6 +1049,7 @@ export function extractSpareLiability(ctx: ExtractContext): LoanRow[] {
       paymentsPaidCents: absCents(paid),
       paymentsPaidDerived: false,
       sheetRef: sheetRef(s, `E${row}`),
+      balanceAsOf: ctx.asOf,
     },
   ];
 }

@@ -1,9 +1,12 @@
 // Cash mutations (stage-3.md §4.2, §4.5, §3.4): accounts (the kind-only exception keeps `origin`),
 // balance entries (D58: upsert by account and as-of, the account's balance follows its latest
-// entry), savings adjustments (D51, an overlay on closed periods), spend and side-income period
-// notes (recorded periods only) and savings goals (D55, an overlay).
+// entry), savings adjustments (D51, an overlay on closed periods), period notes (spend and side
+// income: recorded periods only; Stage 4's super option log: any month up to the as-of month) and
+// savings goals (D55, an overlay). Stage 4 (stage-4.md §4.5 step 8): turning an account's Offset
+// flag off removes its offset link (D67) in the same transaction.
 import {
   EDITABLE_NOTE_KINDS,
+  isoMonthOf,
   makeCashAccountCreateSchema,
   makeCashBalancesInputSchema,
   cashAccountUpdateSchema,
@@ -20,6 +23,7 @@ import {
   budgetItems,
   cashAccounts,
   cashBalanceEntries,
+  loanOffsetLinks,
   periodNotes,
   savingsAdjustments,
   savingsGoals,
@@ -29,6 +33,7 @@ import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/database';
 import { markImportRowDeleted, type Tx } from '../../db/queries/domain';
 import { HttpError, parseWith } from '../../errors';
+import { localIsoDate } from '../../investments/format';
 import type { CashAccountRow } from '../../investments/load';
 import { periodNoteDto } from '../cash';
 import {
@@ -144,6 +149,10 @@ export function updateCashAccount(deps: MutationDeps, id: number, body: unknown)
         )
         .where(eq(cashAccounts.id, id))
         .run();
+      // D67: an account no longer flagged Offset loses its offset link.
+      if (stored.isOffset && !input.isOffset) {
+        tx.delete(loanOffsetLinks).where(eq(loanOffsetLinks.accountId, id)).run();
+      }
     },
     { behavior: 'immediate' },
   );
@@ -319,9 +328,14 @@ export function parseNoteKind(params: unknown): EditableNoteKind {
   throw new HttpError(404, 'No period notes of this kind', 'NOT_FOUND');
 }
 
+/** 400 for a `super_option` note month after the as-of month (stage-4.md §4.2). */
+export const AFTER_THIS_MONTH = 'periodMonth: after this month';
+
 /**
- * PUT /api/period-notes/:kind/:periodMonth: a recorded period's month only (a snapshot has it).
- * `''` deletes the note (the marker for a workbook note); an unchanged note writes nothing.
+ * PUT /api/period-notes/:kind/:periodMonth: `spend` and `side_income` take a recorded period's
+ * month only (a snapshot has it); `super_option` (the D69 option log) takes any month up to the
+ * as-of month. `''` deletes the note (the marker for a workbook note); an unchanged note writes
+ * nothing.
  */
 export function putPeriodNote(
   deps: MutationDeps,
@@ -335,7 +349,9 @@ export function putPeriodNote(
   const now = deps.now();
   return deps.database.db.transaction(
     (tx) => {
-      if (!recordedPeriodMonths(snapshotRows(tx)).has(periodMonth)) {
+      if (kind === 'super_option') {
+        if (periodMonth > isoMonthOf(localIsoDate(now))) throw validation(AFTER_THIS_MONTH);
+      } else if (!recordedPeriodMonths(snapshotRows(tx)).has(periodMonth)) {
         throw validation(NOT_A_RECORDED_PERIOD);
       }
       const where = and(eq(periodNotes.periodMonth, periodMonth), eq(periodNotes.kind, kind));

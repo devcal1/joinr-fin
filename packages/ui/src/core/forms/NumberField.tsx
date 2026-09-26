@@ -13,6 +13,11 @@ export interface NumberFieldProps extends FieldBaseProps {
   /** A unit shown after the number, e.g. "%" or "units". */
   suffix?: string;
   placeholder?: string;
+  /**
+   * Visually hide the label; it still names the input (an inline cell editor whose column header
+   * already says what it is). Stage 4, additive (as MoneyField's).
+   */
+  labelHidden?: boolean;
 }
 
 export function numberInvalidMessage(maxDp: number | undefined): string {
@@ -48,6 +53,7 @@ export function NumberField({
   allowNegative = false,
   suffix,
   placeholder,
+  labelHidden,
 }: NumberFieldProps): JSX.Element {
   const suffixId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,6 +84,7 @@ export function NumberField({
       required={required}
       disabled={disabled}
       className={className}
+      labelHidden={labelHidden}
     >
       <div className="jf-input jf-input--numeric">
         <input

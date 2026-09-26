@@ -111,6 +111,16 @@ export function CashPage(): JSX.Element {
               <AccountForm
                 key={open.account ? `account-${open.account.id}` : 'new-account'}
                 account={open.account}
+                historyBeforeLastRun={
+                  open.account !== undefined &&
+                  page.lastRun !== null &&
+                  page.entries.some(
+                    (e) =>
+                      e.accountId === open.account?.id &&
+                      page.lastRun !== null &&
+                      e.asOf <= page.lastRun,
+                  )
+                }
                 onDone={editor.done}
                 onCancel={editor.close}
               />

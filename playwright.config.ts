@@ -8,6 +8,15 @@ const apiPort = process.env.PORT ?? '3001';
 const channelEnv = process.env.PW_CHANNEL ?? 'chrome';
 const channel = channelEnv === 'chromium' ? undefined : channelEnv;
 
+// The setup project and the specs that create app rows run in their own projects, never in the
+// read-only desktop and phone runs (D34: an app row makes the import spec's upload answer 409).
+const MUTATING_SPECS = [
+  /.*\.setup\.ts/,
+  /trades\.spec\.ts/,
+  /cashflow-mutations\.spec\.ts/,
+  /assets-mutations\.spec\.ts/,
+];
+
 export default defineConfig({
   testDir: 'e2e',
   // Playwright empties outputDir at the start of a run, so each port (one per agent) gets its own
@@ -29,13 +38,13 @@ export default defineConfig({
       name: 'desktop',
       use: { viewport: { width: 1440, height: 900 } },
       dependencies: ['setup'],
-      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/, /cashflow-mutations\.spec\.ts/],
+      testIgnore: MUTATING_SPECS,
     },
     {
       name: 'phone',
       use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true },
       dependencies: ['setup'],
-      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/, /cashflow-mutations\.spec\.ts/],
+      testIgnore: MUTATING_SPECS,
     },
     // The app rows trades.spec.ts creates would make the import spec's upload answer 409 (D34), so
     // it runs alone, after every desktop and phone spec (stage-2.md §7.6 step 6).
@@ -52,6 +61,15 @@ export default defineConfig({
       use: { viewport: { width: 1440, height: 900 } },
       testMatch: /cashflow-mutations\.spec\.ts/,
       dependencies: ['mutations'],
+    },
+    // The assets mutations create (and delete) app rows as well, so they run alone after the
+    // cash-flow mutations: the three mutating projects form one chain and never overlap
+    // (stage-4.md §7.8 step 5, §12).
+    {
+      name: 'assets-mutations',
+      use: { viewport: { width: 1440, height: 900 } },
+      testMatch: /assets-mutations\.spec\.ts/,
+      dependencies: ['cashflow-mutations'],
     },
   ],
   webServer: {

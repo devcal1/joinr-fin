@@ -25,6 +25,10 @@
   }
 
   .jf-meter__status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
     color: var(--text-secondary);
     font-size: var(--fs-small);
     font-weight: 700;
@@ -35,6 +39,11 @@
   .jf-meter[data-status='reached'] .jf-meter__status,
   .jf-meter[data-status='over'] .jf-meter__status {
     color: var(--text-bright);
+  }
+
+  /* Stage 4: the track sits in a positioned bar so a projection tick can cross it. */
+  .jf-meter__bar {
+    position: relative;
   }
 
   .jf-meter__track {
@@ -72,5 +81,51 @@
   .jf-meter__hint {
     color: var(--text-secondary);
     font-size: var(--fs-dense);
+  }
+
+  /* Stage 4 (stage-4.md §6.1, UX-1): a tone colours the fill (under / near / over) and its track;
+     the status word (a badge) and the text carry the state, never the colour alone. */
+  .jf-meter[data-tone='go'] .jf-meter__fill {
+    background: var(--go);
+  }
+
+  .jf-meter[data-tone='check'] .jf-meter__fill {
+    background: var(--orange);
+  }
+
+  .jf-meter[data-tone='stop'] .jf-meter__fill {
+    background: var(--stop);
+  }
+
+  .jf-meter[data-tone='go'] .jf-meter__track {
+    background: color-mix(in srgb, var(--go) 16%, transparent);
+  }
+
+  .jf-meter[data-tone='check'] .jf-meter__track {
+    background: color-mix(in srgb, var(--orange) 16%, transparent);
+  }
+
+  .jf-meter[data-tone='stop'] .jf-meter__track {
+    background: color-mix(in srgb, var(--stop) 16%, transparent);
+  }
+
+  .jf-meter[data-kind='cap'] .jf-meter__status {
+    color: var(--text-bright);
+  }
+
+  /* The projection: a white tick across the track (the gauge's target tick, STYLE_GUIDE §6.2). */
+  .jf-meter__marker {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: var(--text-bright);
+    pointer-events: none;
+  }
+
+  .jf-meter__marker-text {
+    white-space: nowrap;
   }
 }

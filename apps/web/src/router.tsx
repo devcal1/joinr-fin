@@ -23,13 +23,16 @@ import { HoldingDetailPage } from './pages/investments/HoldingDetailPage';
 import { InvestmentPage } from './pages/investments/InvestmentPage';
 import { NetWorthPage } from './pages/NetWorthPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { OtherAssetsPage } from './pages/otherAssets/OtherAssetsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { PricesPage } from './pages/prices/PricesPage';
+import { PropertyPage } from './pages/property/PropertyPage';
 import { RecordsEntityPage } from './pages/records/RecordsEntityPage';
 import { RecordsIndexPage } from './pages/records/RecordsIndexPage';
 import { ScreenPreviewPage } from './pages/ScreenPreviewPage';
 import { SideIncomePage } from './pages/sideIncome/SideIncomePage';
 import { StyleguidePage } from './pages/styleguide/StyleguidePage';
+import { SuperPage } from './pages/super/SuperPage';
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -149,6 +152,25 @@ const dividendsRoute = createRoute({
   component: DividendsRoute,
 });
 
+// Stage 4: the three assets pages (stage-4.md §6.1).
+const otherAssetsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/other-assets',
+  component: OtherAssetsPage,
+});
+
+const superRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/super',
+  component: SuperPage,
+});
+
+const propertyRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/property',
+  component: PropertyPage,
+});
+
 const BUILT_PAGE_ROUTES = [
   recordsRoute,
   importRoute,
@@ -161,6 +183,9 @@ const BUILT_PAGE_ROUTES = [
   sideIncomeRoute,
   budgetRoute,
   dividendsRoute,
+  otherAssetsRoute,
+  superRoute,
+  propertyRoute,
 ];
 const BUILT_PATHS: ReadonlySet<string> = new Set([
   '/records',
@@ -174,6 +199,9 @@ const BUILT_PATHS: ReadonlySet<string> = new Set([
   '/side-income',
   '/budget',
   '/dividends',
+  '/other-assets',
+  '/super',
+  '/property',
 ]);
 
 // Every other page renders its placeholder until its stage lands.

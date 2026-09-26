@@ -2,6 +2,11 @@
 // its date) or edit (name, kind, offset, note). A kind-only change on a workbook account keeps
 // re-import available (a note instead of the workbook callout). Delete lives in the edit form and
 // is refused while budget rows use the account (409 ACCOUNT_IN_USE).
+//
+// Stage 4 (stage-4.md §6.6, D67, FEAS-12): an offset account says which loan it is linked to (the
+// link is made on the Property page); turning Offset off on a linked account says it also removes
+// the link; turning Offset on for an account with balance history up to the last recorded month
+// says this month's savings read the moved balance as spending until the next month is recorded.
 import { CASH_ACCOUNT_KINDS, type CashAccountDto, type CashAccountKind } from '@joinr/schema';
 import {
   Button,
@@ -22,8 +27,12 @@ import { plural } from '../../formatting';
 import { CASH_KIND_LABELS, tomorrowOf } from '../cashflow/display';
 import { DeleteConfirm, InlineForm, NewAppDataNote, WorkbookCallout } from '../cashflow/forms';
 import { actionErrorText, formErrorsOf } from '../cashflow/formState';
+import { linkedLoanText, unlinkText } from './cashText';
 
 export const KIND_ONLY_NOTE = 'Changing only the kind keeps re-import available.';
+export const NOT_LINKED_NOTE = 'Not linked to a loan: link it on the Property page.';
+export const OFFSET_ON_NOTE =
+  'Its balance leaves Total Cash now; until the next month is recorded, this month’s savings read that as spending.';
 
 type Field = 'name' | 'kind' | 'isOffset' | 'note' | 'openingBalanceCents' | 'asOf';
 const FIELDS: readonly Field[] = [
@@ -70,11 +79,21 @@ function changedFields(
 
 export interface AccountFormProps {
   account?: CashAccountDto;
+  /**
+   * Stage 4: the account has balance entries up to the last recorded month, so switching Offset on
+   * moves a balance the last snapshot's cash still holds (FEAS-12).
+   */
+  historyBeforeLastRun?: boolean;
   onDone: (message: string) => void;
   onCancel: () => void;
 }
 
-export function AccountForm({ account, onDone, onCancel }: AccountFormProps): JSX.Element {
+export function AccountForm({
+  account,
+  historyBeforeLastRun = false,
+  onDone,
+  onCancel,
+}: AccountFormProps): JSX.Element {
   const [today] = useState(() => toIsoDate(new Date()));
   const [draft, setDraft] = useState<Draft>(() => draftOf(account, today));
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
@@ -190,6 +209,31 @@ export function AccountForm({ account, onDone, onCancel }: AccountFormProps): JS
     );
   } else if (workbook) notes = <WorkbookCallout />;
 
+  // Offsets and loans (§6.6): where the link lives, what turning Offset off or on does.
+  const linked = account?.linkedLoan ?? null;
+  const offsetLines: JSX.Element[] = [];
+  if (draft.isOffset && account?.isOffset) {
+    offsetLines.push(
+      <p key="link" className="jf-app-meta">
+        {linked ? linkedLoanText(linked.name) : NOT_LINKED_NOTE}
+      </p>,
+    );
+  }
+  if (!draft.isOffset && account?.isOffset && linked) {
+    offsetLines.push(
+      <Callout key="unlink" kind="important" title="Offset link">
+        <p>{unlinkText(linked.name)}</p>
+      </Callout>,
+    );
+  }
+  if (draft.isOffset && account && !account.isOffset && historyBeforeLastRun) {
+    offsetLines.push(
+      <Callout key="on" kind="important" title="Offset account">
+        <p>{OFFSET_ON_NOTE}</p>
+      </Callout>,
+    );
+  }
+
   const title = account ? `Edit account · ${account.name}` : 'Add account';
   return (
     <InlineForm
@@ -203,6 +247,7 @@ export function AccountForm({ account, onDone, onCancel }: AccountFormProps): JS
       extraActions={deleteButton}
       notes={
         <>
+          {offsetLines}
           {notes}
           {inUse ? (
             <p id="cash-account-in-use" className="jf-app-meta">

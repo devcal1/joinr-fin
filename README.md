@@ -2,7 +2,7 @@
 
 A self-hosted personal-finance web app. It tracks net worth, investments (shares, ETFs, managed funds and crypto), cash flow, super, property and a FIRE plan. It rebuilds a personal-wealth spreadsheet template as a web app that runs on a home server and opens in a browser on any PC or phone. It is styled to the Joinr brand in dark mode.
 
-**Status:** Stage 1, data model, workbook importer and market data. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
+**Status:** Stages 0–3 are done (foundations, data and importer, investments, cash flow and income); Stage 4 (other assets, super and property) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
 
 > [!IMPORTANT]
 > **This repository is public.** It holds code and generic documentation only. The owner's workbook, specs, notes and data live in git-ignored folders, and a pre-commit **privacy guard** blocks them (see [Privacy](#privacy)). Code, tests, seeds and docs use obviously generic values such as "Example Co", `$12,480.00` and `user@example.com`.
@@ -132,7 +132,7 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `POST /api/cash/accounts`, `PUT`/`DELETE /api/cash/accounts/:id` | Add, edit or delete a cash account (see below). |
 | `PUT /api/cash/balances`, `DELETE /api/cash/balance-entries/:id` | Record balances at a date for one or more accounts; delete one balance from an account's history. |
 | `PUT`/`DELETE /api/cash/adjustments/:periodMonth` | A one-off adjustment taken out of a recorded month's savings. |
-| `PUT /api/period-notes/:kind/:periodMonth` | A spend or side-income note on a recorded month (`kind` = `spend` or `side_income`; empty text deletes it). |
+| `PUT /api/period-notes/:kind/:periodMonth` | A spend or side-income note on a recorded month (`kind` = `spend` or `side_income`), or a super investment-option note on any month up to this one (`super_option`). Empty text deletes it. |
 | `POST /api/savings-goals`, `PUT`/`DELETE /api/savings-goals/:id`, `POST /api/savings-goals/reorder` | Savings goals, filled in list order. |
 | `GET /api/side-income` | The Side Income page: streams, dated deposits, deposits bucketed into the recorded months, FY and 365-day averages, chart data. |
 | `POST /api/side-income/deposits`, `PUT`/`DELETE …/deposits/:id`; `POST /api/side-income/streams`, `PUT`/`DELETE …/streams/:id` | Side-income deposits and streams. |
@@ -144,7 +144,20 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `POST /api/dividends`, `PUT`/`DELETE /api/dividends/:id` | Add, edit or delete a dividend. |
 | `POST /api/dividends/suggestions/refresh` | Checks Yahoo for dividend events now (`503 MARKET_DATA_DISABLED` in mode `off`). |
 | `POST /api/dividends/suggestions/dismiss`, `…/restore` | Hide or show one suggestion (`{ "instrumentId": …, "exDate": "YYYY-MM-DD" }`). |
-| `PATCH /api/settings` | Changes the settings the Cash and Budget pages edit (`{ "values": { "savings.yearBasis": "calendar" } }`). |
+| `GET /api/other-assets` | The Other Assets page: the items with cost, value, gain and annualised return, the price history, sales, totals, the bullion spot and FX tiles, the spot history, charts and the page's setting. |
+| `POST /api/other-assets`, `PUT`/`DELETE /api/other-assets/:id`, `POST /api/other-assets/reorder` | Add, edit, delete or reorder items. |
+| `PUT /api/other-assets/prices`, `DELETE /api/other-assets/price-entries/:id` | Record hand prices at a date for one or more items; delete one price from an item's history. |
+| `POST /api/other-assets/:id/sales`, `PUT`/`DELETE /api/other-assets/sales/:id` | Record, edit or delete a sale (date, units, proceeds). |
+| `GET /api/super` | The Super page: funds and their balance history, contributions, employer SG by month, the periods with their derived gains, the annualised return, the concessional cap per financial year, the ATO figures in use, charts and the page's settings. |
+| `POST /api/super/funds`, `PUT`/`DELETE /api/super/funds/:id` | Add, edit (incl. the fund that receives SG, archiving) or delete a fund. |
+| `PUT /api/super/balances`, `DELETE /api/super/balance-entries/:id` | Record fund balances at a date; delete one balance from a fund's history. |
+| `POST /api/super/contributions`, `PUT`/`DELETE /api/super/contributions/:id` | Add, edit or delete a salary-sacrifice or after-tax contribution. |
+| `PUT`/`DELETE /api/super/sg/:periodMonth` | Enter or remove a statement's employer SG for the month it was earned. |
+| `GET /api/property` | The Property page: properties and valuations, mortgages with their balance log, repayments, interest and payoff schedule, offset accounts, totals, charts and the page's settings. |
+| `POST /api/property/properties`, `PUT`/`DELETE /api/property/properties/:id`; `PUT /api/property/valuations`, `DELETE /api/property/valuation-entries/:id` | Properties and their valuations. |
+| `POST /api/property/loans`, `PUT`/`DELETE /api/property/loans/:id`; `PUT /api/property/loan-balances`, `PUT`/`DELETE /api/property/loan-balance-entries/:id` | Loans and their balance log (with optional actual repayments per entry). |
+| `PUT /api/property/loans/:id/offsets` | Link offset accounts to a loan (`{ "accountIds": [5] }`; the list replaces the loan's links). |
+| `PATCH /api/settings` | Changes the settings the Cash, Budget, Super, Other Assets and Property pages edit (`{ "values": { "savings.yearBasis": "calendar" } }`); the answer holds the settings of every page the change named. |
 
 ```http
 GET /api/health
@@ -156,7 +169,7 @@ GET /api/health
   "version": "0.1.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
-  "db": { "ok": true, "journalMode": "wal", "migrations": 4 }
+  "db": { "ok": true, "journalMode": "wal", "migrations": 5 }
 }
 ```
 
@@ -211,6 +224,17 @@ Every figure on the Cash, Side Income, Budget and Dividends pages comes from the
 
 **What else blocks a re-import (D34).** Creating or editing cash accounts, balances, deposits, streams, notes, budget rows, yearly expenses and dividends counts as app data, as does changing a setting that comes from the workbook. These never count, and a re-import keeps them: changing only an account's kind, savings adjustments, savings goals, dismissed suggestions and the year basis for the cash figures.
 
+### Other assets, super and property
+
+Every figure on these pages comes from the engine too, in the same request context as the Cash page, so the provisional savings period and the other-assets value on the investment pages follow the live figures.
+
+- **Other assets** are hand-priced with a dated price history (a price older than 90 days, a setting, shows as stale), or priced from the silver or gold spot × ounces per unit. A foreign-currency item's cost uses the exchange rate on its purchase date: typed, taken from the workbook, or fetched once from Yahoo by the price job. An item with no purchase date counts from the first recorded month, marked assumed. A sale records its date, units and proceeds, and a sale of more units than are left is refused (`422 SALE_OVERSELL`). Bullion is priced from spot, so a price save that names a bullion item is `400`.
+- **Super** keeps a balance history per fund. The gain of a period is derived: the change in balance less employer SG, your contributions (after contributions tax) and money moved in from outside the tracked funds. A fund created in the app has its opening balance counted as money moved in, unless it is a rollover from a fund on the page. A fund can be archived only after a closing balance of $0, and cannot be deleted while contributions name it (`409 FUND_IN_USE`). Employer SG is estimated from the salary setting at the ATO rate of each financial year (or your employer's rate), and a statement month replaces the estimate. The concessional cap meter counts SG in the financial year the fund receives it; a cap override applies to the financial year it was set in only.
+- **Property and loans.** A property keeps a valuation history. A loan keeps a balance history; each entry's repayments default to the regular repayment × the payments due on the loan's payment dates, and can be replaced by the actual figure. Interest and fees are the repayments less the principal repaid. The payoff date and interest to come come from an amortisation schedule, with and without the linked offset accounts. A property with a loan cannot be deleted (`409 PROPERTY_HAS_LOAN`). Only accounts flagged Offset on the Cash page can be linked, and turning the flag off removes the link.
+- A fund, property or loan keeps at least one balance or valuation (`409 LAST_BALANCE_ENTRY`). Every change answers `409 IMPORT_IN_PROGRESS` while an upload import runs.
+
+**What blocks a re-import here (D34).** Creating or editing items, prices, sales, funds, balances, contributions, option notes, properties, valuations, loans, loan balances and offset links counts as app data, as does changing the salary, marginal tax rate or job start date. These never count, and a re-import keeps them: choosing the fund that receives employer SG (the flag alone), SG statement months, and the settings that exist only in the app (the stale-price days, your employer's SG rate, the contributions tax, the cap override and how imported contributions are read).
+
 ### Upload import
 
 **`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`, or a deleted workbook row; see [Investments](#investments)); a dry run is still allowed, and only the CLI can override (see below).
@@ -242,7 +266,7 @@ The app's data comes from the spreadsheet template's `.xlsx` export. The same im
 
 CLI exit codes: `0` succeeded with nothing unexplained, `4` succeeded with unexplained checks, `1` failed, `2` usage, configuration or corrections error, `3` confirmation required (`--yes`, or `--yes --replace-app-data` over data entered in the app). The CLI is safe to run while the server runs; the server sees the new data on its next request.
 
-An import **replaces** the imported investments, cash, budget, income, assets and history. Instruments are matched by kind and symbol, so price-source edits and manual prices entered in the app are kept. Re-importing the same file gives identical data.
+An import **replaces** the imported investments, cash, budget, income, assets and history. Instruments are matched by kind and symbol, so price-source edits and manual prices entered in the app are kept. The fund chosen to receive employer SG is carried over by fund name, and SG statement months are kept. Re-importing the same file gives identical data.
 
 **Corrections.** Known data fixes to the sheet (for example a mistyped trade date) live in a corrections file, never in the repo: `reference/import-corrections.json` on the development PC, `<DATA_DIR>/import-corrections.json` on the server. `IMPORT_CORRECTIONS_FILE` picks another file or `none`; the CLI takes `--corrections <file>` or `--no-corrections`. Each applied correction is listed in the report.
 
@@ -252,7 +276,7 @@ An import **replaces** the imported investments, cash, budget, income, assets an
 
 - **Unit and component tests** use Vitest. Each app, package and tool is a Vitest project, and `pnpm test` runs them all. Server tests use Fastify's `inject` against a temporary `DATA_DIR`.
 - **End-to-end tests** use Playwright, at desktop and phone widths, against the installed Chrome. Screenshots go to `artifacts/screenshots/`.
-- **Golden tests** compare the importer (Stage 1), the engine and the investments API (Stage 2 on: import → database → API) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
+- **Golden tests** compare the importer (Stage 1), the engine and the APIs (Stage 2 on: import → database → API; the investment pages, then the cash-flow pages in Stage 3 and the other assets, super and property pages in Stage 4) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
 - **Synthetic workbook.** `buildSyntheticWorkbook()` (`@joinr/importer/testing`) builds a generic workbook in the template's layout, so the importer, the upload route and the e2e specs are tested without the private file. Synthetic imports always run with corrections off.
 - **No network in unit tests.** A setup file makes `fetch` fail; price providers are tested with mocked responses.
 

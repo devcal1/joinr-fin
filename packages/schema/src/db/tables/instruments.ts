@@ -1,5 +1,6 @@
-// Instruments and their pricing: instruments, price_sources, prices, market_quotes (§2.4), and the
-// Stage 3 dividend-events cache (stage-3.md §3.1, §4.6).
+// Instruments and their pricing: instruments, price_sources, prices, market_quotes (§2.4), the
+// Stage 3 dividend-events cache (stage-3.md §3.1, §4.6) and the Stage 4 series history
+// (stage-4.md §3.1, §4.6).
 import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 import {
   FETCH_STATUSES,
@@ -127,4 +128,21 @@ export const dividendEvents = sqliteTable(
     dismissedAt: text('dismissed_at'),
   },
   (t) => [primaryKey({ columns: [t.instrumentId, t.exDate] })],
+);
+
+/**
+ * Stage 4 (stage-4.md §4.6): a daily history of the market series (bullion spot, FX), one row per
+ * series per server-local day (a later run that day replaces it). A cache: no provenance, never
+ * app data, never dumped.
+ */
+export const marketQuoteHistory = sqliteTable(
+  'market_quote_history',
+  {
+    seriesId: text('series_id').notNull(),
+    date: text('date').notNull(),
+    value: text('value').notNull(),
+    source: text('source').notNull(),
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.date] })],
 );

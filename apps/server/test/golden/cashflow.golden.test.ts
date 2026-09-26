@@ -5,7 +5,11 @@
 // on the Stage 3 engine and importer, and skipped when the workbook is absent. Prints counts only.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CASHFLOW_ENGINE_IMPLEMENTED, ENGINE_IMPLEMENTED } from '@joinr/engine';
+import {
+  ASSETS_ENGINE_IMPLEMENTED,
+  CASHFLOW_ENGINE_IMPLEMENTED,
+  ENGINE_IMPLEMENTED,
+} from '@joinr/engine';
 import { importWorkbook, readWorkbook, type WorkbookReader } from '@joinr/importer';
 import {
   describeWithLocalWorkbook,
@@ -29,16 +33,24 @@ import { buildApp } from '../../src/app';
 import { openDatabase, runMigrations, type AppDatabase } from '../../src/db/database';
 import { makeTempDir, removeDir, testConfig } from '../helpers';
 
+// Stage 4 (stage-4.md §7.4 step 7): the provisional period's parts come from the assets engines.
 const GATED =
   ENGINE_IMPLEMENTED &&
   CASHFLOW_ENGINE_IMPLEMENTED &&
+  ASSETS_ENGINE_IMPLEMENTED &&
   IMPORTER_IMPLEMENTED &&
   IMPORTER_STAGE3_IMPLEMENTED;
 
 // ─── Counting (§9.3 rule 12) ────────────────────────────────────────────────────────────────────
 
 type Reason =
-  'first_period' | 'live_window' | 'broken_formula' | 'no_ex_date' | 'replaced_by_goals' | 'never';
+  | 'first_period'
+  | 'live_window'
+  | 'broken_formula'
+  | 'no_ex_date'
+  | 'replaced_by_goals'
+  | 'never'
+  | 'defined_by_decision';
 interface Tally {
   compared: number;
   recomputed: number;
@@ -268,6 +280,29 @@ describeWithLocalWorkbook('cash-flow server golden (import → DB → API)', (wo
       }
     });
 
+    /**
+     * Stage 4 (stage-4.md §9.3 rule 12): Σ row 31 (interest) of the used Property slots D…O (the
+     * Stage 1 import predicate: a purchase or current value, a start or current balance, or a
+     * purchase date). The provisional principal paid is start − current (D66), which equals the
+     * live History AD whenever this Σ is ≥ 0; only a negative Σ makes the definitions differ.
+     */
+    function propertyInterestSum(): number {
+      let sum = 0;
+      for (let c = 'D'.charCodeAt(0); c <= 'O'.charCodeAt(0); c++) {
+        const col = String.fromCharCode(c);
+        const n = (row: number) => r.number('Property', `${col}${row}`);
+        const nonZero = (v: number | null) => v !== null && v !== 0;
+        const used =
+          nonZero(n(18)) ||
+          nonZero(n(19)) ||
+          nonZero(n(28)) ||
+          nonZero(n(29)) ||
+          r.date('Property', `${col}16`) !== null;
+        if (used) sum += n(31) ?? 0;
+      }
+      return sum;
+    }
+
     /** Something dated in the live row's extra window (E52, EOMONTH(E52)] (§9.3 rule 2). */
     function liveWindowHasActivity(): boolean {
       const after = asOf;
@@ -306,9 +341,13 @@ describeWithLocalWorkbook('cash-flow server golden (import → DB → API)', (wo
         }
         let period = byRun.get(x.date);
         if (x.live) {
-          const ac = r.number('History', `AC${x.row}`) ?? 0;
-          if (liveWindowHasActivity() || ac !== 0 || !provisional) {
+          if (liveWindowHasActivity() || !provisional) {
             skipped(area, 'live_window', 6);
+            continue;
+          }
+          // Stage 4 (§9.3 rule 12, narrowed): a negative interest Σ only.
+          if (propertyInterestSum() < 0) {
+            skipped(area, 'defined_by_decision', 6);
             continue;
           }
           period = provisional;

@@ -29,18 +29,25 @@ import {
   dividends,
   incomeStreams,
   instruments,
+  loanBalanceEntries,
+  loanOffsetLinks,
   loans,
+  otherAssetPrices,
   otherAssets,
+  otherAssetSales,
   periodNotes,
   priceSources,
   properties,
+  propertyValuations,
   savingsAdjustments,
   savingsGoals,
   settings,
   sideIncomeDeposits,
   snapshots,
+  superBalanceEntries,
   superEntries,
   superFunds,
+  superSgOverrides,
   trades,
   yearlyExpenses,
 } from '@joinr/schema/db';
@@ -71,6 +78,13 @@ const ENTITY_TABLES: Readonly<Record<RecordEntityId, SQLiteTable>> = {
   'savings-adjustments': savingsAdjustments,
   'savings-goals': savingsGoals,
   'dividend-events': dividendEvents,
+  'other-asset-prices': otherAssetPrices,
+  'other-asset-sales': otherAssetSales,
+  'super-balance-entries': superBalanceEntries,
+  'super-sg-overrides': superSgOverrides,
+  'property-valuations': propertyValuations,
+  'loan-balance-entries': loanBalanceEntries,
+  'loan-offset-links': loanOffsetLinks,
 };
 
 type Loader = (db: Db) => RecordRow[];
@@ -382,6 +396,8 @@ const loadOtherAssets: Loader = (db) =>
         metal: a.metal,
         unitOfMeasure: a.unitOfMeasure,
         value: otherAssetValueCents(a),
+        purchaseFxRate: a.purchaseFxRate,
+        purchaseFxSource: a.purchaseFxSource,
       }),
     );
 
@@ -391,7 +407,14 @@ const loadSuperFunds: Loader = (db) =>
     .from(superFunds)
     .orderBy(asc(superFunds.sortOrder), asc(superFunds.id))
     .all()
-    .map((f) => row(f.id, { name: f.name, balance: f.balanceCents, balanceAsOf: f.balanceAsOf }));
+    .map((f) =>
+      row(f.id, {
+        name: f.name,
+        balance: f.balanceCents,
+        balanceAsOf: f.balanceAsOf,
+        receivesSg: f.receivesSg,
+      }),
+    );
 
 const loadSuperEntries: Loader = (db) =>
   db
@@ -401,7 +424,13 @@ const loadSuperEntries: Loader = (db) =>
     .orderBy(asc(superEntries.id))
     .all()
     .map(({ e, fund }) =>
-      row(e.id, { period: e.periodMonth, kind: e.kind, fund, amount: e.amountCents }),
+      row(e.id, {
+        period: e.periodMonth,
+        kind: e.kind,
+        fund,
+        amount: e.amountCents,
+        date: e.entryDate,
+      }),
     );
 
 const loadProperties: Loader = (db) =>
@@ -442,6 +471,115 @@ const loadLoans: Loader = (db) =>
         paymentsPaidDerived: l.paymentsPaidDerived,
       }),
     );
+
+// ─── Stage 4 (stage-4.md §3.2) ───────────────────────────────────────────────────────────────────
+
+const loadOtherAssetPrices: Loader = (db) =>
+  db
+    .select({ e: otherAssetPrices, asset: otherAssets.description, currency: otherAssets.currency })
+    .from(otherAssetPrices)
+    .innerJoin(otherAssets, eq(otherAssets.id, otherAssetPrices.otherAssetId))
+    .orderBy(asc(otherAssetPrices.id))
+    .all()
+    .map(({ e, asset, currency }) =>
+      row(e.id, {
+        asset,
+        asOf: e.asOf,
+        unitPrice: e.unitPrice,
+        currency,
+        note: e.note,
+        sheetRef: e.sheetRef,
+      }),
+    );
+
+const loadOtherAssetSales: Loader = (db) =>
+  db
+    .select({ e: otherAssetSales, asset: otherAssets.description })
+    .from(otherAssetSales)
+    .innerJoin(otherAssets, eq(otherAssets.id, otherAssetSales.otherAssetId))
+    .orderBy(asc(otherAssetSales.id))
+    .all()
+    .map(({ e, asset }) =>
+      row(e.id, {
+        asset,
+        date: e.saleDate,
+        units: e.units,
+        proceeds: e.proceedsCents,
+        note: e.note,
+      }),
+    );
+
+const loadSuperBalanceEntries: Loader = (db) =>
+  db
+    .select({ e: superBalanceEntries, fund: superFunds.name })
+    .from(superBalanceEntries)
+    .innerJoin(superFunds, eq(superFunds.id, superBalanceEntries.fundId))
+    .orderBy(asc(superBalanceEntries.id))
+    .all()
+    .map(({ e, fund }) =>
+      row(e.id, {
+        fund,
+        asOf: e.asOf,
+        balance: e.balanceCents,
+        transferIn: e.transferInCents,
+        note: e.note,
+        sheetRef: e.sheetRef,
+      }),
+    );
+
+const loadSuperSgOverrides: Loader = (db) =>
+  db
+    .select()
+    .from(superSgOverrides)
+    .orderBy(asc(superSgOverrides.id))
+    .all()
+    .map((o) => row(o.id, { period: o.periodMonth, gross: o.grossCents, note: o.note }));
+
+const loadPropertyValuations: Loader = (db) =>
+  db
+    .select({ e: propertyValuations, property: properties.name })
+    .from(propertyValuations)
+    .innerJoin(properties, eq(properties.id, propertyValuations.propertyId))
+    .orderBy(asc(propertyValuations.id))
+    .all()
+    .map(({ e, property }) =>
+      row(e.id, {
+        property,
+        asOf: e.asOf,
+        value: e.valueCents,
+        note: e.note,
+        sheetRef: e.sheetRef,
+      }),
+    );
+
+const loadLoanBalanceEntries: Loader = (db) =>
+  db
+    .select({ e: loanBalanceEntries, loan: loans.name })
+    .from(loanBalanceEntries)
+    .innerJoin(loans, eq(loans.id, loanBalanceEntries.loanId))
+    .orderBy(asc(loanBalanceEntries.id))
+    .all()
+    .map(({ e, loan }) =>
+      row(e.id, {
+        loan,
+        asOf: e.asOf,
+        balance: e.balanceCents,
+        repayments: e.repaymentsCents,
+        note: e.note,
+        sheetRef: e.sheetRef,
+      }),
+    );
+
+/** Keyed by the account (an account links to at most one loan): the row id is the account id. */
+const loadLoanOffsetLinks: Loader = (db) =>
+  db
+    .select({ l: loanOffsetLinks, account: cashAccounts.name, loan: loans.name })
+    .from(loanOffsetLinks)
+    .innerJoin(cashAccounts, eq(cashAccounts.id, loanOffsetLinks.accountId))
+    .innerJoin(loans, eq(loans.id, loanOffsetLinks.loanId))
+    .orderBy(asc(loanOffsetLinks.accountId))
+    .all()
+    .map(({ l, account, loan }) => row(l.accountId, { account, loan }));
 
 /** A stored `value_json` as a cell: scalars as they are, anything else as JSON text. */
 function settingCell(valueJson: string): RecordCell {
@@ -500,6 +638,13 @@ const LOADERS: Readonly<Record<RecordEntityId, Loader>> = {
   'savings-adjustments': loadSavingsAdjustments,
   'savings-goals': loadSavingsGoals,
   'dividend-events': loadDividendEvents,
+  'other-asset-prices': loadOtherAssetPrices,
+  'other-asset-sales': loadOtherAssetSales,
+  'super-balance-entries': loadSuperBalanceEntries,
+  'super-sg-overrides': loadSuperSgOverrides,
+  'property-valuations': loadPropertyValuations,
+  'loan-balance-entries': loadLoanBalanceEntries,
+  'loan-offset-links': loadLoanOffsetLinks,
 };
 
 const DECIMAL_TYPES: ReadonlySet<RecordColumnType> = new Set(['quantity', 'price', 'ratio']);

@@ -58,10 +58,17 @@ describe('importWorkbook: clean synthetic workbook', () => {
       snapshots: 5,
       'other-assets': 6,
       'super-funds': 2,
-      'super-entries': 2,
+      // Super!B11 and B16, plus the 4 History-derived contributions (Stage 4, §3.5 item 2).
+      'super-entries': 6,
       properties: 1,
       loans: 2,
       settings: 50,
+      // Stage 4 (stage-4.md §3.5): the 4 manual rows with a price, one entry per fund, property
+      // and loan.
+      'other-asset-prices': 4,
+      'super-balance-entries': 2,
+      'property-valuations': 1,
+      'loan-balance-entries': 2,
     });
     const counts = report.checks.filter((c) => c.section === 'counts');
     expect(counts.every((c) => c.status === 'match' || c.status === 'explained')).toBe(true);

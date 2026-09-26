@@ -7,12 +7,26 @@ import {
   DOMAIN_TABLES_DELETE_ORDER,
   incomeStreams,
   instruments,
+  loanBalanceEntries,
+  loanOffsetLinks,
+  loans,
+  marketQuoteHistory,
+  otherAssetPrices,
+  otherAssets,
+  otherAssetSales,
   prices,
   priceSources,
+  properties,
+  propertyValuations,
   savingsAdjustments,
   savingsGoals,
   sideIncomeDeposits,
   sideIncomeEntries,
+  snapshots,
+  superBalanceEntries,
+  superEntries,
+  superFunds,
+  superSgOverrides,
   tables,
   trades,
 } from '../src/db/index';
@@ -46,20 +60,25 @@ describe('createTestDb', () => {
       n: number;
     };
     expect(n.n).toBe(COMMITTED_MIGRATION_COUNT);
-    expect(COMMITTED_MIGRATION_COUNT).toBeGreaterThanOrEqual(4); // 0000 … 0003 (Stage 3)
+    expect(COMMITTED_MIGRATION_COUNT).toBeGreaterThanOrEqual(5); // 0000 … 0004 (Stage 4)
     expect(testDb.sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
   });
 });
 
 /**
- * Tables the seed leaves empty on purpose: the Stage 3 overlays and events cache (§3.6), and the
- * Stage 1 side-income period entries (never written again: the server reads deposits).
+ * Tables the seed leaves empty on purpose: the Stage 3 overlays and events cache (§3.6), the
+ * Stage 1 side-income period entries (never written again: the server reads deposits), and the
+ * Stage 4 sales, SG statements (an overlay), offset links and series history (stage-4.md §3.6).
  */
 const UNSEEDED: ReadonlySet<unknown> = new Set([
   savingsAdjustments,
   savingsGoals,
   dividendEvents,
   sideIncomeEntries,
+  otherAssetSales,
+  superSgOverrides,
+  loanOffsetLinks,
+  marketQuoteHistory,
 ]);
 
 describe('seedGenericData', () => {
@@ -212,6 +231,117 @@ describe('seedGenericData: Stage 3 rows (stage-3.md §3.6)', () => {
   });
 });
 
+describe('seedGenericData: Stage 4 rows (stage-4.md §3.6)', () => {
+  it('gives the manual asset two price entries, the latest its unit price; bullion none', () => {
+    seedGenericData(testDb.db);
+    const assets = testDb.db.select().from(otherAssets).all();
+    const entries = testDb.db.select().from(otherAssetPrices).all();
+    const manual = assets.find((a) => a.priceSource === 'manual')!;
+    const bullion = assets.find((a) => a.priceSource === 'bullion')!;
+    const own = entries.filter((e) => e.otherAssetId === manual.id);
+    expect(own).toHaveLength(2);
+    const latest = own.reduce((x, y) => (y.asOf > x.asOf ? y : x));
+    expect(latest).toMatchObject({
+      asOf: manual.unitPriceAsOf,
+      unitPrice: manual.unitPrice,
+      sheetRef: manual.sheetRef,
+    });
+    expect(entries.filter((e) => e.otherAssetId === bullion.id)).toEqual([]);
+    expect(assets.every((a) => a.purchaseFxRate === null && a.purchaseFxSource === null)).toBe(
+      true,
+    );
+  });
+
+  it('gives the SG fund two balance entries and dates every imported contribution', () => {
+    seedGenericData(testDb.db);
+    const [fund, ...others] = testDb.db.select().from(superFunds).all();
+    expect(others).toEqual([]);
+    expect(fund!.receivesSg).toBe(true);
+    const own = testDb.db.select().from(superBalanceEntries).all();
+    expect(own.every((e) => e.fundId === fund!.id && e.transferInCents === null)).toBe(true);
+    expect(own).toHaveLength(2);
+    const latest = own.reduce((x, y) => (y.asOf > x.asOf ? y : x));
+    expect(latest).toMatchObject({ asOf: fund!.balanceAsOf, balanceCents: fund!.balanceCents });
+    const contributions = testDb.db
+      .select()
+      .from(superEntries)
+      .all()
+      .filter((e) => e.kind === 'voluntary_contribution');
+    expect(contributions.every((e) => e.entryDate !== null)).toBe(true);
+    expect(contributions.find((e) => e.sheetRef === 'Super!B16')?.entryDate).toBe(
+      SEED_WORKBOOK_AS_OF,
+    );
+    // One History-derived contribution per seeded snapshot, at its run date (History!R<row>).
+    const history = contributions.filter((e) => e.sheetRef?.startsWith('History!R'));
+    const snaps = testDb.db.select().from(snapshots).all();
+    expect(history.map((e) => [e.periodMonth, e.entryDate, e.amountCents, e.sheetRef])).toEqual(
+      snaps.map((x) => [
+        x.periodMonth,
+        x.runDate,
+        x.superContribCents,
+        `History!R${x.sheetRef!.slice('History!A'.length)}`,
+      ]),
+    );
+  });
+
+  it('gives the property two valuations and each loan two stored entries (no start entry)', () => {
+    seedGenericData(testDb.db);
+    const [property] = testDb.db.select().from(properties).all();
+    const valuations = testDb.db.select().from(propertyValuations).all();
+    expect(valuations).toHaveLength(2);
+    const latest = valuations.reduce((x, y) => (y.asOf > x.asOf ? y : x));
+    expect(latest).toMatchObject({
+      propertyId: property!.id,
+      asOf: property!.valuationDate,
+      valueCents: property!.currentValueCents,
+    });
+    const entries = testDb.db.select().from(loanBalanceEntries).all();
+    for (const loan of testDb.db.select().from(loans).all()) {
+      const own = entries.filter((e) => e.loanId === loan.id);
+      expect(own, loan.name).toHaveLength(2);
+      const last = own.reduce((x, y) => (y.asOf > x.asOf ? y : x));
+      expect(last).toMatchObject({
+        asOf: loan.balanceAsOf,
+        balanceCents: loan.currentBalanceCents,
+      });
+      // The start fields give the log's start point: they are set and before every entry.
+      expect(loan.startDate !== null && loan.startBalanceCents !== null, loan.name).toBe(true);
+      expect(own.every((e) => e.asOf > loan.startDate!)).toBe(true);
+    }
+  });
+
+  it('writes no app rows in the Stage 4 tables and clears the overlay and history on re-seed', () => {
+    seedGenericData(testDb.db);
+    for (const table of [
+      'other_asset_prices',
+      'super_balance_entries',
+      'property_valuations',
+      'loan_balance_entries',
+      'super_entries',
+      'super_funds',
+    ]) {
+      const n = testDb.sqlite
+        .prepare(`SELECT count(*) AS n FROM "${table}" WHERE origin = 'app'`)
+        .get() as { n: number };
+      expect(n.n, table).toBe(0);
+    }
+    testDb.db.insert(superSgOverrides).values({ periodMonth: '2026-07', grossCents: 90000 }).run();
+    testDb.db
+      .insert(marketQuoteHistory)
+      .values({
+        seriesId: 'XAG_AUD_OZ',
+        date: '2026-09-24',
+        value: '50',
+        source: 'fake',
+        fetchedAt: '2026-09-24T04:32:00.000Z',
+      })
+      .run();
+    seedGenericData(testDb.db);
+    expect(count('super_sg_overrides')).toBe(0);
+    expect(count('market_quote_history')).toBe(0);
+  });
+});
+
 describe('dumpDomainTables', () => {
   it('lists the domain tables plus settings and pricing, in key order', () => {
     seedGenericData(testDb.db);
@@ -225,8 +355,25 @@ describe('dumpDomainTables', () => {
     // Stage 3: the import writes balance entries and deposits; overlays and events are not dumped.
     expect(dump.cash_balance_entries!.length).toBeGreaterThan(0);
     expect(dump.side_income_deposits!.length).toBeGreaterThan(0);
-    for (const overlay of ['savings_adjustments', 'savings_goals', 'dividend_events']) {
+    for (const overlay of [
+      'savings_adjustments',
+      'savings_goals',
+      'dividend_events',
+      'super_sg_overrides',
+      'market_quote_history',
+    ]) {
       expect(dump).not.toHaveProperty(overlay);
+    }
+    // Stage 4: the import writes the logs; the offset links are app rows but dumped (D34).
+    for (const log of [
+      'other_asset_prices',
+      'other_asset_sales',
+      'super_balance_entries',
+      'property_valuations',
+      'loan_balance_entries',
+      'loan_offset_links',
+    ]) {
+      expect(dump).toHaveProperty(log);
     }
     const ids = dump.trades!.map((r) => r.id as number);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
@@ -260,6 +407,79 @@ describe('foreign keys', () => {
       .prepare("INSERT INTO cash_accounts (name, balance_cents, sort_order) VALUES ('x', 0, 1)")
       .run();
     expect(testDb.sqlite.prepare('SELECT id FROM cash_accounts').get()).toEqual({ id: 1 });
+  });
+
+  it('cascades the Stage 4 logs from their parents and keeps one entry per date', () => {
+    seedGenericData(testDb.db);
+    const [loan] = testDb.db.select().from(loans).all();
+    const [offset] = testDb.db
+      .select()
+      .from(cashAccounts)
+      .all()
+      .filter((a) => a.isOffset);
+    testDb.db.insert(loanOffsetLinks).values({ accountId: offset!.id, loanId: loan!.id }).run();
+    const [asset] = testDb.db.select().from(otherAssets).all();
+    testDb.db
+      .insert(otherAssetSales)
+      .values({ otherAssetId: asset!.id, saleDate: '2026-07-15', units: '1', proceedsCents: 1000 })
+      .run();
+    // Unique (parent, as_of) keys.
+    expect(() =>
+      testDb.db
+        .insert(otherAssetPrices)
+        .values({ otherAssetId: asset!.id, asOf: SEED_WORKBOOK_AS_OF, unitPrice: '1' })
+        .run(),
+    ).toThrow(/UNIQUE/);
+    expect(() =>
+      testDb.db
+        .insert(superSgOverrides)
+        .values([
+          { periodMonth: '2026-07', grossCents: 1 },
+          { periodMonth: '2026-07', grossCents: 2 },
+        ])
+        .run(),
+    ).toThrow(/UNIQUE/);
+    // An account links to at most one loan (the account is the key).
+    expect(() =>
+      testDb.db.insert(loanOffsetLinks).values({ accountId: offset!.id, loanId: loan!.id }).run(),
+    ).toThrow(/UNIQUE|PRIMARY/);
+    // Deleting a parent cascades its log.
+    testDb.db.delete(otherAssets).where(eq(otherAssets.id, asset!.id)).run();
+    expect(
+      testDb.db
+        .select()
+        .from(otherAssetPrices)
+        .where(eq(otherAssetPrices.otherAssetId, asset!.id))
+        .all(),
+    ).toEqual([]);
+    expect(count('other_asset_sales')).toBe(0);
+    testDb.db.delete(loans).where(eq(loans.id, loan!.id)).run();
+    expect(
+      testDb.db
+        .select()
+        .from(loanBalanceEntries)
+        .where(eq(loanBalanceEntries.loanId, loan!.id))
+        .all(),
+    ).toEqual([]);
+    expect(count('loan_offset_links')).toBe(0);
+    testDb.db.delete(properties).run();
+    expect(count('property_valuations')).toBe(0);
+    testDb.db.delete(superEntries).run();
+    testDb.db.delete(superFunds).run();
+    expect(count('super_balance_entries')).toBe(0);
+  });
+
+  it('removes an offset link with its cash account', () => {
+    seedGenericData(testDb.db);
+    const [loan] = testDb.db.select().from(loans).all();
+    const [offset] = testDb.db
+      .select()
+      .from(cashAccounts)
+      .all()
+      .filter((a) => a.isOffset);
+    testDb.db.insert(loanOffsetLinks).values({ accountId: offset!.id, loanId: loan!.id }).run();
+    testDb.db.delete(cashAccounts).where(eq(cashAccounts.id, offset!.id)).run();
+    expect(count('loan_offset_links')).toBe(0);
   });
 
   it('rejects a trade for an unknown instrument', () => {

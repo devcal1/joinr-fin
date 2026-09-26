@@ -1,9 +1,10 @@
 // The finance context and the engine inputs the server builds (stage-3.md §4.5 "Engine inputs
 // built by the server", §7.4 step 1), row by row, on the generic seed with a FAKE engine that
-// records its calls: the live salary through monthlyPayCents, the provisional super, AUD-only
-// other assets, the mortgage sums, the emergency-fund-test cash to both consumers, the two D59
-// constants reaching the engine and the DTO, and available cash as the KPIs' current cash while
-// the savings engine's live cash stays Total Cash (the seed has a loan you've made).
+// records its calls: the live salary through monthlyPayCents, the emergency-fund-test cash to both
+// consumers, the two D59 constants reaching the engine and the DTO, and available cash as the KPIs'
+// current cash while the savings engine's live cash stays Total Cash (the seed has a loan you've
+// made). Stage 4 (stage-4.md §2.8, §4.5): the live super, property and mortgage parts, the
+// other-asset flows and the offsets come from the assets engines' results.
 import type {
   BudgetInput,
   CashKpisInput,
@@ -15,11 +16,9 @@ import type {
 import {
   cashBalanceEntries,
   cashAccounts,
-  otherAssets,
   savingsAdjustments,
   savingsGoals,
   settings,
-  superEntries,
 } from '@joinr/schema/db';
 import { createTestDb, seedGenericData, type TestDb } from '@joinr/schema/testing';
 import { eq } from 'drizzle-orm';
@@ -27,11 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildCashPage } from '../../src/cashflow/cash';
 import { GOALS_CASH_BASIS, LOANS_COUNT_FOR_EMERGENCY_FUND } from '../../src/cashflow/constants';
 import { createFinanceContext, type FinanceDeps } from '../../src/cashflow/context';
-import {
-  closedSideIncomePeriods,
-  otherAssetPurchases,
-  provisionalSuperContribCents,
-} from '../../src/cashflow/inputs';
+import { closedSideIncomePeriods } from '../../src/cashflow/inputs';
 import { buildInvestmentPage } from '../../src/investments/page';
 import { AS_OF, fakeEngine, fakeMarket, NOW, sideIncomeResult, type FakeEngine } from './helpers';
 
@@ -127,7 +122,29 @@ describe('the savings input (§2.5, §4.5)', () => {
       .insert(savingsAdjustments)
       .values({ periodMonth: '2026-07', amountCents: -25000, note: 'A refund' })
       .run();
-    const engine = fakeEngine({ monthlyPayCents: () => 650000 });
+    const fake = fakeEngine();
+    const engine = fakeEngine({
+      monthlyPayCents: () => 650000,
+      computeSuper: (i) => ({
+        ...fake.computeSuper(i),
+        snapshot: { ...fake.computeSuper(i).snapshot, superContribCents: 20000 },
+      }),
+      computeProperty: (i) => ({
+        ...fake.computeProperty(i),
+        savingsLive: {
+          propertyPurchaseCents: 50000000,
+          mortgageBalanceCents: -39800000,
+          mortgagePrincipalPaidCents: 5200000,
+        },
+      }),
+      computeOtherAssets: (i) => ({
+        ...fake.computeOtherAssets(i),
+        savingsFlows: [
+          { assetId: 1, date: '2023-04-01', amountCents: 150000, kind: 'purchase' },
+          { assetId: 1, date: '2026-08-01', amountCents: -40000, kind: 'sale' },
+        ],
+      }),
+    });
     createFinanceContext(deps(engine)).savings();
     expect(engine.calls.monthlyPayCents[0]![0]).toEqual({
       netPayCents: 300000,
@@ -145,22 +162,30 @@ describe('the savings input (§2.5, §4.5)', () => {
       propertyPurchaseCents: 50000000,
       mortgageBalanceCents: -40000000,
       mortgagePrincipalPaidCents: 100000,
+      // §2.9: only the latest snapshot carries the offset figure.
+      offsetCents: null,
     });
+    // The seed's offset account's only entry is dated after the latest run (2026-07-31). Its
+    // Offset flag is the workbook's (origin import), so its imported balance counts (D78: the
+    // workbook already kept it out of the stored cash).
+    expect(input.snapshots.map((s) => s.offsetCents)).toEqual([null, null, 1000000]);
     expect(input.live).toEqual({
       // Total Cash: the savings engine keeps loans in (D59).
       cashCents: TOTAL_CASH,
       salaryMonthlyCents: 650000,
-      // The 2026-09 voluntary contribution: after the latest snapshot (2026-07), not after asOf.
+      // Stage 4 (§2.8): the engines' results (super net-pay cost, property and mortgage parts).
       superContribCents: 20000,
       propertyPurchaseCents: 50000000,
-      // The mortgage only (the car loan has no property); payments paid, no interest before Stage 4.
       mortgageBalanceCents: -39800000,
       mortgagePrincipalPaidCents: 5200000,
+      // Σ offset accounts now (the seed has one).
+      offsetCents: OFFSETS,
     });
     expect(input.trades).toHaveLength(9);
+    // The engine's savings flows (sales negative), as dated amounts.
     expect(input.otherAssetPurchases).toEqual([
       { date: '2023-04-01', amountCents: 150000 },
-      { date: '2024-02-01', amountCents: 35000 },
+      { date: '2026-08-01', amountCents: -40000 },
     ]);
     expect(input.sideIncome).toEqual([
       { date: '2026-06-30', amountCents: 50000 },
@@ -179,64 +204,87 @@ describe('the savings input (§2.5, §4.5)', () => {
     expect(first<SavingsInput>(engine, 'computeSavings').includeMortgagePrincipal).toBe(false);
   });
 
-  it('has no live property or mortgage figures without a property or mortgage', () => {
-    t.sqlite.prepare('DELETE FROM loans').run();
-    t.sqlite.prepare('DELETE FROM properties').run();
+  it("passes the engine's null property and mortgage parts through", () => {
     const engine = fakeEngine();
     createFinanceContext(deps(engine)).savings();
     expect(first<SavingsInput>(engine, 'computeSavings').live).toMatchObject({
+      superContribCents: 0,
       propertyPurchaseCents: null,
       mortgageBalanceCents: null,
       mortgagePrincipalPaidCents: null,
     });
   });
 
-  it('counts only voluntary contributions after the latest snapshot and up to the as-of month', () => {
-    t.db
-      .insert(superEntries)
-      .values([
-        { periodMonth: '2026-07', kind: 'voluntary_contribution', amountCents: 1 },
-        { periodMonth: '2026-08', kind: 'voluntary_contribution', amountCents: 10 },
-        { periodMonth: '2026-08', kind: 'reported_gain', amountCents: 100 },
-        { periodMonth: '2026-10', kind: 'voluntary_contribution', amountCents: 1000 },
-      ])
-      .run();
-    const ctx = createFinanceContext(deps(fakeEngine()));
-    // 2026-08 (10) + the seeded 2026-09 (20000); not 2026-07 (recorded) nor 2026-10 (after asOf).
-    expect(provisionalSuperContribCents(ctx.data, AS_OF)).toBe(20010);
+  it('passes no offsets at all when no account is flagged Offset (§2.9)', () => {
+    t.db.update(cashAccounts).set({ isOffset: false }).run();
+    const engine = fakeEngine();
+    createFinanceContext(deps(engine)).savings();
+    const input = first<SavingsInput>(engine, 'computeSavings');
+    expect(input.live?.offsetCents).toBeNull();
+    expect(input.snapshots.map((s) => s.offsetCents)).toEqual([null, null, null]);
   });
 
-  it('values other-asset purchases (units − sold) × cost, AUD rows with a date and a cost only', () => {
+  it("gives the latest snapshot today's offset balances at its run date (§2.9)", () => {
+    const offset = t.db
+      .select()
+      .from(cashAccounts)
+      .all()
+      .find((a) => a.isOffset)!;
     t.db
-      .insert(otherAssets)
+      .insert(cashBalanceEntries)
       .values([
-        {
-          description: 'Sold half',
-          purchaseDate: '2025-01-10',
-          units: '4',
-          soldUnits: '2',
-          currency: 'AUD',
-          unitCost: '12.5',
-          sortOrder: 3,
-        },
-        {
-          description: 'Foreign',
-          purchaseDate: '2025-01-10',
-          units: '1',
-          currency: 'USD',
-          unitCost: '100',
-          sortOrder: 4,
-        },
-        { description: 'No date', units: '1', currency: 'AUD', unitCost: '100', sortOrder: 5 },
-        { description: 'No cost', purchaseDate: '2025-01-10', units: '1', sortOrder: 6 },
+        { accountId: offset.id, asOf: '2026-06-30', balanceCents: 700000 },
+        { accountId: offset.id, asOf: '2026-07-15', balanceCents: 800000 },
       ])
       .run();
-    const rows = createFinanceContext(deps(fakeEngine())).data.otherAssets;
-    expect(otherAssetPurchases(rows)).toEqual([
-      { date: '2023-04-01', amountCents: 150000 },
-      { date: '2024-02-01', amountCents: 35000 },
-      { date: '2025-01-10', amountCents: 2500 },
-    ]);
+    const engine = fakeEngine();
+    createFinanceContext(deps(engine)).savings();
+    const input = first<SavingsInput>(engine, 'computeSavings');
+    // The latest entry on or before 2026-07-31; the earlier snapshots stay null.
+    expect(input.snapshots.map((s) => s.offsetCents)).toEqual([null, null, 800000]);
+  });
+
+  it('counts 0 for an offset account created or flagged Offset in the app with no entry by the run date (§2.9)', () => {
+    // The seed's workbook-flagged offset becomes an app flag (any flag, name or note change
+    // makes the account app); an app-created offset joins it.
+    t.db.update(cashAccounts).set({ origin: 'app' }).where(eq(cashAccounts.isOffset, true)).run();
+    const created = t.db
+      .insert(cashAccounts)
+      .values({
+        name: 'New offset',
+        kind: 'bank',
+        balanceCents: 50000,
+        isOffset: true,
+        sortOrder: 9,
+        origin: 'app',
+      })
+      .returning({ id: cashAccounts.id })
+      .get();
+    t.db
+      .insert(cashBalanceEntries)
+      .values({ accountId: created.id, asOf: AS_OF, balanceCents: 50000, origin: 'app' })
+      .run();
+    const engine = fakeEngine();
+    createFinanceContext(deps(engine)).savings();
+    const input = first<SavingsInput>(engine, 'computeSavings');
+    expect(input.snapshots.map((s) => s.offsetCents)).toEqual([null, null, 0]);
+  });
+
+  it('counts an imported offset account from its earliest entry when none is on or before the run date (§2.9)', () => {
+    const offset = t.db
+      .select()
+      .from(cashAccounts)
+      .all()
+      .find((a) => a.isOffset)!;
+    // A later app balance on the workbook-flagged account keeps its origin (import).
+    t.db
+      .insert(cashBalanceEntries)
+      .values({ accountId: offset.id, asOf: '2026-09-10', balanceCents: 1200000, origin: 'app' })
+      .run();
+    const engine = fakeEngine();
+    createFinanceContext(deps(engine)).savings();
+    const input = first<SavingsInput>(engine, 'computeSavings');
+    expect(input.snapshots.map((s) => s.offsetCents)).toEqual([null, null, 1000000]);
   });
 });
 

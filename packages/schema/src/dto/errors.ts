@@ -20,6 +20,10 @@ export const API_ERROR_CODES = [
   'ACCOUNT_IN_USE',
   'STREAM_IN_USE',
   'LAST_BALANCE_ENTRY',
+  // Stage 4 (stage-4.md §4.1): 409 · 409 · 422.
+  'FUND_IN_USE',
+  'PROPERTY_HAS_LOAN',
+  'SALE_OVERSELL',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 

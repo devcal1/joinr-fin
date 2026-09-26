@@ -52,7 +52,16 @@ export type BudgetItemKind = (typeof BUDGET_ITEM_KINDS)[number];
 export const PERIOD_NOTE_KINDS = ['spend', 'super_option', 'side_income'] as const;
 export type PeriodNoteKind = (typeof PERIOD_NOTE_KINDS)[number];
 
-export const SUPER_ENTRY_KINDS = ['voluntary_contribution', 'reported_gain'] as const;
+/**
+ * Stage 4 appends the typed member contributions (D71): `voluntary_contribution` is an imported
+ * (untyped) entry, read through the `super.importedContributionType` setting.
+ */
+export const SUPER_ENTRY_KINDS = [
+  'voluntary_contribution',
+  'reported_gain',
+  'salary_sacrifice',
+  'after_tax',
+] as const;
 export type SuperEntryKind = (typeof SUPER_ENTRY_KINDS)[number];
 
 export const OTHER_ASSET_PRICE_SOURCES = ['manual', 'bullion'] as const;
@@ -248,5 +257,63 @@ export type BudgetAutoKind = (typeof BUDGET_AUTO_KINDS)[number];
 export const EDITABLE_NOTE_KINDS = [
   'spend',
   'side_income',
+  // Stage 4 (stage-4.md §3.2): the super investment-option log (D69).
+  'super_option',
 ] as const satisfies readonly PeriodNoteKind[];
 export type EditableNoteKind = (typeof EDITABLE_NOTE_KINDS)[number];
+
+// ─── Stage 4: other assets, super and property (stage-4.md §3.2) ────────────────────────────────
+
+/** How a typed member contribution was paid (D71); also how imported (untyped) ones are read. */
+export const SUPER_CONTRIBUTION_TYPES = [
+  'salary_sacrifice',
+  'after_tax',
+] as const satisfies readonly SuperEntryKind[];
+export type SuperContributionType = (typeof SUPER_CONTRIBUTION_TYPES)[number];
+
+/** Where an other asset's FX rate at purchase came from (§3.1, §4.6). */
+export const FX_RATE_SOURCES = ['import', 'market', 'user'] as const;
+export type FxRateSource = (typeof FX_RATE_SOURCES)[number];
+
+/** Why an other asset's figures are null, stale, assumed or partial (§2.4). */
+export const OTHER_ASSET_FLAGS = [
+  'no_purchase_date',
+  'no_cost',
+  'purchase_fx_missing',
+  'live_fx_missing',
+  'unpriced',
+  'stale_price',
+  'spot_unavailable',
+  'legacy_sold',
+  'oversold',
+] as const;
+export type OtherAssetFlag = (typeof OTHER_ASSET_FLAGS)[number];
+
+/** Super page conditions (§2.5). */
+export const SUPER_FLAGS = [
+  'no_salary',
+  'no_sg_fund',
+  'no_marginal_rate',
+  'balances_not_updated',
+  'imported_estimates',
+] as const;
+export type SuperFlag = (typeof SUPER_FLAGS)[number];
+
+/** The concessional cap meter's status (D70; `near` from SUPER_CAP_WARNING_RATIO). */
+export const SUPER_CAP_STATUSES = ['under', 'near', 'over'] as const;
+export type SuperCapStatus = (typeof SUPER_CAP_STATUSES)[number];
+
+/** Loan conditions (§2.6, §2.7). */
+export const LOAN_FLAGS = [
+  'no_property',
+  'no_rate',
+  'no_compounding',
+  'no_payment',
+  'payment_below_interest',
+  'never_repaid',
+] as const;
+export type LoanFlag = (typeof LOAN_FLAGS)[number];
+
+/** A loan balance-log entry's checks (§2.6 step 3). */
+export const LOAN_ENTRY_FLAGS = ['repayments_below_principal', 'balance_increased'] as const;
+export type LoanEntryFlag = (typeof LOAN_ENTRY_FLAGS)[number];

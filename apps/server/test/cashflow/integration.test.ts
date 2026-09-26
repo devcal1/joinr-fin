@@ -1,9 +1,15 @@
 // Integration with the REAL engine (stage-3.md §7.4 step 7), gated on CASHFLOW_ENGINE_IMPLEMENTED:
 // the generic seed (and the synthetic workbook once the Stage 3 importer lands) builds all four
 // pages and the investment timing; a create/update/delete round trip per entity leaves the domain
-// tables as they were (app rows deleted in the app write no marker).
+// tables as they were (app rows deleted in the app write no marker). Stage 4 (stage-4.md §7.4 step 7):
+// the shared finance context reads the other-assets class value and the provisional savings input
+// from the assets engines, so the suite also waits for ASSETS_ENGINE_IMPLEMENTED.
 import { join } from 'node:path';
-import { CASHFLOW_ENGINE_IMPLEMENTED, ENGINE_IMPLEMENTED } from '@joinr/engine';
+import {
+  ASSETS_ENGINE_IMPLEMENTED,
+  CASHFLOW_ENGINE_IMPLEMENTED,
+  ENGINE_IMPLEMENTED,
+} from '@joinr/engine';
 import {
   buildSyntheticWorkbook,
   IMPORTER_IMPLEMENTED,
@@ -39,7 +45,7 @@ import { readAppEditMarker } from '../../src/db/queries/domain';
 import { makeTempDir, removeDir, testConfig } from '../helpers';
 import { AS_OF, NOW } from './helpers';
 
-const GATED = ENGINE_IMPLEMENTED && CASHFLOW_ENGINE_IMPLEMENTED;
+const GATED = ENGINE_IMPLEMENTED && CASHFLOW_ENGINE_IMPLEMENTED && ASSETS_ENGINE_IMPLEMENTED;
 const CAN_IMPORT =
   SYNTHETIC_WORKBOOK_IMPLEMENTED && IMPORTER_IMPLEMENTED && IMPORTER_STAGE3_IMPLEMENTED;
 

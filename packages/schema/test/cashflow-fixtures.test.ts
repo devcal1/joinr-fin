@@ -42,7 +42,8 @@ const addDays = (date: string, days: number) =>
   new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 const now = () => new Date(2026, 8, 24, 14, 32);
 
-const CASH_KEYS = EDITABLE_SETTING_KEYS.slice(9);
+/** The Cash page's six Stage 3 keys (stage-4.md §3.2: the Stage 4 keys come after them). */
+const CASH_KEYS = EDITABLE_SETTING_KEYS.slice(9, 15);
 const BUDGET_KEYS = EDITABLE_SETTING_KEYS.slice(0, 9);
 
 function checkSlice(slice: SettingsSliceDto, keys: readonly string[]) {

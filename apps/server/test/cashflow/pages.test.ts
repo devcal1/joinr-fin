@@ -80,6 +80,7 @@ const PERIODS: SavingsPeriod[] = [
       superCents: 20000,
       mortgagePrincipalCents: 0,
       propertyDepositCents: 0,
+      offsetsCents: 0,
     },
     income: {
       salaryCents: 600000,
@@ -231,6 +232,7 @@ describe('buildCashPage', () => {
       sheetRef: 'Cash!A2',
       entryCount: 2,
       budgetRowCount: 2,
+      linkedLoan: null,
     });
     expect(page.accounts[3]).toMatchObject({ inTotalCash: false, countsForEmergencyFund: false });
     // Every entry, as-of desc then id desc.
@@ -287,6 +289,7 @@ describe('buildCashPage', () => {
         superCents: 20000,
         mortgagePrincipalCents: 0,
         propertyDepositCents: 0,
+        offsetsCents: 0,
       },
       income: {
         salaryCents: 600000,
@@ -387,7 +390,8 @@ describe('buildCashPage', () => {
         'property.offsetsIncludeEmergencyFund': null,
       },
     });
-    expect(page.staticUntilStage4).toBe(true);
+    // Stage 4: the provisional period's parts come from the live engines (always false).
+    expect(page.staticUntilStage4).toBe(false);
   });
 
   it('attaches the spend note of a recorded month', () => {

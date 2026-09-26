@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   API_ERROR_CODES,
   BUDGET_AUTO_KINDS,
+  FX_RATE_SOURCES,
+  LOAN_ENTRY_FLAGS,
+  LOAN_FLAGS,
+  OTHER_ASSET_FLAGS,
+  OTHER_ASSET_STALE_DAYS_DEFAULT,
+  SUPER_CAP_STATUSES,
+  SUPER_CONTRIBUTION_TYPES,
+  SUPER_CONTRIBUTIONS_TAX_DEFAULT,
+  SUPER_ENTRY_KINDS,
+  SUPER_FLAGS,
   BUDGET_ITEM_KINDS,
   derivePriceSource,
   EDITABLE_NOTE_KINDS,
@@ -110,7 +120,9 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
   });
 
   it('lists the editable keys: registry keys, the nine Budget ones first', () => {
-    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(15);
+    // Stage 4 (stage-4.md §3.3): 22 editable keys, the Stage 3 fifteen first.
+    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(22);
+    expect(EDITABLE_SETTING_KEYS).toHaveLength(22);
     for (const key of EDITABLE_SETTING_KEYS) expect(isSettingKey(key), key).toBe(true);
     expect(EDITABLE_SETTING_KEYS.slice(0, 9).every((k) => /^(pay|budget)./.test(k))).toBe(true);
     expect(isEditableSettingKey('savings.yearBasis')).toBe(true);
@@ -120,23 +132,102 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
 
   it('tells workbook keys from app-only keys', () => {
     expect(isWorkbookSetting('savings.yearBasis')).toBe(false);
-    for (const key of EDITABLE_SETTING_KEYS.filter((k) => k !== 'savings.yearBasis')) {
+    const appOnly: readonly string[] = APP_ONLY_KEYS;
+    for (const key of EDITABLE_SETTING_KEYS.filter((k) => !appOnly.includes(k))) {
       expect(isWorkbookSetting(key), key).toBe(true);
     }
-    expect(SETTINGS.filter((s) => s.source === null).map((s) => s.key)).toEqual([
-      'savings.yearBasis',
-    ]);
+    expect(SETTINGS.filter((s) => s.source === null).map((s) => s.key)).toEqual([...APP_ONLY_KEYS]);
   });
 
   it('appends the Stage 3 enums and codes as subsets where they must be', () => {
     for (const k of BUDGET_AUTO_KINDS) expect(BUDGET_ITEM_KINDS).toContain(k);
     for (const k of EDITABLE_NOTE_KINDS) expect(PERIOD_NOTE_KINDS).toContain(k);
     expect(JOB_NAMES).toEqual(['prices', 'dividends']);
-    expect(API_ERROR_CODES.slice(-3)).toEqual([
+    expect(API_ERROR_CODES.slice(-6, -3)).toEqual([
       'ACCOUNT_IN_USE',
       'STREAM_IN_USE',
       'LAST_BALANCE_ENTRY',
     ]);
+  });
+});
+
+/** Every app-only key (no workbook source): Stage 3's year basis and the six Stage 4 keys. */
+const APP_ONLY_KEYS = [
+  'savings.yearBasis',
+  'otherAssets.stalePriceDays',
+  'super.sgRate',
+  'super.contributionsTaxRate',
+  'super.concessionalCapCents',
+  'super.concessionalCapFy',
+  'super.importedContributionType',
+] as const;
+
+describe('settings registry: Stage 4 (stage-4.md §3.3)', () => {
+  it('appends six app-only keys with their defaults and bounds', () => {
+    expect(SETTING_KEYS.slice(-6)).toEqual(APP_ONLY_KEYS.slice(1));
+    expect(settingDef('otherAssets.stalePriceDays')).toMatchObject({
+      category: 'assets',
+      type: 'integer',
+      min: 1,
+      max: 3650,
+      source: null,
+      defaultValue: OTHER_ASSET_STALE_DAYS_DEFAULT,
+    });
+    expect(settingDef('super.sgRate')).toMatchObject({
+      category: 'super',
+      type: 'ratio',
+      min: 0,
+      max: 1,
+      defaultValue: null,
+    });
+    expect(settingDef('super.contributionsTaxRate').defaultValue).toBe(
+      SUPER_CONTRIBUTIONS_TAX_DEFAULT,
+    );
+    expect(settingDef('super.concessionalCapCents')).toMatchObject({ type: 'money', min: 0 });
+    expect(settingDef('super.concessionalCapFy')).toMatchObject({ type: 'integer', source: null });
+    expect(settingDef('super.importedContributionType')).toMatchObject({
+      type: 'enum',
+      enumValues: [...SUPER_CONTRIBUTION_TYPES],
+      defaultValue: 'salary_sacrifice',
+    });
+    expect(settingValueSchema('otherAssets.stalePriceDays').safeParse(0).success).toBe(false);
+    expect(
+      settingValueSchema('super.importedContributionType').safeParse('after_tax').success,
+    ).toBe(true);
+  });
+
+  it('makes the Super page keys editable, never the cap FY (the server writes it)', () => {
+    expect(EDITABLE_SETTING_KEYS.slice(0, 15)).toHaveLength(15);
+    expect(EDITABLE_SETTING_KEYS.slice(15)).toEqual([
+      'pay.grossAnnualSalaryCents',
+      'tax.marginalRate',
+      'otherAssets.stalePriceDays',
+      'super.sgRate',
+      'super.contributionsTaxRate',
+      'super.concessionalCapCents',
+      'super.importedContributionType',
+    ]);
+    expect(isEditableSettingKey('super.concessionalCapFy')).toBe(false);
+    expect(isWorkbookSetting('pay.grossAnnualSalaryCents')).toBe(true);
+    expect(isWorkbookSetting('super.sgRate')).toBe(false);
+  });
+
+  it('appends the Stage 4 enums, error codes and note kind', () => {
+    for (const t of SUPER_CONTRIBUTION_TYPES) expect(SUPER_ENTRY_KINDS).toContain(t);
+    expect(SUPER_ENTRY_KINDS.slice(0, 2)).toEqual(['voluntary_contribution', 'reported_gain']);
+    expect(EDITABLE_NOTE_KINDS).toEqual(['spend', 'side_income', 'super_option']);
+    expect(API_ERROR_CODES.slice(-3)).toEqual([
+      'FUND_IN_USE',
+      'PROPERTY_HAS_LOAN',
+      'SALE_OVERSELL',
+    ]);
+    expect(FX_RATE_SOURCES).toEqual(['import', 'market', 'user']);
+    expect(SUPER_CAP_STATUSES).toEqual(['under', 'near', 'over']);
+    expect(OTHER_ASSET_FLAGS).toContain('purchase_fx_missing');
+    expect(OTHER_ASSET_FLAGS).toContain('live_fx_missing');
+    expect(LOAN_FLAGS).toContain('no_property');
+    expect(LOAN_ENTRY_FLAGS).toEqual(['repayments_below_principal', 'balance_increased']);
+    expect(SUPER_FLAGS).toContain('imported_estimates');
   });
 });
 
@@ -189,7 +280,7 @@ describe('record registry', () => {
   });
 
   it('lists the Stage 3 entities and the side-income deposits (stage-3.md §3.2)', () => {
-    expect(RECORD_ENTITY_IDS.slice(-4)).toEqual([
+    expect(RECORD_ENTITY_IDS.slice(-11, -7)).toEqual([
       'cash-balance-entries',
       'savings-adjustments',
       'savings-goals',
@@ -209,6 +300,59 @@ describe('record registry', () => {
       columnId: 'asOf',
       desc: true,
     });
+  });
+
+  it('lists the Stage 4 entities (stage-4.md §3.2) in the Assets group', () => {
+    const stage4 = [
+      'other-asset-prices',
+      'other-asset-sales',
+      'super-balance-entries',
+      'super-sg-overrides',
+      'property-valuations',
+      'loan-balance-entries',
+      'loan-offset-links',
+    ] as const;
+    expect(RECORD_ENTITY_IDS.slice(-7)).toEqual([...stage4]);
+    for (const id of stage4) expect(RECORD_ENTITIES[id].group).toBe('assets');
+    const ids = (id: (typeof RECORD_ENTITY_IDS)[number]) =>
+      RECORD_ENTITIES[id].columns.map((c) => c.id);
+    expect(ids('other-asset-prices')).toEqual([
+      'asset',
+      'asOf',
+      'unitPrice',
+      'currency',
+      'note',
+      'sheetRef',
+    ]);
+    expect(ids('other-asset-sales')).toEqual(['asset', 'date', 'units', 'proceeds', 'note']);
+    expect(ids('super-balance-entries')).toEqual([
+      'fund',
+      'asOf',
+      'balance',
+      'transferIn',
+      'note',
+      'sheetRef',
+    ]);
+    expect(ids('super-sg-overrides')).toEqual(['period', 'gross', 'note']);
+    expect(ids('property-valuations')).toEqual(['property', 'asOf', 'value', 'note', 'sheetRef']);
+    expect(ids('loan-balance-entries')).toEqual([
+      'loan',
+      'asOf',
+      'balance',
+      'repayments',
+      'note',
+      'sheetRef',
+    ]);
+    expect(ids('loan-offset-links')).toEqual(['account', 'loan']);
+    expect(RECORD_ENTITIES['loan-offset-links'].defaultSort).toEqual({ columnId: 'account' });
+    expect(RECORD_ENTITIES['super-sg-overrides'].defaultSort).toEqual({
+      columnId: 'period',
+      desc: true,
+    });
+    // Appended columns (additive).
+    expect(ids('other-assets').slice(-2)).toEqual(['purchaseFxRate', 'purchaseFxSource']);
+    expect(ids('super-funds').at(-1)).toBe('receivesSg');
+    expect(ids('super-entries').at(-1)).toBe('date');
   });
 
   it('lists the 36 History value columns B…AK', () => {

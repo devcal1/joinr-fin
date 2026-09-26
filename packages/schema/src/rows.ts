@@ -7,6 +7,7 @@ import {
   BUDGET_ITEM_KINDS,
   CASH_ACCOUNT_KINDS,
   FETCH_STATUSES,
+  FX_RATE_SOURCES,
   IMPORT_TRIGGERS,
   INSTRUMENT_KINDS,
   JOB_STATUSES,
@@ -27,6 +28,7 @@ import {
   UNITS_OF_MEASURE,
   type ReviewFlag,
 } from './enums';
+import { compareDecimals } from './decimal';
 import {
   CentsSchema,
   DecimalStringSchema,
@@ -324,6 +326,10 @@ export const newOtherAssetSchema = z.strictObject({
   sortOrder,
   note: nullable(text),
   ...provenance,
+  // Stage 4 (migration 0004).
+  purchaseFxRate: nullable(DecimalStringSchema),
+  purchaseFxSource: nullable(z.enum(FX_RATE_SOURCES)),
+  purchaseFxDate: nullable(IsoDateSchema),
 });
 
 export const newSuperFundSchema = z.strictObject({
@@ -334,6 +340,8 @@ export const newSuperFundSchema = z.strictObject({
   sortOrder,
   archived: bool.optional(),
   ...provenance,
+  // Stage 4 (migration 0004).
+  receivesSg: bool.optional(),
 });
 
 export const newSuperEntrySchema = z.strictObject({
@@ -465,6 +473,89 @@ export const newDividendEventSchema = z.strictObject({
   source: z.enum(PRICE_SOURCES),
   fetchedAt: IsoTimestampSchema,
   dismissedAt: nullable(IsoTimestampSchema),
+});
+
+// ─── Stage 4 (migration 0004; stage-4.md §3.2) ──────────────────────────────────────────────────
+
+/** A decimal string ≥ 0 (an other asset's hand price). */
+const nonNegativeDecimal = DecimalStringSchema.refine((v) => compareDecimals(v, '0') >= 0, {
+  error: 'must not be negative',
+});
+/** A decimal string > 0 (units sold). */
+const positiveDecimal = DecimalStringSchema.refine((v) => compareDecimals(v, '0') > 0, {
+  error: 'must be greater than zero',
+});
+const nonNegativeCents = CentsSchema.min(0);
+
+export const newOtherAssetPriceSchema = z.strictObject({
+  id: idSchema,
+  otherAssetId: z.number().int().positive(),
+  asOf: IsoDateSchema,
+  unitPrice: nonNegativeDecimal,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newOtherAssetSaleSchema = z.strictObject({
+  id: idSchema,
+  otherAssetId: z.number().int().positive(),
+  saleDate: IsoDateSchema,
+  units: positiveDecimal,
+  proceedsCents: nonNegativeCents,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newSuperBalanceEntrySchema = z.strictObject({
+  id: idSchema,
+  fundId: z.number().int().positive(),
+  asOf: IsoDateSchema,
+  balanceCents: nonNegativeCents,
+  transferInCents: nullable(nonNegativeCents),
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newSuperSgOverrideSchema = z.strictObject({
+  id: idSchema,
+  periodMonth: IsoMonthSchema,
+  grossCents: nonNegativeCents,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newPropertyValuationSchema = z.strictObject({
+  id: idSchema,
+  propertyId: z.number().int().positive(),
+  asOf: IsoDateSchema,
+  valueCents: nonNegativeCents,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newLoanBalanceEntrySchema = z.strictObject({
+  id: idSchema,
+  loanId: z.number().int().positive(),
+  asOf: IsoDateSchema,
+  balanceCents: nonNegativeCents,
+  repaymentsCents: nullable(nonNegativeCents),
+  note: nullable(text),
+  ...provenance,
+});
+
+/** Keyed by the account (an account links to at most one loan), so the account id is required. */
+export const newLoanOffsetLinkSchema = z.strictObject({
+  accountId: z.number().int().positive(),
+  loanId: z.number().int().positive(),
+  ...provenance,
+});
+
+export const newMarketQuoteHistorySchema = z.strictObject({
+  seriesId: nonEmpty,
+  date: IsoDateSchema,
+  value: DecimalStringSchema,
+  source: nonEmpty,
+  fetchedAt: IsoTimestampSchema,
 });
 
 export type NewInstrument = z.output<typeof newInstrumentSchema>;

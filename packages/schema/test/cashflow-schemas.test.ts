@@ -22,6 +22,7 @@ import {
   savingsGoalInputSchema,
   settingsPatchSchema,
   SETTINGS_INTEGER_MAX,
+  SETTINGS_PATCH_MAX_KEYS,
   yearlyExpenseInputSchema,
 } from '../src/index';
 import type { z } from 'zod';
@@ -286,15 +287,17 @@ describe('settingsPatchSchema', () => {
     ]);
   });
 
-  it('takes 1–20 keys and is strict', () => {
+  it('takes 1–30 keys (Stage 4: above the 22 editable keys) and is strict', () => {
+    expect(SETTINGS_PATCH_MAX_KEYS).toBe(30);
+    expect(EDITABLE_SETTING_KEYS.length).toBeLessThanOrEqual(SETTINGS_PATCH_MAX_KEYS);
     expect(issues(settingsPatchSchema, { values: {} })).toEqual([
-      'values: must hold 1 to 20 settings',
+      'values: must hold 1 to 30 settings',
     ]);
     const tooMany = Object.fromEntries(
-      Array.from({ length: 21 }, (_, i) => [`key${i}`, 1] as const),
+      Array.from({ length: 31 }, (_, i) => [`key${i}`, 1] as const),
     );
     expect(issues(settingsPatchSchema, { values: tooMany })).toEqual([
-      'values: must hold 1 to 20 settings',
+      'values: must hold 1 to 30 settings',
     ]);
     expect(ok(settingsPatchSchema, { values: { 'savings.yearBasis': 'fy' }, extra: 1 })).toBe(
       false,
@@ -305,6 +308,41 @@ describe('settingsPatchSchema', () => {
   it('accepts every editable key with a null value', () => {
     const all = Object.fromEntries(EDITABLE_SETTING_KEYS.map((k) => [k, null]));
     expect(settingsPatchSchema.parse({ values: all }).values).toEqual(all);
+  });
+
+  it('bounds the Stage 4 keys (stage-4.md §3.3); the cap FY is never editable', () => {
+    const values = {
+      'pay.grossAnnualSalaryCents': 12000000,
+      'tax.marginalRate': '0.3',
+      'otherAssets.stalePriceDays': 90,
+      'super.sgRate': '0.12',
+      'super.contributionsTaxRate': '0.15',
+      'super.concessionalCapCents': 3250000,
+      'super.importedContributionType': 'after_tax',
+    };
+    expect(settingsPatchSchema.parse({ values }).values).toEqual(values);
+    const days = 'otherAssets.stalePriceDays';
+    expect(ok(settingsPatchSchema, { values: { [days]: 1 } })).toBe(true);
+    expect(ok(settingsPatchSchema, { values: { [days]: 3650 } })).toBe(true);
+    expect(issues(settingsPatchSchema, { values: { [days]: 0 } })[0]).toMatch(
+      /^values\.otherAssets/,
+    );
+    expect(ok(settingsPatchSchema, { values: { [days]: 3651 } })).toBe(false);
+    expect(ok(settingsPatchSchema, { values: { [days]: 1.5 } })).toBe(false);
+    expect(issues(settingsPatchSchema, { values: { 'super.sgRate': '1.2' } })).toEqual([
+      'values.super.sgRate: must be between 0 and 1',
+    ]);
+    expect(
+      ok(settingsPatchSchema, { values: { 'super.importedContributionType': 'employer' } }),
+    ).toBe(false);
+    expect(
+      issues(settingsPatchSchema, {
+        values: { 'super.concessionalCapCents': CASHFLOW_MONEY_MAX + 1 },
+      }),
+    ).toEqual(['values.super.concessionalCapCents: is too large']);
+    expect(issues(settingsPatchSchema, { values: { 'super.concessionalCapFy': 2026 } })).toEqual([
+      'values.super.concessionalCapFy: not editable here',
+    ]);
   });
 
   it('enforces the write bounds: a ratio within 0..1, money and months not absurdly large', () => {

@@ -55,8 +55,6 @@ export const NO_SNAPSHOTS =
 export const BASELINE_NOTE = 'The first recorded month is the baseline.';
 export const RECORDING_NOTE =
   'Recording a month arrives in Stage 5; until then the current period stays provisional.';
-export const STAGE4_NOTE =
-  'Other assets, super and the mortgage use the imported figures until Stage 4.';
 export const ADJUSTMENT_HINT =
   "A one-off inflow that isn't income, such as an asset sale or a loan repaid. It is taken out of savings.";
 export const ADJUSTMENT_KEPT = 'Adjustments are kept when you re-import the workbook.';
@@ -334,7 +332,6 @@ export function SavingsSection({ page, editor }: SavingsSectionProps): JSX.Eleme
       <div className="jf-app-footnotes">
         <p className="jf-app-meta">{BASELINE_NOTE}</p>
         <p className="jf-app-meta">{RECORDING_NOTE}</p>
-        {page.staticUntilStage4 ? <p className="jf-app-meta">{STAGE4_NOTE}</p> : null}
       </div>
     </>
   );
@@ -364,6 +361,8 @@ function PeriodDetails({
     { label: 'Other assets', value: money(added?.otherAssetsCents), numeric: true },
     { label: 'Super', value: money(added?.superCents), numeric: true },
     { label: 'Mortgage principal', value: money(added?.mortgagePrincipalCents), numeric: true },
+    // Stage 4 (§6.6, §11 fix 7, D78): money moved into an offset account counts as saved.
+    { label: 'Offsets', value: money(added?.offsetsCents), numeric: true },
     { label: 'Property deposit', value: money(added?.propertyDepositCents), numeric: true },
     { label: '= Added investments', value: money(period.addedInvestmentsCents), numeric: true },
     { label: 'Salary', value: money(income?.salaryCents), numeric: true },

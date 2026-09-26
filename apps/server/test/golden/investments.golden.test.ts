@@ -10,7 +10,11 @@
 // pro-rated in the app (δ = fee × sold / units is added back, `partial_lot_fee`).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CASHFLOW_ENGINE_IMPLEMENTED, ENGINE_IMPLEMENTED } from '@joinr/engine';
+import {
+  ASSETS_ENGINE_IMPLEMENTED,
+  CASHFLOW_ENGINE_IMPLEMENTED,
+  ENGINE_IMPLEMENTED,
+} from '@joinr/engine';
 import { importWorkbook, readWorkbook, type WorkbookReader } from '@joinr/importer';
 import {
   describeWithLocalWorkbook,
@@ -34,7 +38,12 @@ import { makeTempDir, removeDir, testConfig } from '../helpers';
 // Stage 3 (stage-3.md §4.5): the investment pages' timing chain reads the live cash, budget and
 // savings, so the pages need the Stage 3 engine; the H2 check also needs the dated side-income
 // deposits the Stage 3 importer writes.
-const GATED = ENGINE_IMPLEMENTED && CASHFLOW_ENGINE_IMPLEMENTED && IMPORTER_IMPLEMENTED;
+// Stage 4 (stage-4.md §7.4 step 7): the class values and the savings come from the assets engines.
+const GATED =
+  ENGINE_IMPLEMENTED &&
+  CASHFLOW_ENGINE_IMPLEMENTED &&
+  ASSETS_ENGINE_IMPLEMENTED &&
+  IMPORTER_IMPLEMENTED;
 const TIMING_GATED = GATED && IMPORTER_STAGE3_IMPLEMENTED;
 
 // ─── Template layout (cell references only) ────────────────────────────────────────────────────

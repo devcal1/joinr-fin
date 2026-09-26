@@ -11,6 +11,12 @@ export interface CheckboxProps {
   name?: string;
   hint?: string;
   disabled?: boolean;
+  /**
+   * Words appended to the accessible name only, e.g. the row a table cell's checkbox belongs to
+   * ("Still current" + ", Example watch"). Stage 4, additive. The input's `aria-label` carries the
+   * whole name (a hidden span inside the label gave a stray space in Chrome's computed name).
+   */
+  labelSuffix?: string;
 }
 
 /** A switch has the same props as a checkbox (it renders `role="switch"`). */
@@ -29,6 +35,7 @@ function Toggle({
   name,
   hint,
   disabled,
+  labelSuffix,
 }: ToggleProps): JSX.Element {
   const ids = useFieldIds(id, hint, undefined);
   const block = kind === 'check' ? 'jf-check' : 'jf-switch';
@@ -45,6 +52,7 @@ function Toggle({
           disabled={disabled}
           onChange={(event) => onChange(event.target.checked)}
           aria-describedby={ids.describedBy}
+          aria-label={labelSuffix ? `${label}${labelSuffix}` : undefined}
         />
         {kind === 'check' ? (
           <span className="jf-check__box" aria-hidden="true">

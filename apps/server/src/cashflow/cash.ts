@@ -1,7 +1,8 @@
 // `GET /api/cash` (stage-3.md §4.2, §4.4, §6.3): accounts by kind with their balance history, the
 // totals and the emergency-fund test, the savings periods (raw and adjusted), the KPIs, the savings
 // goals and the charts. Every figure comes from the engine; the server adds names, notes, origins
-// and counts.
+// and counts. Stage 4 (stage-4.md §3.2, §6.6): each account's linked loan (D67), the offsets part
+// of added investments, and `staticUntilStage4` always false.
 import type {
   CashKpisResult,
   CashTotalsResult,
@@ -12,7 +13,9 @@ import type {
 } from '@joinr/engine';
 import {
   CASH_ACCOUNT_KINDS,
+  EDITABLE_NOTE_KINDS,
   INSTRUMENT_KINDS,
+  type EditableNoteKind,
   type CashAccountDto,
   type CashBalanceEntryDto,
   type CashChartPointDto,
@@ -43,6 +46,10 @@ import type { FinanceContext } from './context';
 import { latestSnapshot, offsetsIncludeEmergencyFundOf, yearBasisOf } from './inputs';
 import { settingsSliceDto } from './settings';
 
+function isEditableNoteKind(kind: string): kind is EditableNoteKind {
+  return (EDITABLE_NOTE_KINDS as readonly string[]).includes(kind);
+}
+
 // ─── Accounts and entries ───────────────────────────────────────────────────────────────────────
 
 /** Kind order (CASH_ACCOUNT_KINDS), offsets last, then sortOrder (then id). */
@@ -70,7 +77,13 @@ export function countsForEmergencyFund(
 
 export function cashAccountDto(
   a: CashAccountRow,
-  o: { entryCount: number; budgetRowCount: number; offsetsIncludeEmergencyFund: boolean },
+  o: {
+    entryCount: number;
+    budgetRowCount: number;
+    offsetsIncludeEmergencyFund: boolean;
+    /** The loan this offset account is linked to (D67), or null. */
+    linkedLoan?: { id: number; name: string } | null;
+  },
 ): CashAccountDto {
   return {
     id: a.id,
@@ -88,6 +101,8 @@ export function cashAccountDto(
     sheetRef: a.sheetRef,
     entryCount: o.entryCount,
     budgetRowCount: o.budgetRowCount,
+    // Stage 4 (stage-4.md §3.2, additive): the account's loan_offset_links row (D67).
+    linkedLoan: o.linkedLoan ?? null,
   };
 }
 
@@ -103,11 +118,18 @@ export function cashAccountDtos(data: InvestmentData): CashAccountDto[] {
     }
   }
   const offsets = offsetsIncludeEmergencyFundOf(data.settings);
+  const loans = new Map(data.loans.map((l) => [l.id, l]));
+  const linked = new Map<number, { id: number; name: string }>();
+  for (const link of data.loanOffsetLinks) {
+    const loan = loans.get(link.loanId);
+    if (loan) linked.set(link.accountId, { id: loan.id, name: loan.name });
+  }
   return sortAccounts(data.cashAccounts).map((a) =>
     cashAccountDto(a, {
       entryCount: entries.get(a.id) ?? 0,
       budgetRowCount: budgetRows.get(a.id) ?? 0,
       offsetsIncludeEmergencyFund: offsets,
+      linkedLoan: linked.get(a.id) ?? null,
     }),
   );
 }
@@ -165,8 +187,9 @@ export function adjustmentDto(a: SavingsAdjustmentRow): SavingsAdjustmentDto {
   return { periodMonth: a.periodMonth, amountCents: a.amountCents, note: a.note };
 }
 
+/** A note of an editable kind (`spend`, `side_income`, `super_option`); null for any other kind. */
 export function periodNoteDto(n: PeriodNoteRow): PeriodNoteDto | null {
-  if (n.kind !== 'spend' && n.kind !== 'side_income') return null;
+  if (!isEditableNoteKind(n.kind)) return null;
   return {
     periodMonth: n.periodMonth,
     kind: n.kind,
@@ -179,7 +202,7 @@ export function periodNoteDto(n: PeriodNoteRow): PeriodNoteDto | null {
 /** Notes of one kind by period month. */
 export function notesByMonth(
   notes: readonly PeriodNoteRow[],
-  kind: 'spend' | 'side_income',
+  kind: EditableNoteKind,
 ): Map<string, PeriodNoteDto> {
   const out = new Map<string, PeriodNoteDto>();
   for (const n of notes) {
@@ -216,6 +239,7 @@ export function savingsPeriodDto(
             superCents: p.added.superCents,
             mortgagePrincipalCents: p.added.mortgagePrincipalCents,
             propertyDepositCents: p.added.propertyDepositCents,
+            offsetsCents: p.added.offsetsCents,
           },
     income:
       p.income === null
@@ -396,16 +420,6 @@ export function buildGoals(ctx: FinanceContext): CashPageResponse['goals'] {
 
 // ─── The page ───────────────────────────────────────────────────────────────────────────────────
 
-/** Other assets, super or a property/mortgage exist: those figures stay imported until Stage 4. */
-export function staticUntilStage4(data: InvestmentData): boolean {
-  return (
-    data.otherAssets.length > 0 ||
-    data.superEntries.length > 0 ||
-    data.properties.length > 0 ||
-    data.loans.some((l) => l.propertyId !== null)
-  );
-}
-
 export function buildCashPage(ctx: FinanceContext): CashPageResponse {
   const { data } = ctx;
   const s = data.settings;
@@ -439,6 +453,8 @@ export function buildCashPage(ctx: FinanceContext): CashPageResponse {
     goals: buildGoals(ctx),
     charts: { unit, count, points: points.map(cashChartPointDto) },
     settings: settingsSliceDto(s, data.settingOrigins, CASH_PAGE_SETTING_KEYS),
-    staticUntilStage4: staticUntilStage4(data),
+    // Stage 4: the provisional period's parts come from the live engines (always false; the field
+    // stays in the contract until Stage 5 may drop it).
+    staticUntilStage4: false,
   };
 }

@@ -33,6 +33,8 @@ import type { WorkbookModel } from './model';
 import {
   applyCorrections,
   buildInstruments,
+  dateBalanceEntries,
+  deriveHistoryContributions,
   flagSuspects,
   linkBudgetAccounts,
   mergeNotes,
@@ -90,6 +92,7 @@ export function extractWorkbook(r: SheetReader, now: Date): WorkbookModel {
     sideIncome: side.deposits,
     otherAssets: extractOtherAssets(ctx),
     superFunds: sup.funds,
+    superTotalCents: sup.totalCents,
     superEntries: sup.entries,
     properties: property.properties,
     loans: [...property.loans, ...extractLiabilities(ctx), ...extractSpareLiability(ctx)],
@@ -143,6 +146,9 @@ export function importWorkbook(db: JoinrDb, options: ImportOptions): ImportResul
     flagSuspects(model);
     rekeyDividends(model);
     linkBudgetAccounts(model);
+    // Stage 4 (stage-4.md §3.5 items 2 and 4): balance-entry dates and History contributions.
+    dateBalanceEntries(model);
+    deriveHistoryContributions(model, model.checks);
 
     let report: ReconciliationReport | null = null;
     try {

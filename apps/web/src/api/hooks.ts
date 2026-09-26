@@ -2,9 +2,41 @@
 // Stage 1 (stage-1.md §6.2): ['records'], ['records', id], ['import', 'runs'], ['import', 'run', id],
 // ['prices'], ['status']. Stage 2 (stage-2.md §6.2): ['investments', kind],
 // ['investments', kind, 'trades'], ['instruments', id]. Stage 3 (stage-3.md §6.2): ['cash'],
-// ['side-income'], ['budget'], ['dividends'].
+// ['side-income'], ['budget'], ['dividends']. Stage 4 (stage-4.md §6.2): ['other-assets'], ['super'],
+// ['property'].
 import type {
   AppStatus,
+  LoanBalanceEntryUpdate,
+  LoanBalancesInput,
+  LoanBalancesResponse,
+  LoanCreate,
+  LoanMutationResponse,
+  LoanOffsetsInput,
+  LoanOffsetsResponse,
+  LoanUpdate,
+  OtherAssetCreateBody,
+  OtherAssetMutationResponse,
+  OtherAssetPricesInput,
+  OtherAssetPricesResponse,
+  OtherAssetSaleInput,
+  OtherAssetsPageResponse,
+  OtherAssetUpdateBody,
+  PropertyCreate,
+  PropertyMutationResponse,
+  PropertyPageResponse,
+  PropertyUpdate,
+  SgOverrideInput,
+  SgOverrideResponse,
+  SuperBalancesInput,
+  SuperBalancesResponse,
+  SuperContributionInput,
+  SuperContributionMutationResponse,
+  SuperFundCreate,
+  SuperFundMutationResponse,
+  SuperFundUpdate,
+  SuperPageResponse,
+  ValuationsInput,
+  ValuationsResponse,
   BudgetAutoKind,
   BudgetAutoRowInput,
   BudgetItemInput,
@@ -85,6 +117,9 @@ export const queryKeys = {
   sideIncome: ['side-income'] as const,
   budget: ['budget'] as const,
   dividends: ['dividends'] as const,
+  otherAssets: ['other-assets'] as const,
+  super: ['super'] as const,
+  property: ['property'] as const,
 };
 
 /** The four cash-flow pages' keys (stage-3.md §6.2). */
@@ -99,6 +134,13 @@ function invalidateCashflowPages(queryClient: QueryClient): Promise<void>[] {
   return CASHFLOW_PAGE_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey }));
 }
 
+/** The three assets pages' keys (stage-4.md §6.2). */
+const ASSETS_PAGE_KEYS = [queryKeys.otherAssets, queryKeys.super, queryKeys.property] as const;
+
+function invalidateAssetsPages(queryClient: QueryClient): Promise<void>[] {
+  return ASSETS_PAGE_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey }));
+}
+
 /** How often a page polls while the server reports work in progress. */
 export const BUSY_POLL_MS = 2_000;
 /** The prices page refetches every minute while it is visible. */
@@ -109,6 +151,8 @@ export const STATUS_POLL_MS = 60_000;
 export const INVESTMENTS_POLL_MS = 60_000;
 /** The four cash-flow pages refetch every minute while visible (stage-3.md §6.2). */
 export const CASHFLOW_POLL_MS = 60_000;
+/** The three assets pages refetch every minute while visible (stage-4.md §6.2). */
+export const ASSETS_POLL_MS = 60_000;
 
 // ─── Queries ──────────────────────────────────────────────────────────────────────────────────
 
@@ -241,6 +285,38 @@ export function useDividendsPage(): UseQueryResult<DividendsPageResponse> {
   });
 }
 
+// Stage 4: the assets pages (stage-4.md §4.2, §6.2). Each refetches every minute while visible.
+
+/** `GET /api/other-assets`: items, prices, sales, totals, spot, FX and the charts. */
+export function useOtherAssetsPage(): UseQueryResult<OtherAssetsPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.otherAssets,
+    queryFn: () => apiGet<OtherAssetsPageResponse>('/api/other-assets'),
+    refetchInterval: ASSETS_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** `GET /api/super`: funds, balance entries, contributions, SG months, periods and the cap years. */
+export function useSuperPage(): UseQueryResult<SuperPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.super,
+    queryFn: () => apiGet<SuperPageResponse>('/api/super'),
+    refetchInterval: ASSETS_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** `GET /api/property`: properties, valuations, loans with their logs, offsets and the charts. */
+export function usePropertyPage(): UseQueryResult<PropertyPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.property,
+    queryFn: () => apiGet<PropertyPageResponse>('/api/property'),
+    refetchInterval: ASSETS_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
 // ─── Mutations ────────────────────────────────────────────────────────────────────────────────
 
 export interface ImportRequest {
@@ -262,12 +338,14 @@ export function invalidateAfterImport(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     ...invalidateCashflowPages(queryClient),
+    ...invalidateAssetsPages(queryClient),
   ]).then(() => undefined);
 }
 
 /**
  * A refresh, a manual price or a source change: prices, status, every investment figure and the
- * cash-flow pages (investment values feed the savings goals and the timing chain).
+ * cash-flow pages (investment values feed the savings goals and the timing chain), and the assets
+ * pages (bullion spot and FX come from the same refresh, stage-4.md §6.2).
  */
 function invalidatePrices(queryClient: QueryClient): Promise<void> {
   return Promise.all([
@@ -276,6 +354,7 @@ function invalidatePrices(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     ...invalidateCashflowPages(queryClient),
+    ...invalidateAssetsPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -300,11 +379,13 @@ export function invalidateAfterInvestmentChange(queryClient: QueryClient): Promi
 /**
  * After any Stage 3 mutation (stage-3.md §6.2): the four cash-flow pages, the investment pages
  * (the live budget and cash feed their timing), holding details, records, the import runs
- * (`hasAppData`) and the header status.
+ * (`hasAppData`) and the header status. Stage 4: also the three assets pages (an offset flag or a
+ * balance moves the property figures; stage-4.md §6.2).
  */
 export function invalidateAfterCashflowChange(queryClient: QueryClient): Promise<void> {
   return Promise.all([
     ...invalidateCashflowPages(queryClient),
+    ...invalidateAssetsPages(queryClient),
     queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.records }),
@@ -783,9 +864,298 @@ export function useRestoreSuggestion() {
 
 // Settings
 
-/** `PATCH /api/settings`: the settings a page edits (1–20 editable keys; null clears one). */
+/** `PATCH /api/settings`: the settings a page edits (1–30 editable keys; null clears one). */
 export function usePatchSettings() {
   return useCashflowMutation((body: SettingsPatch) =>
     apiSend<SettingsPatchResponse>('PATCH', '/api/settings', body),
+  );
+}
+
+// ─── Assets (stage-4.md §4.2, §6.2) ──────────────────────────────────────────────────────────────
+// Every Stage 4 mutation invalidates the same keys (invalidateAfterAssetsChange).
+
+/**
+ * After any Stage 4 mutation (stage-4.md §6.2): the three assets pages, the Cash page (the
+ * provisional savings period), the Budget and the investment pages (the other-assets class value),
+ * records, the import runs (`hasAppData`) and the header status.
+ */
+export function invalidateAfterAssetsChange(queryClient: QueryClient): Promise<void> {
+  return Promise.all([
+    ...invalidateAssetsPages(queryClient),
+    queryClient.invalidateQueries({ queryKey: queryKeys.cash }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.budget }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.records }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.import }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+  ]).then(() => undefined);
+}
+
+/** A mutation whose success refreshes everything an assets change can move. */
+function useAssetsMutation<TVariables, TResult>(
+  mutationFn: (variables: TVariables) => Promise<TResult>,
+): UseMutationResult<TResult, Error, TVariables> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => invalidateAfterAssetsChange(queryClient),
+  });
+}
+
+// Other assets
+
+/** `POST /api/other-assets` → 201 (a manual item may carry its first price). */
+export function useCreateOtherAsset() {
+  return useAssetsMutation((body: OtherAssetCreateBody) =>
+    apiSend<OtherAssetMutationResponse>('POST', '/api/other-assets', body),
+  );
+}
+
+/** `PUT /api/other-assets/:id`. */
+export function useUpdateOtherAsset() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<OtherAssetUpdateBody>) =>
+    apiSend<OtherAssetMutationResponse>('PUT', `/api/other-assets/${id}`, body),
+  );
+}
+
+/** `DELETE /api/other-assets/:id` (its prices and sales go with it). */
+export function useDeleteOtherAsset() {
+  return useAssetsMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/other-assets/${id}`),
+  );
+}
+
+/** `POST /api/other-assets/reorder`: every item id exactly once, in the new order. */
+export function useReorderOtherAssets() {
+  return useAssetsMutation((ids: number[]) =>
+    apiSend<{ ids: number[] }>('POST', '/api/other-assets/reorder', { ids }),
+  );
+}
+
+/** `PUT /api/other-assets/prices`: one as-of date and the changed items' prices (D72). */
+export function useSaveOtherAssetPrices() {
+  return useAssetsMutation((body: OtherAssetPricesInput) =>
+    apiSend<OtherAssetPricesResponse>('PUT', '/api/other-assets/prices', body),
+  );
+}
+
+/** `DELETE /api/other-assets/price-entries/:id`. */
+export function useDeleteOtherAssetPriceEntry() {
+  return useAssetsMutation((id: number) =>
+    apiSend<OtherAssetMutationResponse>('DELETE', `/api/other-assets/price-entries/${id}`),
+  );
+}
+
+export interface SaleCreateRequest {
+  assetId: number;
+  body: OtherAssetSaleInput;
+}
+
+/** `POST /api/other-assets/:id/sales` → 201 (422 SALE_OVERSELL past the remaining units). */
+export function useCreateOtherAssetSale() {
+  return useAssetsMutation(({ assetId, body }: SaleCreateRequest) =>
+    apiSend<OtherAssetMutationResponse>('POST', `/api/other-assets/${assetId}/sales`, body),
+  );
+}
+
+/** `PUT /api/other-assets/sales/:id` (422 SALE_OVERSELL). */
+export function useUpdateOtherAssetSale() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<OtherAssetSaleInput>) =>
+    apiSend<OtherAssetMutationResponse>('PUT', `/api/other-assets/sales/${id}`, body),
+  );
+}
+
+/** `DELETE /api/other-assets/sales/:id`. */
+export function useDeleteOtherAssetSale() {
+  return useAssetsMutation((id: number) =>
+    apiSend<OtherAssetMutationResponse>('DELETE', `/api/other-assets/sales/${id}`),
+  );
+}
+
+// Super
+
+/** `POST /api/super/funds` → 201 with its opening balance entry. */
+export function useCreateSuperFund() {
+  return useAssetsMutation((body: SuperFundCreate) =>
+    apiSend<SuperFundMutationResponse>('POST', '/api/super/funds', body),
+  );
+}
+
+/** `PUT /api/super/funds/:id` (a `receivesSg`-only change keeps the row's origin). */
+export function useUpdateSuperFund() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<SuperFundUpdate>) =>
+    apiSend<SuperFundMutationResponse>('PUT', `/api/super/funds/${id}`, body),
+  );
+}
+
+/** `DELETE /api/super/funds/:id` (409 FUND_IN_USE while contributions reference it). */
+export function useDeleteSuperFund() {
+  return useAssetsMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/super/funds/${id}`),
+  );
+}
+
+/** `PUT /api/super/balances`: one as-of date and the changed funds' balances (D69). */
+export function useSaveSuperBalances() {
+  return useAssetsMutation((body: SuperBalancesInput) =>
+    apiSend<SuperBalancesResponse>('PUT', '/api/super/balances', body),
+  );
+}
+
+/** `DELETE /api/super/balance-entries/:id` (409 LAST_BALANCE_ENTRY for a fund's only entry). */
+export function useDeleteSuperBalanceEntry() {
+  return useAssetsMutation((id: number) =>
+    apiSend<SuperFundMutationResponse>('DELETE', `/api/super/balance-entries/${id}`),
+  );
+}
+
+/** `POST /api/super/contributions` → 201 (typed kinds only, D71). */
+export function useCreateSuperContribution() {
+  return useAssetsMutation((body: SuperContributionInput) =>
+    apiSend<SuperContributionMutationResponse>('POST', '/api/super/contributions', body),
+  );
+}
+
+/** `PUT /api/super/contributions/:id` (an imported entry becomes typed). */
+export function useUpdateSuperContribution() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<SuperContributionInput>) =>
+    apiSend<SuperContributionMutationResponse>('PUT', `/api/super/contributions/${id}`, body),
+  );
+}
+
+/** `DELETE /api/super/contributions/:id`. */
+export function useDeleteSuperContribution() {
+  return useAssetsMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/super/contributions/${id}`),
+  );
+}
+
+export interface SgOverrideRequest {
+  periodMonth: IsoMonth;
+  body: SgOverrideInput;
+}
+
+/** `PUT /api/super/sg/:periodMonth`: a statement's SG for the month earned (an overlay). */
+export function useSaveSgOverride() {
+  return useAssetsMutation(({ periodMonth, body }: SgOverrideRequest) =>
+    apiSend<SgOverrideResponse>('PUT', `/api/super/sg/${encodeURIComponent(periodMonth)}`, body),
+  );
+}
+
+/** `DELETE /api/super/sg/:periodMonth`. */
+export function useDeleteSgOverride() {
+  return useAssetsMutation((periodMonth: IsoMonth) =>
+    apiSend<{ periodMonth: IsoMonth }>(
+      'DELETE',
+      `/api/super/sg/${encodeURIComponent(periodMonth)}`,
+    ),
+  );
+}
+
+export interface SuperOptionNoteRequest {
+  periodMonth: IsoMonth;
+  /** `''` deletes the note. */
+  note: string;
+}
+
+/** `PUT /api/period-notes/super_option/:periodMonth` (any month up to this one; '' deletes). */
+export function useSaveSuperOptionNote() {
+  return useAssetsMutation(({ periodMonth, note }: SuperOptionNoteRequest) =>
+    apiSend<PeriodNoteResponse>(
+      'PUT',
+      `/api/period-notes/super_option/${encodeURIComponent(periodMonth)}`,
+      { note },
+    ),
+  );
+}
+
+// Property
+
+/** `POST /api/property/properties` → 201 with its opening valuation. */
+export function useCreateProperty() {
+  return useAssetsMutation((body: PropertyCreate) =>
+    apiSend<PropertyMutationResponse>('POST', '/api/property/properties', body),
+  );
+}
+
+/** `PUT /api/property/properties/:id`. */
+export function useUpdateProperty() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<PropertyUpdate>) =>
+    apiSend<PropertyMutationResponse>('PUT', `/api/property/properties/${id}`, body),
+  );
+}
+
+/** `DELETE /api/property/properties/:id` (409 PROPERTY_HAS_LOAN while a loan references it). */
+export function useDeleteProperty() {
+  return useAssetsMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/property/properties/${id}`),
+  );
+}
+
+/** `PUT /api/property/valuations`: one as-of date and the changed properties' values. */
+export function useSaveValuations() {
+  return useAssetsMutation((body: ValuationsInput) =>
+    apiSend<ValuationsResponse>('PUT', '/api/property/valuations', body),
+  );
+}
+
+/** `DELETE /api/property/valuation-entries/:id` (409 LAST_BALANCE_ENTRY for the only one). */
+export function useDeleteValuationEntry() {
+  return useAssetsMutation((id: number) =>
+    apiSend<PropertyMutationResponse>('DELETE', `/api/property/valuation-entries/${id}`),
+  );
+}
+
+/** `POST /api/property/loans` → 201 with its current balance entry. */
+export function useCreateLoan() {
+  return useAssetsMutation((body: LoanCreate) =>
+    apiSend<LoanMutationResponse>('POST', '/api/property/loans', body),
+  );
+}
+
+/** `PUT /api/property/loans/:id` (a changed start or repayment re-derives the log, D76). */
+export function useUpdateLoan() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<LoanUpdate>) =>
+    apiSend<LoanMutationResponse>('PUT', `/api/property/loans/${id}`, body),
+  );
+}
+
+/** `DELETE /api/property/loans/:id` (its entries and offset links go with it). */
+export function useDeleteLoan() {
+  return useAssetsMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/property/loans/${id}`),
+  );
+}
+
+/** `PUT /api/property/loan-balances`: one as-of date and the changed loans' balances (D66). */
+export function useSaveLoanBalances() {
+  return useAssetsMutation((body: LoanBalancesInput) =>
+    apiSend<LoanBalancesResponse>('PUT', '/api/property/loan-balances', body),
+  );
+}
+
+/** `PUT /api/property/loan-balance-entries/:id` (the entry's date is fixed). */
+export function useUpdateLoanBalanceEntry() {
+  return useAssetsMutation(({ id, body }: UpdateRequest<LoanBalanceEntryUpdate>) =>
+    apiSend<LoanMutationResponse>('PUT', `/api/property/loan-balance-entries/${id}`, body),
+  );
+}
+
+/** `DELETE /api/property/loan-balance-entries/:id` (409 LAST_BALANCE_ENTRY for the only one). */
+export function useDeleteLoanBalanceEntry() {
+  return useAssetsMutation((id: number) =>
+    apiSend<LoanMutationResponse>('DELETE', `/api/property/loan-balance-entries/${id}`),
+  );
+}
+
+export interface LoanOffsetsRequest {
+  loanId: number;
+  body: LoanOffsetsInput;
+}
+
+/** `PUT /api/property/loans/:id/offsets`: the loan's offset accounts, as a set (D67). */
+export function useSaveLoanOffsets() {
+  return useAssetsMutation(({ loanId, body }: LoanOffsetsRequest) =>
+    apiSend<LoanOffsetsResponse>('PUT', `/api/property/loans/${loanId}/offsets`, body),
   );
 }

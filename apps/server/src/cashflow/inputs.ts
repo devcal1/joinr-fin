@@ -1,36 +1,33 @@
 // The engine inputs the server builds from the loaded rows (stage-3.md §4.5 "Engine inputs built by
 // the server"). Pure functions of the loaded data, the settings and the as-of date, so each row of
 // the input table is unit-tested on its own; the request context (context.ts) memoises the engine
-// calls that consume them.
+// calls that consume them. Stage 4 (stage-4.md §2.8, §4.5): the live savings input comes from the
+// assets engines' results (no static imported parts any more), and the latest snapshot carries the
+// offset figure; the Stage 4 engine inputs themselves are built in `assets/inputs.ts`.
 import type {
   BudgetRowInput,
   Cents,
   DividendEventInput,
   EngineCashAccount,
+  OtherAssetsResult,
+  PropertiesResult,
   SavingsLiveInput,
   SavingsSnapshotInput,
   SideIncomeInput,
   SideIncomeResult,
+  SuperResult,
 } from '@joinr/engine';
-import {
-  isoMonthOf,
-  isPositiveDecimal,
-  JoinrDecimal,
-  multiplyToCents,
-  type IsoDate,
-  type YearBasis,
-} from '@joinr/schema';
+import { isPositiveDecimal, type IsoDate, type YearBasis } from '@joinr/schema';
 import { booleanSetting, stringSetting, type SettingsValues } from '../db/queries/settings';
 import { ratioOf } from '../investments/format';
+import { offsetAccounts, offsetCentsAt } from '../assets/inputs';
 import type {
   CashAccountRow,
   DividendEventRow,
   InstrumentRow,
   InvestmentData,
-  OtherAssetRow,
   SnapshotRow,
 } from '../investments/load';
-import { otherAssetValueCents } from '../records/index';
 
 // ─── Settings with their Stage 3 defaults (§4.5 "settings") ─────────────────────────────────────
 
@@ -92,75 +89,56 @@ export function latestSnapshot(snapshots: readonly SnapshotRow[]): SnapshotRow |
 }
 
 /**
- * Voluntary super contributions for the provisional period: Σ `super_entries` of kind
- * `voluntary_contribution` whose `period_month` is after the latest snapshot's and not after
- * `isoMonthOf(asOf)`.
+ * The snapshots for the savings engine (§2.9, D78): each History row as `toSavingsSnapshot`, and
+ * the **latest** one (by run date) carries `offsetCents` = Σ today's offset accounts' latest
+ * balance entries on or before its run date (`offsetCentsAt`: an account with none by then counts
+ * 0 when it was created or flagged Offset in the app, and its imported balance when the workbook
+ * flagged it, because the workbook already kept that balance out of the stored cash); every
+ * earlier snapshot passes null (closed periods keep Δ offsets 0), and all are null when no offset
+ * account exists.
  */
-export function provisionalSuperContribCents(data: InvestmentData, asOf: IsoDate): Cents {
-  const after = latestSnapshot(data.snapshots)?.periodMonth ?? null;
-  const through = isoMonthOf(asOf);
-  return data.superEntries
-    .filter(
-      (e) =>
-        e.kind === 'voluntary_contribution' &&
-        (after === null || e.periodMonth > after) &&
-        e.periodMonth <= through,
-    )
-    .reduce((sum, e) => sum + e.amountCents, 0);
+export function savingsSnapshots(data: InvestmentData): SavingsSnapshotInput[] {
+  const latest = latestSnapshot(data.snapshots);
+  const anyOffset = offsetAccounts(data).length > 0;
+  return data.snapshots.map((s) => ({
+    ...toSavingsSnapshot(s),
+    offsetCents: anyOffset && s === latest ? offsetCentsAt(data, s.runDate) : null,
+  }));
 }
 
 /**
- * The provisional period's live values (§4.5): Total Cash (loans in, D59), the current monthly
- * pay, the voluntary super since the latest snapshot, and the property and mortgage figures as
- * imported (static until Stage 4; null when there is no property or mortgage).
+ * The provisional period's live values (stage-4.md §2.8, §4.5), from the engine results only:
+ * Total Cash (loans in, D59), the current monthly pay, the super contributions' net-pay cost since
+ * the latest snapshot (D71), the property and mortgage parts, and Σ offset accounts now (null when
+ * no offset account exists).
  */
-export function liveSavingsInput(
-  data: InvestmentData,
-  o: { asOf: IsoDate; totalCashCents: Cents; salaryMonthlyCents: Cents | null },
-): SavingsLiveInput {
-  const mortgages = data.loans.filter((l) => l.propertyId !== null);
+export function liveSavingsInput(o: {
+  totalCashCents: Cents;
+  salaryMonthlyCents: Cents | null;
+  superResult: SuperResult;
+  property: PropertiesResult;
+  /** `cashTotals().offsetCents` when any offset account exists, else null. */
+  offsetCents: Cents | null;
+}): SavingsLiveInput {
   return {
     cashCents: o.totalCashCents,
     salaryMonthlyCents: o.salaryMonthlyCents,
-    superContribCents: provisionalSuperContribCents(data, o.asOf),
-    propertyPurchaseCents:
-      data.properties.length === 0
-        ? null
-        : data.properties.reduce((sum, p) => sum + p.purchaseValueCents, 0),
-    mortgageBalanceCents:
-      mortgages.length === 0 ? null : -mortgages.reduce((sum, l) => sum + l.currentBalanceCents, 0),
-    // Payments paid − interest and fees (none are imported before Stage 4, so 0).
-    mortgagePrincipalPaidCents:
-      mortgages.length === 0
-        ? null
-        : mortgages.reduce((sum, l) => sum + (l.paymentsPaidCents ?? 0), 0),
+    superContribCents: o.superResult.snapshot.superContribCents,
+    propertyPurchaseCents: o.property.savingsLive.propertyPurchaseCents,
+    mortgageBalanceCents: o.property.savingsLive.mortgageBalanceCents,
+    mortgagePrincipalPaidCents: o.property.savingsLive.mortgagePrincipalPaidCents,
+    offsetCents: o.offsetCents,
   };
 }
 
 /**
- * Other-asset purchases (added investments): rows with a purchase date and currency AUD, valued
- * `(units − sold_units) × unit_cost`; other currencies (Stage 4 adds FX) and rows without a cost
- * are skipped.
+ * The other-asset flows (§2.8): the engine's savings flows (FX-converted purchases at the
+ * purchase-date rate, sales negative; undated and FX-missing assets left out).
  */
-export function otherAssetPurchases(
-  rows: readonly OtherAssetRow[],
+export function otherAssetFlows(
+  result: OtherAssetsResult,
 ): { date: IsoDate; amountCents: Cents }[] {
-  const out: { date: IsoDate; amountCents: Cents }[] = [];
-  for (const a of rows) {
-    if (a.purchaseDate === null || a.currency !== 'AUD' || a.unitCost === null) continue;
-    try {
-      const remaining = new JoinrDecimal(a.units).minus(a.soldUnits).toFixed();
-      out.push({ date: a.purchaseDate, amountCents: multiplyToCents(remaining, a.unitCost) });
-    } catch {
-      // A malformed stored decimal is left out rather than failing the page.
-    }
-  }
-  return out;
-}
-
-/** Σ (units − sold) × unit price of the AUD other assets (the other-assets class value). */
-export function otherAssetsValueCents(rows: readonly OtherAssetRow[]): Cents {
-  return rows.reduce((sum, a) => sum + (otherAssetValueCents(a) ?? 0), 0);
+  return result.savingsFlows.map((f) => ({ date: f.date, amountCents: f.amountCents }));
 }
 
 // ─── Side income (§2.8) ─────────────────────────────────────────────────────────────────────────

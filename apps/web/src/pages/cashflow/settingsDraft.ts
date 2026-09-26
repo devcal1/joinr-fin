@@ -25,6 +25,11 @@ export type SettingDrafts = Partial<Record<EditableSettingKey, SettingDraft>>;
 export const ENUM_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'pay.frequency': PAY_FREQUENCY_LABELS,
   'savings.yearBasis': YEAR_BASIS_LABELS,
+  // Stage 4 (stage-4.md §3.3, D75): how imported (untyped) super contributions are read.
+  'super.importedContributionType': {
+    salary_sacrifice: 'Salary sacrifice',
+    after_tax: 'After-tax',
+  },
 };
 
 /** The value a slice holds for a key (null when never stored or stored as null). */

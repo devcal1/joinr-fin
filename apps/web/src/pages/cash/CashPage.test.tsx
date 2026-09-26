@@ -670,7 +670,7 @@ describe('Cash page: savings (§6.3 item 4, D51)', () => {
     expect(screen.queryByRole('note', { name: 'Adjustment without a period' })).toBeNull();
   });
 
-  it('charts and foot notes: the live point and the Stage 4 note', async () => {
+  it('charts and foot notes: the live point, and no Stage 4 note (staticUntilStage4 false)', async () => {
     const { user } = await openCash();
     for (const title of ['Cash value history', 'Savings history', 'Savings rate']) {
       expect(screen.getByRole('region', { name: title })).toBeVisible();
@@ -686,7 +686,8 @@ describe('Cash page: savings (§6.3 item 4, D51)', () => {
     expect(main).toHaveTextContent(
       'Recording a month arrives in Stage 5; until then the current period stays provisional.',
     );
-    expect(main).toHaveTextContent(
+    // Stage 4 (stage-4.md §6.6): the live engines feed the provisional period; the note is gone.
+    expect(main).not.toHaveTextContent(
       'Other assets, super and the mortgage use the imported figures until Stage 4.',
     );
   });
@@ -951,5 +952,74 @@ describe('Cash page: settings (§6.3 item 6, §3.3)', () => {
     expect(api.calls('PATCH /api/settings')[0]?.body).toEqual({
       values: { 'goals.houseDepositInvestmentShare': '0.25' },
     });
+  });
+});
+
+describe('Cash page: Stage 4 changes (stage-4.md §6.6, D67, D78)', () => {
+  it('an offset account says which loan it is linked to; Offset off says it removes the link', async () => {
+    const { user } = await openCash();
+    await user.click(screen.getByRole('button', { name: 'Edit Offset account' }));
+    const form = screen.getByRole('form', { name: 'Edit account · Offset account' });
+    expect(form).toHaveTextContent(
+      'Linked to Example property mortgage (change it on the Property page)',
+    );
+    await user.click(
+      within(form).getByRole('switch', { name: 'Offset account: kept out of Total cash' }),
+    );
+    expect(within(form).getByRole('note', { name: 'Offset link' })).toHaveTextContent(
+      'This also removes its link to Example property mortgage.',
+    );
+    expect(form).not.toHaveTextContent('Linked to Example property mortgage (change it');
+  });
+
+  it('an offset account linked to no loan says where to link it', async () => {
+    const fixture: CashPageResponse = {
+      ...cashPages.populated,
+      accounts: cashPages.populated.accounts.map((a) =>
+        a.isOffset ? { ...a, linkedLoan: null } : a,
+      ),
+    };
+    const { user } = await openCash(fixture);
+    await user.click(screen.getByRole('button', { name: 'Edit Offset account' }));
+    const form = screen.getByRole('form', { name: 'Edit account · Offset account' });
+    expect(form).toHaveTextContent('Not linked to a loan: link it on the Property page.');
+    await user.click(
+      within(form).getByRole('switch', { name: 'Offset account: kept out of Total cash' }),
+    );
+    expect(within(form).queryByRole('note', { name: 'Offset link' })).toBeNull();
+  });
+
+  it('Offset on for an account with history up to the last recorded month warns (FEAS-12)', async () => {
+    const { user } = await openCash();
+    await user.click(screen.getByRole('button', { name: 'Edit Savings account' }));
+    let form = screen.getByRole('form', { name: 'Edit account · Savings account' });
+    await user.click(
+      within(form).getByRole('switch', { name: 'Offset account: kept out of Total cash' }),
+    );
+    expect(within(form).getByRole('note', { name: 'Offset account' })).toHaveTextContent(
+      'Its balance leaves Total Cash now; until the next month is recorded, this month’s savings read that as spending.',
+    );
+    await user.click(within(form).getByRole('button', { name: 'Cancel' }));
+    // An account whose history starts after the last recorded month: no warning.
+    await user.click(screen.getByRole('button', { name: 'Edit Cash at home' }));
+    form = screen.getByRole('form', { name: 'Edit account · Cash at home' });
+    await user.click(
+      within(form).getByRole('switch', { name: 'Offset account: kept out of Total cash' }),
+    );
+    expect(within(form).queryByRole('note', { name: 'Offset account' })).toBeNull();
+  });
+
+  it('the savings Details list Offsets between Mortgage principal and Property deposit', async () => {
+    const { user } = await openCash();
+    await user.click(screen.getByRole('button', { name: 'Details of Sep 2026' }));
+    const details = screen.getByRole('table', { name: 'Parts of Sep 2026' });
+    const labels = within(details)
+      .getAllByRole('rowheader')
+      .map((th) => th.textContent);
+    const at = labels.indexOf('Offsets');
+    expect(at).toBeGreaterThan(-1);
+    expect(labels[at - 1]).toBe('Mortgage principal');
+    expect(labels[at + 1]).toBe('Property deposit');
+    expect(details).toHaveTextContent('Offsets$500.00');
   });
 });

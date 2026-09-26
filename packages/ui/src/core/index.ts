@@ -47,7 +47,16 @@ export { Pill, type PillProps, type PillTone } from './content/Pill';
 export { StepCard, type StepCardProps } from './content/StepCard';
 export { ImageFrame, type ImageFrameProps } from './content/ImageFrame';
 export { Amount, type AmountProps } from './content/Amount';
-export { Meter, meterFill, meterStatus, type MeterProps, type MeterStatus } from './content/Meter';
+export {
+  METER_TONE_WORDS,
+  Meter,
+  meterFill,
+  meterStatus,
+  meterStatusText,
+  type MeterKind,
+  type MeterProps,
+  type MeterStatus,
+} from './content/Meter';
 
 export {
   ColumnTable,

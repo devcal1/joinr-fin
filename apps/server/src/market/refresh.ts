@@ -2,13 +2,23 @@
 // series, the instruments per provider and any extra FX, convert to AUD, then write everything in
 // one synchronous transaction. Rate-limited, backed-off, cooled-down and deadline-aborted
 // instruments count as skipped; failures keep the last good price.
+// Stage 4 (stage-4.md §4.6): the other assets' currencies join the extra FX, the purchase-date FX
+// backfill runs after the instruments (fxHistory.ts), and every series written `ok` also lands in
+// the daily `market_quote_history`.
 import {
   MARKET_SERIES,
   type InstrumentKind,
   type MarketSeriesId,
   type PriceSource,
 } from '@joinr/schema';
-import { instruments, marketQuotes, prices, priceSources, type JoinrDb } from '@joinr/schema/db';
+import {
+  instruments,
+  marketQuotes,
+  otherAssets,
+  prices,
+  priceSources,
+  type JoinrDb,
+} from '@joinr/schema/db';
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { heldUnitsByInstrument, isHeld as isHeldUnits } from '../db/queries/holdings';
@@ -20,10 +30,19 @@ import {
   fxYahooSymbol,
   type SeriesPoint,
 } from './fx';
+import {
+  emptyFxBackfillCounts,
+  fetchFxBackfill,
+  writeFxBackfill,
+  writeSeriesHistory,
+  type FxBackfillCounts,
+  type FxBackfillFetch,
+} from './fxHistory';
 import { effectiveSource, loadInstrumentPriceRows, type InstrumentPriceRow } from './items';
 import { truncateError } from './providers/http';
 import type {
   CoinIdResolver,
+  FxClosesClient,
   PriceProviderClient,
   Quote,
   QuoteFailure,
@@ -49,6 +68,11 @@ export interface Providers {
   /** Instruments with provider `yahoo`, the built-in series and FX. */
   yahoo: PriceProviderClient;
   coingecko: PriceProviderClient & CoinIdResolver;
+  /**
+   * Stage 4 (stage-4.md §4.6): the daily FX closes for the purchase-date FX backfill (Yahoo in
+   * mode live, the fake in mode fake). Absent → the backfill is skipped.
+   */
+  fxCloses?: FxClosesClient;
 }
 
 /** In-memory provider cool-downs (§5.4 step 8). */
@@ -105,6 +129,8 @@ export interface RefreshOutcome extends Counts {
   searches: number;
   /** The run signal was aborted (deadline or shutdown) before the fetches finished. */
   aborted: boolean;
+  /** Stage 4: the purchase-date FX backfill (all 0 when `providers.fxCloses` is absent). */
+  fxBackfill: FxBackfillCounts;
 }
 
 export interface RefreshContext {
@@ -323,10 +349,21 @@ export async function runRefresh(
     fetchProvider('coingecko', providers.coingecko, coinTargets),
   ]);
 
-  // 5c. Extra FX for currencies other than AUD/USD.
+  // 5c. Extra FX for currencies other than AUD/USD: the quotes' currencies and (Stage 4) every
+  //     other asset's currency (`GBX` → `GBP`; USD uses AUDUSD), so `FX_<CCY>AUD` stays current
+  //     while an asset uses it.
   const crossNeeded = new Set<string>();
-  for (const q of [...yahooQuotes, ...coinQuotes]) {
-    const need = fxNeedFor(q.currency);
+  const otherAssetCurrencies = db
+    .selectDistinct({ currency: otherAssets.currency })
+    .from(otherAssets)
+    .all()
+    .map((r) => r.currency);
+  for (const currency of [
+    ...yahooQuotes.map((q) => q.currency),
+    ...coinQuotes.map((q) => q.currency),
+    ...otherAssetCurrencies,
+  ]) {
+    const need = fxNeedFor(currency);
     if (need?.kind === 'cross') crossNeeded.add(need.ccy);
   }
   await fetchSeries(
@@ -395,6 +432,19 @@ export async function runRefresh(
 
   // Anything neither fetched nor failed (e.g. aborted mid-flight) is skipped.
   for (const t of active) if (!results.has(t.id)) skipped.add(t.id);
+
+  // 6b. Stage 4: the purchase-date FX backfill (after the instruments; shares the Yahoo cool-down
+  //     and the run deadline). Skipped when the providers have no FX-closes client.
+  const backfill: FxBackfillFetch | null = providers.fxCloses
+    ? await fetchFxBackfill({
+        db,
+        client: providers.fxCloses,
+        cooldowns,
+        now: ctx.now,
+        signal,
+      })
+    : null;
+  let fxBackfill = emptyFxBackfillCounts();
 
   // 7. One synchronous write transaction. IMMEDIATE takes the write lock up front: a deferred
   //    transaction that reads first fails with SQLITE_BUSY at once (busy_timeout is not applied)
@@ -538,6 +588,27 @@ export async function runRefresh(
           seriesCounts.failed += 1;
         }
       }
+
+      // Stage 4: the backfill's rates and closes, then the daily history of every series written
+      // ok this run (after the closes, so today's row holds this run's live value).
+      if (backfill) {
+        fxBackfill = writeFxBackfill(tx, backfill, {
+          fetchedAt: nowIso,
+          source: providers.yahoo.id,
+        });
+      }
+      const okSeries: Array<{ seriesId: string; value: string; asOf: string; source: string }> = [];
+      for (const [seriesId, result] of seriesResults) {
+        if (result.kind === 'ok') {
+          okSeries.push({
+            seriesId,
+            value: result.value,
+            asOf: result.asOf,
+            source: result.source,
+          });
+        }
+      }
+      writeSeriesHistory(tx, okSeries, nowIso);
     },
     { behavior: 'immediate' },
   );
@@ -562,5 +633,6 @@ export async function runRefresh(
     series: seriesCounts,
     searches,
     aborted: signal.aborted,
+    fxBackfill,
   };
 }

@@ -2,14 +2,23 @@
 // AUD price = 1 + (fnv1a(symbol) % 99900) / 100; SI=F / GC=F in USD; AUDUSD=X = 0.65;
 // `<CCY>AUD=X` in AUD; search returns the symbol in lower case; asOf = the clock's now.
 // Stage 3 adds deterministic quarterly dividend events (`fakeDividendEvents`, stage-3.md §4.6).
-import { BULLION_FEEDS, JoinrDecimal, normaliseDecimal } from '@joinr/schema';
-import type {
-  CoinIdResolver,
-  CoinSearchResult,
-  PriceProviderClient,
-  Quote,
-  QuoteBatch,
-  QuoteFailure,
+// Stage 4 adds the fake FX closes for the purchase-date backfill (`fakeFxClose`, stage-4.md §4.6).
+import {
+  BULLION_FEEDS,
+  JoinrDecimal,
+  normaliseDecimal,
+  type DecimalString,
+  type IsoDate,
+} from '@joinr/schema';
+import {
+  FxClosesError,
+  type CoinIdResolver,
+  type CoinSearchResult,
+  type FxClosesClient,
+  type PriceProviderClient,
+  type Quote,
+  type QuoteBatch,
+  type QuoteFailure,
 } from './types';
 
 export const FAKE_AUDUSD = '0.65';
@@ -92,6 +101,51 @@ export function fakeDividendEvents(symbol: string, now: Date): FakeDividendEvent
 function fakeCurrency(symbol: string): string {
   if (symbol === 'AUDUSD=X' || Object.hasOwn(BULLION_FEEDS, symbol)) return 'USD';
   return 'AUD';
+}
+
+/** Significant digits of a stored FX rate (stage-4.md §4.6). */
+const FX_SIGNIFICANT_DIGITS = 12;
+
+/**
+ * The fake FX close (stage-4.md §4.6): AUD per one unit of `ccy` (`GBX` is quoted as `GBP`, per
+ * pound). `USD` → 1 ÷ `FAKE_AUDUSD`; any other code → `fakePrice('<CCY>AUD=X')`, the live fake's
+ * own cross rate. 12 significant digits.
+ */
+export function fakeFxClose(ccy: string): DecimalString {
+  const code = ccy.toUpperCase() === 'GBX' ? 'GBP' : ccy.toUpperCase();
+  const rate =
+    code === 'USD'
+      ? new JoinrDecimal(1).div(FAKE_AUDUSD)
+      : new JoinrDecimal(fakePrice(`${code}AUD=X`));
+  return normaliseDecimal(rate.toSignificantDigits(FX_SIGNIFICANT_DIGITS));
+}
+
+function localIso(d: Date): IsoDate {
+  return `${String(d.getFullYear()).padStart(4, '0')}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function isoDayBefore(date: IsoDate): IsoDate {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) throw new RangeError('fetchCloses: period2 must be YYYY-MM-DD');
+  return utcIso(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - 86_400_000);
+}
+
+/**
+ * Mode `fake` (stage-4.md §4.6): one close, `fakeFxClose(ccy)`, dated the day before `period2`
+ * (the purchase date in the backfill's request window) but never after the clock's local date or
+ * before `period1`. Never touches the network; an aborted run rejects as skipped.
+ */
+export function createFakeFxClosesClient(o: { now: () => Date }): FxClosesClient {
+  return {
+    async fetchCloses(ccy, period1, period2, signal) {
+      if (signal.aborted) throw new FxClosesError('skipped', 'Aborted');
+      const today = localIso(o.now());
+      let date = isoDayBefore(period2);
+      if (date > today) date = today;
+      if (date < period1) date = period1;
+      return [{ date, close: fakeFxClose(ccy) }];
+    },
+  };
 }
 
 export function createFakeProvider(o: { now: () => Date }): PriceProviderClient & CoinIdResolver {

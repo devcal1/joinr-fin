@@ -2,9 +2,12 @@
 // context"): the prices (first, from the price service), every row the investment and cash-flow
 // pages and the timing chain need (one read transaction), the as-of date and the engine results,
 // each computed at most once per request. The server adds only display fields; every figure comes
-// from the engine.
+// from the engine. Stage 4 (stage-4.md §4.5): the market series (first, beside the prices), the
+// other-assets, super and property engines, the History seam, and the live savings input and the
+// other-assets class value taken from them.
 import { engine as defaultEngine } from '@joinr/engine';
 import type {
+  AssetsSnapshotColumns,
   BudgetInput,
   BudgetInvestInput,
   BudgetInvestResult,
@@ -16,17 +19,34 @@ import type {
   EngineApi,
   EnginePrice,
   InvestmentsResult,
+  OtherAssetsInput,
+  OtherAssetsResult,
+  PropertiesResult,
+  PropertyInput,
   SavingsResult,
   SideIncomeResult,
+  SuperInput,
+  SuperResult,
 } from '@joinr/engine';
 import {
   ASSET_CLASSES,
   INSTRUMENT_KINDS,
   type AssetClass,
+  type DecimalString,
   type InstrumentKind,
   type IsoDate,
+  type MarketQuoteItem,
   type PriceItem,
 } from '@joinr/schema';
+import { SPOT_SERIES_BY_METAL } from '../assets/constants';
+import {
+  buildOtherAssetsInput,
+  buildPropertyInput,
+  buildSuperInput,
+  metalsInUse,
+  offsetAccounts,
+  spotHistoryFrom,
+} from '../assets/inputs';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AppDatabase } from '../db/database';
 import {
@@ -47,6 +67,7 @@ import {
   type InvestmentData,
   type KindRows,
 } from '../investments/load';
+import { readQuoteHistory } from '../market/history';
 import type { MarketDataService, MarketDataStatus } from '../market/types';
 import { LOANS_COUNT_FOR_EMERGENCY_FUND } from './constants';
 import {
@@ -58,11 +79,10 @@ import {
   lastStockOrEtfBuy,
   liveSavingsInput,
   offsetsIncludeEmergencyFundOf,
-  otherAssetPurchases,
-  otherAssetsValueCents,
+  otherAssetFlows,
+  savingsSnapshots,
   sideIncomeInput,
   toEngineCashAccount,
-  toSavingsSnapshot,
   yearBasisOf,
 } from './inputs';
 
@@ -105,6 +125,25 @@ export interface FinanceContext {
   /** `budgetInvestment(budgetInvestInput())`: the timing chain's budget. */
   budgetInvest(): BudgetInvestResult;
   dividends(): DividendsResult;
+  // ─── Stage 4 (stage-4.md §4.5; each computed once per request) ───
+  /** The price service's market series (spot, FX), read before the transaction. */
+  series: MarketQuoteItem[];
+  otherAssetsInput(): OtherAssetsInput;
+  /** `computeOtherAssets` (live spot and FX). */
+  otherAssets(): OtherAssetsResult;
+  superInput(): SuperInput;
+  /** `computeSuper`. */
+  superResult(): SuperResult;
+  propertyInput(): PropertyInput;
+  /** `computeProperty` (with the linked offsets, D67). */
+  property(): PropertiesResult;
+  /** `assetsSnapshotColumns` of the three: the live History columns (the Stage 5 seam, §2.8). */
+  assetsSnapshot(): AssetsSnapshotColumns;
+  /**
+   * The bullion spot series' daily history for the metals in use (`readQuoteHistory`), from one
+   * year before `asOf` (or the earliest bullion purchase date when later), by series id.
+   */
+  spotHistory(): Record<string, { date: IsoDate; value: DecimalString }[]>;
 }
 
 /** The finance deps a route plugin builds from its options (the real engine and clock by default). */
@@ -155,6 +194,7 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
   // 1. Prices (the price service reads its own tables), then 2. the rows in one read transaction.
   const prices = deps.market.getPrices();
   const priceItems = new Map(prices.items.map((i) => [i.instrumentId, i]));
+  const series = deps.market.getSeries();
   const data = loadInvestmentData(deps.database.db, log);
   const s = data.settings;
   const instrumentById = new Map(data.instruments.map((i) => [i.id, i]));
@@ -198,6 +238,27 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
     }),
   );
 
+  // ─── Stage 4 (§4.5) ───
+  const otherAssetsInput = once(() => buildOtherAssetsInput(data, series, asOf));
+  const otherAssets = once(() => engine.computeOtherAssets(otherAssetsInput()));
+  const superInput = once(() => buildSuperInput(data, asOf));
+  const superResult = once(() => engine.computeSuper(superInput()));
+  const propertyInput = once(() => buildPropertyInput(data, asOf));
+  const property = once(() => engine.computeProperty(propertyInput()));
+  const assetsSnapshot = once(() =>
+    engine.assetsSnapshotColumns({
+      otherAssets: otherAssets(),
+      super: superResult(),
+      property: property(),
+    }),
+  );
+  const spotHistory = once(() => {
+    const ids = metalsInUse(data.otherAssets).map((m) => SPOT_SERIES_BY_METAL[m]);
+    return ids.length === 0
+      ? {}
+      : readQuoteHistory(deps.database.db, ids, spotHistoryFrom(data.otherAssets, asOf));
+  });
+
   const classValues = once((): Record<AssetClass, Cents> => {
     const kindValue = (k: InstrumentKind) => compute(k).summary.valueCents;
     return {
@@ -207,7 +268,8 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
       // Net worth keeps loans you've made (D59): the cash class is Total Cash.
       cash: cashTotals().totalCashCents,
       managed_fund: kindValue('managed_fund'),
-      other_assets: otherAssetsValueCents(data.otherAssets),
+      // Stage 4 (§4.5): the engine's value with live spot and FX (Stage 3 summed stored prices).
+      other_assets: otherAssets().totals.valueCents,
     };
   });
 
@@ -218,18 +280,20 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
   const savings = once(() =>
     engine.computeSavings({
       asOf,
-      snapshots: data.snapshots.map(toSavingsSnapshot),
-      live: liveSavingsInput(data, {
-        asOf,
+      snapshots: savingsSnapshots(data),
+      live: liveSavingsInput({
         // The savings engine keeps loans in (D59).
         totalCashCents: cashTotals().totalCashCents,
         salaryMonthlyCents: engine.monthlyPayCents({
           netPayCents: numberSetting(s, 'pay.netPayCents'),
           payFrequency: payFrequencySetting(s),
         }),
+        superResult: superResult(),
+        property: property(),
+        offsetCents: offsetAccounts(data).length > 0 ? cashTotals().offsetCents : null,
       }),
       trades: data.trades.map(toEngineTrade),
-      otherAssetPurchases: otherAssetPurchases(data.otherAssets),
+      otherAssetPurchases: otherAssetFlows(otherAssets()),
       sideIncome: data.deposits.map((d) => ({ date: d.depositDate, amountCents: d.amountCents })),
       dividends: data.dividends.map(toEngineDividend),
       adjustments: data.adjustments.map((a) => ({
@@ -328,5 +392,14 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
     budgetInvestInput,
     budgetInvest,
     dividends,
+    series,
+    otherAssetsInput,
+    otherAssets,
+    superInput,
+    superResult,
+    propertyInput,
+    property,
+    assetsSnapshot,
+    spotHistory,
   };
 }

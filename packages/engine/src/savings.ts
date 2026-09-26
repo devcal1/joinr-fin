@@ -1,7 +1,9 @@
 // The savings engine (stage-3.md §2.5; D51, §11 fixes 12, 18, 19): per snapshot period the cash,
 // its gain, the added investments (recomputed from the dated inputs, never from the stored History
 // movement columns), the income, and the sheet's raw figures beside the app's adjusted ones. The
-// first snapshot is the baseline (cash only); the provisional period uses the live values.
+// first snapshot is the baseline (cash only); the provisional period uses the live values. Stage 4
+// (stage-4.md §2.9) adds Δ offsets to the added investments and takes other-asset sales as negative
+// flows; an input without offsets or sales gives the Stage 3 figures unchanged.
 import type { IsoDate } from '@joinr/schema';
 import {
   centsOf,
@@ -59,6 +61,8 @@ interface PeriodValues {
   propertyPurchase: Cents | null;
   mortgageBalance: Cents | null;
   principalPaid: Cents | null;
+  /** Stage 4 (§2.9): Σ offset accounts; null (or omitted) = unknown, so no Δ offsets. */
+  offsets: Cents | null;
 }
 
 function snapshotValues(s: SavingsSnapshotInput): PeriodValues {
@@ -69,6 +73,7 @@ function snapshotValues(s: SavingsSnapshotInput): PeriodValues {
     propertyPurchase: s.propertyPurchaseCents,
     mortgageBalance: s.mortgageBalanceCents,
     principalPaid: s.mortgagePrincipalPaidCents,
+    offsets: s.offsetCents ?? null,
   };
 }
 
@@ -80,6 +85,7 @@ function liveValues(l: SavingsLiveInput): PeriodValues {
     propertyPurchase: l.propertyPurchaseCents,
     mortgageBalance: l.mortgageBalanceCents,
     principalPaid: l.mortgagePrincipalPaidCents,
+    offsets: l.offsetCents ?? null,
   };
 }
 
@@ -174,12 +180,19 @@ export function computeSavings(input: SavingsInput): SavingsResult {
       purchaseNow !== purchaseBefore
         ? purchaseNow - purchaseBefore + (orZero(v.mortgageBalance) - orZero(p.mortgageBalance))
         : 0;
+    // Stage 4 (§2.9, §11 fix 7, D78): money moved into an offset account leaves Total Cash but
+    // stays saved; counted only when both sides are known.
+    const offsets =
+      v.offsets === null || p.offsets === null
+        ? 0
+        : checkCents(v.offsets, 'offsets') - checkCents(p.offsets, 'offsets');
     const addedDollars = sum([
       trades[i]!,
       dollarsOf(otherAssets[i]!),
       dollarsOf(superCents, 'super contribution'),
       dollarsOf(principal, 'mortgage principal'),
       dollarsOf(propertyDeposit, 'property deposit'),
+      dollarsOf(offsets, 'offsets'),
     ]);
 
     // Step 4: the adjustment (D51) attaches to closed periods only (§2.3).
@@ -205,6 +218,7 @@ export function computeSavings(input: SavingsInput): SavingsResult {
         superCents,
         mortgagePrincipalCents: principal,
         propertyDepositCents: propertyDeposit,
+        offsetsCents: offsets,
       },
       income: {
         salaryCents: v.salary,

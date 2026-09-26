@@ -48,6 +48,8 @@ export interface SettingsSectionProps {
   /** Extra text after a value in the table (e.g. the 365-day side-income figure). */
   extras?: Partial<Record<EditableSettingKey, ReactNode>>;
   hints?: Partial<Record<EditableSettingKey, string>>;
+  /** A field's placeholder in the form (Stage 4: "Legal minimum 12"). */
+  placeholders?: Partial<Record<EditableSettingKey, string>>;
   /** What the app uses while a key is not set (e.g. "counted as Yes"). */
   unset?: Partial<Record<EditableSettingKey, string>>;
   slice: SettingsSliceDto;
@@ -100,6 +102,7 @@ export function SettingsSection({
   labels,
   extras,
   hints,
+  placeholders,
   unset,
   slice,
   editing,
@@ -144,6 +147,7 @@ export function SettingsSection({
           keys={keys}
           labels={labels}
           hints={hints}
+          placeholders={placeholders}
           slice={slice}
           onCancel={onCancel}
           onDone={onDone}
@@ -161,6 +165,7 @@ interface SettingsFormProps {
   keys: readonly EditableSettingKey[];
   labels?: Partial<Record<EditableSettingKey, string>>;
   hints?: Partial<Record<EditableSettingKey, string>>;
+  placeholders?: Partial<Record<EditableSettingKey, string>>;
   slice: SettingsSliceDto;
   onCancel: () => void;
   onDone: (message: string) => void;
@@ -171,6 +176,7 @@ function SettingsForm({
   keys,
   labels,
   hints,
+  placeholders,
   slice,
   onCancel,
   onDone,
@@ -233,6 +239,7 @@ function SettingsForm({
               keyName={key}
               label={labelOf(key, labels)}
               hint={hints?.[key]}
+              placeholder={placeholders?.[key]}
               draft={drafts[key] ?? null}
               error={errors[key]}
               disabled={patch.isPending}
@@ -249,6 +256,7 @@ interface SettingFieldProps {
   keyName: EditableSettingKey;
   label: string;
   hint?: string;
+  placeholder?: string;
   draft: SettingDraft;
   error?: string;
   disabled: boolean;
@@ -259,6 +267,7 @@ function SettingField({
   keyName,
   label,
   hint,
+  placeholder,
   draft,
   error,
   disabled,
@@ -273,6 +282,7 @@ function SettingField({
           value={typeof draft === 'number' ? draft : null}
           onChange={onChange}
           hint={hint ?? 'Leave empty to clear'}
+          placeholder={placeholder}
           error={error}
           disabled={disabled}
         />
@@ -286,6 +296,7 @@ function SettingField({
           maxDp={4}
           suffix="%"
           hint={hint}
+          placeholder={placeholder}
           error={error}
           disabled={disabled}
         />
@@ -298,6 +309,7 @@ function SettingField({
           onChange={onChange}
           maxDp={0}
           hint={hint}
+          placeholder={placeholder}
           error={error}
           disabled={disabled}
         />

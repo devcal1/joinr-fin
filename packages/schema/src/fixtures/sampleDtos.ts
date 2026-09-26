@@ -96,15 +96,17 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
     { id: '1', cells: { runDate: '2026-05-31', period: '2026-05', source: 'migrated', ...snapshotValues(0) } },
   ],
   'other-assets': [
-    { id: '1', cells: { description: 'Example watch', url: null, purchaseDate: '2023-04-01', units: '1', soldUnits: '0', currency: 'AUD', unitCost: '1500', unitPrice: '1800', priceSource: 'manual', metal: null, unitOfMeasure: 'each', value: 180000 } },
-    { id: '2', cells: { description: 'Silver bar', url: 'https://example.com/silver-bar', purchaseDate: '2024-02-01', units: '10', soldUnits: '0', currency: 'AUD', unitCost: '35', unitPrice: '46.15', priceSource: 'bullion', metal: 'silver', unitOfMeasure: 'oz', value: 46150 } },
+    { id: '1', cells: { description: 'Example watch', url: null, purchaseDate: '2023-04-01', units: '1', soldUnits: '0', currency: 'AUD', unitCost: '1500', unitPrice: '1800', priceSource: 'manual', metal: null, unitOfMeasure: 'each', value: 180000, purchaseFxRate: null, purchaseFxSource: null } },
+    { id: '2', cells: { description: 'Silver bar', url: 'https://example.com/silver-bar', purchaseDate: '2024-02-01', units: '10', soldUnits: '0', currency: 'AUD', unitCost: '35', unitPrice: '46.15', priceSource: 'bullion', metal: 'silver', unitOfMeasure: 'oz', value: 46150, purchaseFxRate: null, purchaseFxSource: null } },
+    { id: '3', cells: { description: 'Example print', url: null, purchaseDate: '2024-05-10', units: '1', soldUnits: '0', currency: 'USD', unitCost: '400', unitPrice: '450', priceSource: 'manual', metal: null, unitOfMeasure: 'each', value: 67500, purchaseFxRate: '1.5', purchaseFxSource: 'market' } },
   ],
   'super-funds': [
-    { id: '1', cells: { name: 'Example Super', balance: 5060000, balanceAsOf: FIXTURE_WORKBOOK_AS_OF } },
+    { id: '1', cells: { name: 'Example Super', balance: 5060000, balanceAsOf: FIXTURE_WORKBOOK_AS_OF, receivesSg: true } },
   ],
   'super-entries': [
-    { id: '1', cells: { period: '2026-09', kind: 'voluntary_contribution', fund: null, amount: 20000 } },
-    { id: '2', cells: { period: '2026-09', kind: 'reported_gain', fund: 'Example Super', amount: 10000 } },
+    { id: '1', cells: { period: '2026-09', kind: 'voluntary_contribution', fund: null, amount: 20000, date: '2026-09-24' } },
+    { id: '2', cells: { period: '2026-09', kind: 'reported_gain', fund: 'Example Super', amount: 10000, date: null } },
+    { id: '3', cells: { period: '2026-09', kind: 'salary_sacrifice', fund: 'Example Super', amount: 50000, date: '2026-09-15' } },
   ],
   properties: [
     { id: '1', cells: { name: 'Example property', purchaseDate: '2020-03-15', primaryResidence: true, purchaseValue: 50000000, currentValue: 60000000, netRent: 0 } },
@@ -139,6 +141,33 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
   'dividend-events': [
     { id: '4:2026-09-01', cells: { symbol: 'ASX:DEF', exDate: '2026-09-01', amountPerUnit: '0.45', currency: 'AUD', closeBeforeEx: '52.1', closeDate: '2026-08-31', source: 'fake', fetchedAt: FIXTURE_NOW, dismissed: false } },
     { id: '3:2026-06-30', cells: { symbol: 'ASX:XYZ', exDate: '2026-06-30', amountPerUnit: '1.2', currency: 'AUD', closeBeforeEx: null, closeDate: null, source: 'yahoo', fetchedAt: FIXTURE_NOW, dismissed: true } },
+  ],
+  // Stage 4 (stage-4.md §3.2).
+  'other-asset-prices': [
+    { id: '3', cells: { asset: 'Example print', asOf: '2026-09-01', unitPrice: '450', currency: 'USD', note: null, sheetRef: null } },
+    { id: '1', cells: { asset: 'Example watch', asOf: FIXTURE_WORKBOOK_AS_OF, unitPrice: '1800', currency: 'AUD', note: null, sheetRef: 'Other Assets!F3' } },
+    { id: '2', cells: { asset: 'Example watch', asOf: '2026-03-31', unitPrice: '1700', currency: 'AUD', note: 'Dealer quote', sheetRef: null } },
+  ],
+  'other-asset-sales': [
+    { id: '1', cells: { asset: 'Silver bar', date: '2026-07-15', units: '2', proceeds: 9000, note: 'Sold to a dealer' } },
+  ],
+  'super-balance-entries': [
+    { id: '2', cells: { fund: 'Example Super', asOf: FIXTURE_WORKBOOK_AS_OF, balance: 5060000, transferIn: null, note: null, sheetRef: 'Super!A2' } },
+    { id: '1', cells: { fund: 'Example Super', asOf: '2026-06-30', balance: 4900000, transferIn: null, note: 'Statement', sheetRef: null } },
+  ],
+  'super-sg-overrides': [
+    { id: '1', cells: { period: '2026-08', gross: 90000, note: 'From the payslip' } },
+  ],
+  'property-valuations': [
+    { id: '2', cells: { property: 'Example property', asOf: FIXTURE_WORKBOOK_AS_OF, value: 60000000, note: null, sheetRef: 'Property!D19' } },
+    { id: '1', cells: { property: 'Example property', asOf: '2025-08-31', value: 58000000, note: 'Bank valuation', sheetRef: null } },
+  ],
+  'loan-balance-entries': [
+    { id: '2', cells: { loan: 'Example property mortgage', asOf: FIXTURE_WORKBOOK_AS_OF, balance: 39800000, repayments: null, note: null, sheetRef: 'Property!D29' } },
+    { id: '1', cells: { loan: 'Example property mortgage', asOf: '2026-02-28', balance: 40400000, repayments: 1500000, note: 'From the statement', sheetRef: null } },
+  ],
+  'loan-offset-links': [
+    { id: '5', cells: { account: 'Offset account', loan: 'Example property mortgage' } },
   ],
 };
 
@@ -574,4 +603,9 @@ export const apiErrors = {
   lastBalanceEntry: { error: { code: 'LAST_BALANCE_ENTRY', message: 'An account keeps at least one balance' } },
   cashValidation: { error: { code: 'VALIDATION_ERROR', message: 'asOf: must not be after tomorrow; entries: an account appears twice' } },
   dividendValidation: { error: { code: 'VALIDATION_ERROR', message: 'exDate: after the payment date; netAmountCents: must not be zero' } },
+  // Stage 4 (stage-4.md §4.1, §4.3)
+  fundInUse: { error: { code: 'FUND_IN_USE', message: 'This fund has 2 contributions; move or delete them first' } },
+  propertyHasLoan: { error: { code: 'PROPERTY_HAS_LOAN', message: 'This property has 1 loans; delete them first' } },
+  saleOversell: { error: { code: 'SALE_OVERSELL', message: 'Only 2 units are left to sell' } },
+  assetsValidation: { error: { code: 'VALIDATION_ERROR', message: 'currency: bullion is priced in AUD; entries: an asset appears twice' } },
 } satisfies Record<string, ApiErrorBody>;

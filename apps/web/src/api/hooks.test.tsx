@@ -7,12 +7,16 @@ import {
   importRunDryRun,
   investmentPages,
   investmentTrades,
+  loanOffsetsResponse,
+  otherAssetsPages,
   priceItemManualSet,
   pricesLive,
+  propertyPages,
   recordsIndex,
   refreshResponse,
   settingsPatchResponse,
   sideIncomePages,
+  superPages,
   tradeInputExamples,
   tradeMutationResponse,
 } from '@joinr/schema/fixtures';
@@ -30,6 +34,9 @@ import {
   usePatchSettings,
   useRefreshDividendEvents,
   useRefreshPrices,
+  useSaveLoanOffsets,
+  useSaveSgOverride,
+  useSaveSuperOptionNote,
   useSetManualPrice,
 } from './hooks';
 
@@ -288,5 +295,86 @@ describe('api hooks', () => {
     await act(() => result.current.mutateAsync());
     expect(queryClient.getQueryData(queryKeys.prices)).toEqual(refreshResponse.prices);
     await waitFor(() => expect(invalidated(queryKeys.status)).toBe(true));
+  });
+
+  it('uses the planned assets query keys (stage-4 §6.2)', () => {
+    expect(queryKeys.otherAssets).toEqual(['other-assets']);
+    expect(queryKeys.super).toEqual(['super']);
+    expect(queryKeys.property).toEqual(['property']);
+  });
+
+  it('a Stage 4 mutation invalidates the assets pages, cash, budget, investments, records, import and status', async () => {
+    const api = mockApi({
+      'PUT /api/property/loans/1/offsets': { body: loanOffsetsResponse },
+    });
+    const { wrapper, invalidated, queryClient } = setup();
+    queryClient.setQueryData(queryKeys.otherAssets, otherAssetsPages.populated);
+    queryClient.setQueryData(queryKeys.super, superPages.populated);
+    queryClient.setQueryData(queryKeys.property, propertyPages.populated);
+    queryClient.setQueryData(queryKeys.cash, cashPages.populated);
+    queryClient.setQueryData(queryKeys.budget, budgetPages.autoSplit);
+    queryClient.setQueryData(queryKeys.dividends, dividendsPages.populated);
+    queryClient.setQueryData(queryKeys.investmentPage('etf'), investmentPages.etf);
+    const { result } = renderHook(() => useSaveLoanOffsets(), { wrapper });
+    await act(() => result.current.mutateAsync({ loanId: 1, body: { accountIds: [5] } }));
+    expect(api.calls('PUT /api/property/loans/1/offsets')[0]?.body).toEqual({ accountIds: [5] });
+    await waitFor(() => expect(invalidated(queryKeys.property)).toBe(true));
+    for (const key of [
+      queryKeys.otherAssets,
+      queryKeys.super,
+      queryKeys.cash,
+      queryKeys.budget,
+      queryKeys.investmentPage('etf'),
+      queryKeys.records,
+      queryKeys.importRuns,
+      queryKeys.status,
+    ]) {
+      expect(invalidated(key)).toBe(true);
+    }
+    // Neither prices nor the dividends move with an assets change.
+    expect(invalidated(queryKeys.prices)).toBe(false);
+    expect(invalidated(queryKeys.dividends)).toBe(false);
+  });
+
+  it('a cash-flow change and a price change also refresh the three assets pages', async () => {
+    mockApi({
+      'PATCH /api/settings': { body: settingsPatchResponse },
+      'PUT /api/prices/1/manual': { body: priceItemManualSet },
+    });
+    const { wrapper, invalidated, queryClient } = setup();
+    queryClient.setQueryData(queryKeys.property, propertyPages.populated);
+    const patch = renderHook(() => usePatchSettings(), { wrapper });
+    await act(() => patch.result.current.mutateAsync({ values: { 'savings.yearBasis': 'fy' } }));
+    await waitFor(() => expect(invalidated(queryKeys.property)).toBe(true));
+    queryClient.setQueryData(queryKeys.otherAssets, otherAssetsPages.populated);
+    const price = renderHook(() => useSetManualPrice(), { wrapper });
+    await act(() =>
+      price.result.current.mutateAsync({
+        instrumentId: 1,
+        input: { price: '13', asOf: '2026-09-24' },
+      }),
+    );
+    await waitFor(() => expect(invalidated(queryKeys.otherAssets)).toBe(true));
+  });
+
+  it('month paths are encoded: SG statements and option notes', async () => {
+    const api = mockApi({
+      'PUT /api/super/sg/2026-08': { body: { month: superPages.populated.sgMonths[1] } },
+      'PUT /api/period-notes/super_option/2026-08': {
+        body: { note: null },
+      },
+    });
+    const { wrapper } = setup();
+    const sg = renderHook(() => useSaveSgOverride(), { wrapper });
+    await act(() =>
+      sg.result.current.mutateAsync({
+        periodMonth: '2026-08',
+        body: { grossCents: 1, note: null },
+      }),
+    );
+    expect(api.calls('PUT /api/super/sg/2026-08')).toHaveLength(1);
+    const note = renderHook(() => useSaveSuperOptionNote(), { wrapper });
+    await act(() => note.result.current.mutateAsync({ periodMonth: '2026-08', note: '' }));
+    expect(api.calls('PUT /api/period-notes/super_option/2026-08')[0]?.body).toEqual({ note: '' });
   });
 });

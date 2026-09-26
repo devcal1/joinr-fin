@@ -13,20 +13,26 @@ import {
   incomeStreams,
   instruments,
   jobRuns,
+  loanBalanceEntries,
   loans,
+  marketQuoteHistory,
   marketQuotes,
+  otherAssetPrices,
   otherAssets,
   periodNotes,
   prices,
   priceSources,
   properties,
+  propertyValuations,
   savingsAdjustments,
   savingsGoals,
   settings,
   sideIncomeDeposits,
   snapshots,
+  superBalanceEntries,
   superEntries,
   superFunds,
+  superSgOverrides,
   trades,
   yearlyExpenses,
   type JoinrDb,
@@ -67,13 +73,16 @@ function isoDateLocal(d: Date): string {
 
 /**
  * Deletes every row the seed writes (everything except other app_meta keys), plus the Stage 3
- * overlays (savings adjustments and goals), so a seeded database starts without them.
+ * overlays (savings adjustments and goals) and the Stage 4 overlay (SG statements) and series
+ * history, so a seeded database starts without them.
  */
 export function clearSeededTables(db: JoinrDb): void {
   db.transaction((tx) => {
     for (const table of DOMAIN_TABLES_DELETE_ORDER) tx.delete(table).run();
     tx.delete(savingsAdjustments).run();
     tx.delete(savingsGoals).run();
+    tx.delete(superSgOverrides).run();
+    tx.delete(marketQuoteHistory).run();
     tx.delete(instruments).run(); // cascades price_sources, prices and dividend_events
     tx.delete(marketQuotes).run();
     tx.delete(settings).run();
@@ -128,6 +137,14 @@ const SHEET_OF: Record<InstrumentKind, string> = {
  * you've made), one balance entry per account plus an earlier one for the everyday account, and
  * the side income as dated deposits (the Stage 1 period entries are no longer seeded: the server
  * reads deposits). No overlays and no dividend events.
+ *
+ * Stage 4 (stage-4.md §3.6): "Example watch" has two price entries (the latest equals its unit
+ * price; the bullion row has none); "Example Super" receives SG and has two balance entries (the
+ * latest equals its balance), the Super!B16 contribution is dated, and each seeded snapshot's
+ * History R becomes a contribution (History!R3–R5); "Example property" has two valuations (the
+ * latest equals its value); each loan keeps its start fields (the log's start point) and has two
+ * stored entries (the latest equals its current balance). No sales, SG statements, offset links or
+ * series history; every row keeps origin 'import'.
  */
 export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedResult {
   const now = options.now ?? new Date();
@@ -655,6 +672,32 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         },
       ])
       .run();
+    // D72: the manual asset's price history (an earlier quote and the workbook's price).
+    const watch = tx
+      .select({ id: otherAssets.id })
+      .from(otherAssets)
+      .where(sql`${otherAssets.sheetRef} = 'Other Assets!F3'`)
+      .get()!.id;
+    tx.insert(otherAssetPrices)
+      .values([
+        {
+          otherAssetId: watch,
+          asOf: '2026-03-31',
+          unitPrice: '1700',
+          note: 'Dealer quote',
+          origin: 'import',
+          sheetRef: null,
+        },
+        {
+          otherAssetId: watch,
+          asOf: SEED_WORKBOOK_AS_OF,
+          unitPrice: '1800',
+          note: null,
+          origin: 'import',
+          sheetRef: 'Other Assets!F3',
+        },
+      ])
+      .run();
 
     // Super.
     const fund = tx
@@ -666,15 +709,41 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         sortOrder: 1,
         origin: 'import',
         sheetRef: 'Super!A2',
+        receivesSg: true,
       })
       .returning({ id: superFunds.id })
       .get().id;
+    // D69: the fund's balance log (the first snapshot's balance and the workbook's balance).
+    tx.insert(superBalanceEntries)
+      .values([
+        {
+          fundId: fund,
+          asOf: '2026-05-31',
+          balanceCents: 5000000,
+          transferInCents: null,
+          note: 'Statement',
+          origin: 'import',
+          sheetRef: null,
+        },
+        {
+          fundId: fund,
+          asOf: SEED_WORKBOOK_AS_OF,
+          balanceCents: 5060000,
+          transferInCents: null,
+          note: null,
+          origin: 'import',
+          sheetRef: 'Super!A2',
+        },
+      ])
+      .run();
     tx.insert(superEntries)
       .values([
         {
           periodMonth: '2026-09',
           kind: 'voluntary_contribution',
           fundId: null,
+          // min(the period month's end, the workbook as-of) (stage-4.md §3.5 item 2).
+          entryDate: SEED_WORKBOOK_AS_OF,
           amountCents: 20000,
           origin: 'import',
           sheetRef: 'Super!B16',
@@ -687,6 +756,22 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
           origin: 'import',
           sheetRef: 'Super!B11',
         },
+        // One History-derived contribution per seeded snapshot, at its run date (§3.5 item 2).
+        ...(
+          [
+            ['2026-05-31', 3],
+            ['2026-06-30', 4],
+            ['2026-07-31', 5],
+          ] as const
+        ).map(([runDate, row]) => ({
+          periodMonth: runDate.slice(0, 7),
+          kind: 'voluntary_contribution' as const,
+          fundId: null,
+          entryDate: runDate,
+          amountCents: 20000,
+          origin: 'import' as const,
+          sheetRef: `History!R${row}`,
+        })),
       ])
       .run();
 
@@ -707,7 +792,28 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
       })
       .returning({ id: properties.id })
       .get().id;
-    tx.insert(loans)
+    tx.insert(propertyValuations)
+      .values([
+        {
+          propertyId: property,
+          asOf: '2025-08-31',
+          valueCents: 58000000,
+          note: 'Bank valuation',
+          origin: 'import',
+          sheetRef: null,
+        },
+        {
+          propertyId: property,
+          asOf: SEED_WORKBOOK_AS_OF,
+          valueCents: 60000000,
+          note: null,
+          origin: 'import',
+          sheetRef: 'Property!D15',
+        },
+      ])
+      .run();
+    const loanIds = tx
+      .insert(loans)
       .values([
         {
           propertyId: property,
@@ -739,6 +845,51 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
           balanceAsOf: SEED_WORKBOOK_AS_OF,
           paymentsPaidCents: 500000,
           sortOrder: 2,
+          origin: 'import',
+          sheetRef: 'LiabilitiesDebts!C11',
+        },
+      ])
+      .returning({ id: loans.id })
+      .all()
+      .map((l) => l.id);
+    // D66: each loan's balance log (an earlier balance and the current one); the start fields give
+    // the log's start point, so no start entry is stored.
+    const [mortgage, carLoan] = loanIds as [number, number];
+    tx.insert(loanBalanceEntries)
+      .values([
+        {
+          loanId: mortgage,
+          asOf: '2026-05-31',
+          balanceCents: 40000000,
+          repaymentsCents: null,
+          note: 'Statement',
+          origin: 'import',
+          sheetRef: null,
+        },
+        {
+          loanId: mortgage,
+          asOf: SEED_WORKBOOK_AS_OF,
+          balanceCents: 39800000,
+          repaymentsCents: null,
+          note: null,
+          origin: 'import',
+          sheetRef: 'Property!D28',
+        },
+        {
+          loanId: carLoan,
+          asOf: '2025-12-31',
+          balanceCents: 1700000,
+          repaymentsCents: null,
+          note: null,
+          origin: 'import',
+          sheetRef: null,
+        },
+        {
+          loanId: carLoan,
+          asOf: SEED_WORKBOOK_AS_OF,
+          balanceCents: 1500000,
+          repaymentsCents: null,
+          note: null,
           origin: 'import',
           sheetRef: 'LiabilitiesDebts!C11',
         },
