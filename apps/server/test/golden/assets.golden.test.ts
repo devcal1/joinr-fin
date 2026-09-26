@@ -10,6 +10,7 @@ import {
   ASSETS_ENGINE_IMPLEMENTED,
   CASHFLOW_ENGINE_IMPLEMENTED,
   ENGINE_IMPLEMENTED,
+  HISTORY_ENGINE_IMPLEMENTED,
 } from '@joinr/engine';
 import { importWorkbook, readWorkbook, type WorkbookReader } from '@joinr/importer';
 import {
@@ -40,6 +41,8 @@ const GATED =
   ENGINE_IMPLEMENTED &&
   CASHFLOW_ENGINE_IMPLEMENTED &&
   ASSETS_ENGINE_IMPLEMENTED &&
+  // Stage 5 (stage-5.md §7.4 step 8): the D88 inputs reach the savings and super engines.
+  HISTORY_ENGINE_IMPLEMENTED &&
   IMPORTER_IMPLEMENTED &&
   IMPORTER_STAGE3_IMPLEMENTED &&
   IMPORTER_STAGE4_IMPLEMENTED;
@@ -529,7 +532,7 @@ describeWithLocalWorkbook('assets server golden (import → DB → API)', (workb
       const p = cash.periods.find((x) => x.status === 'provisional');
       expect(p?.added, 'provisional period').toBeTruthy();
       const added = p!.added!;
-      expect(cash.staticUntilStage4).toBe(false);
+      expect('staticUntilStage4' in cash).toBe(false);
       // The super part: B16's net-pay cost (the History-derived entries sit in closed periods).
       expectMoney(added.superCents, r.number('Super', 'B16') ?? 0, 'Super!B16');
       compared(area);

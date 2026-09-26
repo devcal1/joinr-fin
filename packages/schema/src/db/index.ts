@@ -61,7 +61,8 @@ export type JoinrDb = BetterSQLite3Database<typeof tables>;
  * overlays (`savings_adjustments`, `savings_goals`) and the `dividend_events` cache are not listed:
  * a re-import keeps them and they never count as app data (stage-3.md §3.4). Stage 4 adds its logs
  * (the offset links first: they reference both accounts and loans); the `super_sg_overrides`
- * overlay and the `market_quote_history` cache are not listed (stage-4.md §3.2, §3.4).
+ * overlay and the `market_quote_history` cache are not listed (stage-4.md §3.2, §3.4). Stage 5's
+ * `snapshot_audit` log is not listed either: an import never deletes it (stage-5.md §3.2).
  */
 export const DOMAIN_TABLES_DELETE_ORDER = [
   loanOffsetLinks,

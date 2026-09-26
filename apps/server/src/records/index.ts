@@ -43,6 +43,7 @@ import {
   savingsGoals,
   settings,
   sideIncomeDeposits,
+  snapshotAudit,
   snapshots,
   superBalanceEntries,
   superEntries,
@@ -85,6 +86,7 @@ const ENTITY_TABLES: Readonly<Record<RecordEntityId, SQLiteTable>> = {
   'property-valuations': propertyValuations,
   'loan-balance-entries': loanBalanceEntries,
   'loan-offset-links': loanOffsetLinks,
+  'snapshot-audit': snapshotAudit,
 };
 
 type Loader = (db: Db) => RecordRow[];
@@ -353,6 +355,13 @@ const loadSnapshots: Loader = (db) =>
         const property = SNAPSHOT_PROPERTY_BY_DB_COLUMN.get(c.dbColumn);
         cells[c.id] = property === undefined ? null : (values[property] ?? null);
       }
+      // Stage 5 (stage-5.md §3.2): the extras, the correction count and the record note.
+      cells.offset = s.offsetCents;
+      cells.linkedOffsets = s.mortgageOffsetCents;
+      cells.cashInDebit = s.cashDebtCents;
+      cells.superMeasuredTo = s.superMeasuredThrough;
+      cells.revision = s.revision;
+      cells.note = s.note;
       return row(s.id, cells);
     });
 
@@ -581,6 +590,23 @@ const loadLoanOffsetLinks: Loader = (db) =>
     .all()
     .map(({ l, account, loan }) => row(l.accountId, { account, loan }));
 
+/** Stage 5: the snapshot audit log (the bodies stay in the History page's audit trail). */
+const loadSnapshotAudit: Loader = (db) =>
+  db
+    .select()
+    .from(snapshotAudit)
+    .orderBy(asc(snapshotAudit.id))
+    .all()
+    .map((a) =>
+      row(a.id, {
+        at: a.at,
+        period: a.periodMonth,
+        action: a.action,
+        trigger: a.trigger,
+        note: a.note,
+      }),
+    );
+
 /** A stored `value_json` as a cell: scalars as they are, anything else as JSON text. */
 function settingCell(valueJson: string): RecordCell {
   let value: unknown;
@@ -645,6 +671,7 @@ const LOADERS: Readonly<Record<RecordEntityId, Loader>> = {
   'property-valuations': loadPropertyValuations,
   'loan-balance-entries': loadLoanBalanceEntries,
   'loan-offset-links': loadLoanOffsetLinks,
+  'snapshot-audit': loadSnapshotAudit,
 };
 
 const DECIMAL_TYPES: ReadonlySet<RecordColumnType> = new Set(['quantity', 'price', 'ratio']);

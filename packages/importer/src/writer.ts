@@ -3,11 +3,14 @@
 // upserted by (kind, symbol) so their ids (and the price data hanging off them) survive re-imports;
 // cash account kinds (D49) and the fund that receives SG are carried over by name or sheet ref; the
 // overlay tables (savings adjustments and goals, SG statements) and the caches (dividend events,
-// the market series history) are never touched.
+// the market series history) are never touched. Settings follow stage-3.md §3.3 and stage-5.md
+// §3.5 item 1 (D87: an imported setting the workbook stops providing reads its default; D95: a
+// display preference set in the app is kept).
 import {
   compareDecimals,
   decimalFromNumber,
   derivePriceSource,
+  isPreferenceSettingKey,
   isSettingKey,
   isWorkbookSetting,
   newBudgetItemSchema,
@@ -81,8 +84,12 @@ export type PriceTreatment =
 export interface WriteResult {
   instrumentIds: Map<string, number>;
   priceTreatment: Map<string, PriceTreatment>;
-  /** Setting keys the workbook provided (written or already equal). */
+  /** Setting keys the workbook provided (written, already equal, or kept as an app preference). */
   settingKeys: string[];
+  /** Import-origin settings reset to their default: the workbook no longer provides them (D87). */
+  settingsResetToDefault: string[];
+  /** Preference keys whose app value the import kept (D95; stage-5.md §3.5 item 1). */
+  keptAppPreferences: string[];
   /** Names of the stored non-bank accounts whose kind no imported account took (D49). */
   kindsNotCarried: string[];
   /** Stored funds that received SG and that no imported fund continues (stage-4.md §3.5 item 3). */
@@ -296,12 +303,29 @@ function writePricing(
   return treatment;
 }
 
-function writeSettings(tx: Tx, model: WorkbookModel, runStart: string): string[] {
+interface SettingsWrite {
+  /** Keys the workbook provided (written, already equal, or kept as an app preference). */
+  keys: string[];
+  /** Import-origin rows removed because this workbook no longer provides their key (D87). */
+  resetToDefault: string[];
+  /** Preference keys whose app-origin row the import kept (D95). */
+  keptAppPreferences: string[];
+}
+
+function writeSettings(tx: Tx, model: WorkbookModel, runStart: string): SettingsWrite {
   const keys: string[] = [];
+  const kept: string[] = [];
   for (const plan of model.settings) {
     if (plan.status !== 'value' || plan.value === null) continue;
     const valueJson = JSON.stringify(plan.value);
     const current = tx.select().from(settings).where(eq(settings.key, plan.key)).get();
+    keys.push(plan.key);
+    // D95 (stage-5.md §3.3, §3.5 item 1): a display preference set in the app is kept; it never
+    // counts as app data, so it never blocks the import that would otherwise overwrite it.
+    if (current?.origin === 'app' && isPreferenceSettingKey(plan.key)) {
+      kept.push(plan.key);
+      continue;
+    }
     const row = valid(
       newSettingSchema,
       { key: plan.key, valueJson, updatedAt: runStart, origin: 'import' },
@@ -312,18 +336,26 @@ function writeSettings(tx: Tx, model: WorkbookModel, runStart: string): string[]
     // app data (D34) once a CLI `--replace-app-data` import has run.
     else if (current.valueJson !== valueJson || current.origin !== 'import')
       tx.update(settings).set(row).where(eq(settings.key, plan.key)).run();
-    keys.push(plan.key);
   }
-  // The D34 settings gap (stage-3.md §3.3 rule 3): an app-entered value of a workbook key that
-  // this workbook does not provide (e.g. an emergency-fund override while the sheet holds the
-  // default formula) is removed, so the database matches the workbook and stops counting as app
-  // data. App-only keys (no workbook source) and imported rows are left alone.
+  // Rows of workbook keys this workbook does not provide (a blank cell, an invalid value, or the
+  // template formula of an "only when typed" override). App-only keys (no workbook source) and
+  // unknown keys are never touched.
+  // - An import-origin row is reset to the registry default (D87, settings rule 4).
+  // - An app-origin row is removed (the D34 settings gap, stage-3.md §3.3 rule 3), so the
+  //   database matches the workbook and stops counting as app data; except a preference key's,
+  //   which the import keeps (D95).
   const provided = new Set(keys);
-  for (const row of tx.select().from(settings).where(eq(settings.origin, 'app')).all()) {
+  const reset: string[] = [];
+  for (const row of tx.select().from(settings).orderBy(asc(settings.key)).all()) {
     if (provided.has(row.key) || !isSettingKey(row.key) || !isWorkbookSetting(row.key)) continue;
+    if (row.origin === 'app' && isPreferenceSettingKey(row.key)) {
+      kept.push(row.key);
+      continue;
+    }
+    if (row.origin === 'import') reset.push(row.key);
     tx.delete(settings).where(eq(settings.key, row.key)).run();
   }
-  return keys;
+  return { keys, resetToDefault: reset, keptAppPreferences: kept.sort() };
 }
 
 /** The stored accounts' kinds, read before the replace-all delete (D49). */
@@ -806,11 +838,13 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
       .run();
   });
 
-  const settingKeys = writeSettings(tx, model, runStart);
+  const written = writeSettings(tx, model, runStart);
   return {
     instrumentIds: ids,
     priceTreatment,
-    settingKeys,
+    settingKeys: written.keys,
+    settingsResetToDefault: written.resetToDefault,
+    keptAppPreferences: written.keptAppPreferences,
     kindsNotCarried: carried.notCarried,
     sgFundNotCarried: sgFund.notCarried,
   };

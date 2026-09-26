@@ -42,6 +42,7 @@ describe('loadConfig', () => {
       marketDataMode: 'live',
       importCorrections: { kind: 'auto' },
       repoRoot,
+      autoRecord: null,
     });
   });
 
@@ -59,6 +60,7 @@ describe('loadConfig', () => {
         PRICE_REFRESH_MINUTES: '15',
         MARKET_DATA_MODE: 'fake',
         IMPORT_CORRECTIONS_FILE: resolve('/srv/joinr-corrections.json'),
+        AUTO_RECORD: 'yes',
       },
       base,
     );
@@ -76,6 +78,7 @@ describe('loadConfig', () => {
       marketDataMode: 'fake',
       importCorrections: { kind: 'file', path: resolve('/srv/joinr-corrections.json') },
       repoRoot,
+      autoRecord: true,
     });
   });
 
@@ -100,6 +103,39 @@ describe('loadConfig', () => {
   it.each(['1441', '-1', '1.5', 'hourly'])('rejects PRICE_REFRESH_MINUTES=%s', (value) => {
     const err = configError({ PRICE_REFRESH_MINUTES: value });
     expect(err.issues[0]).toMatch(/^PRICE_REFRESH_MINUTES: must be a whole number from 0 to 1440/);
+  });
+
+  // Stage 5 (stage-5.md §4.6 item 1, §8): the recorder owner extends these (§7.5 item 1).
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['yes', true],
+    ['false', false],
+    ['0', false],
+    ['no', false],
+    ['', null],
+  ])('reads AUTO_RECORD=%j', (value, expected) => {
+    expect(loadConfig({ AUTO_RECORD: value }, base).autoRecord).toBe(expected);
+  });
+
+  it.each(['on', 'off', 'TRUE', 'Yes', '2', 'y'])('rejects AUTO_RECORD=%j', (value) => {
+    expect(configError({ AUTO_RECORD: value }).issues).toEqual([
+      expect.stringMatching(/^AUTO_RECORD: must be one of true, 1, yes, false, 0, no/),
+    ]);
+  });
+
+  it('trims AUTO_RECORD and treats a blank value as unset', () => {
+    expect(loadConfig({ AUTO_RECORD: ' yes ' }, base).autoRecord).toBe(true);
+    expect(loadConfig({ AUTO_RECORD: '   ' }, base).autoRecord).toBeNull();
+    expect(loadConfig({ NODE_ENV: 'production', AUTO_RECORD: '0' }, base).autoRecord).toBe(false);
+  });
+
+  it('leaves AUTO_RECORD to the setting when unset, and always under NODE_ENV=test', () => {
+    expect(loadConfig({}, base).autoRecord).toBeNull();
+    expect(loadConfig({ NODE_ENV: 'test', AUTO_RECORD: 'true' }, base).autoRecord).toBeNull();
+    expect(configError({ AUTO_RECORD: 'sometimes' }).issues[0]).toMatch(
+      /^AUTO_RECORD: must be one of true, 1, yes, false, 0, no/,
+    );
   });
 
   it('rejects an unknown MARKET_DATA_MODE', () => {

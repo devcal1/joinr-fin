@@ -20,8 +20,10 @@ import {
   PERIOD_NOTE_KINDS,
   PRICE_PROVIDERS,
   PRICE_SOURCES,
+  RECORD_TRIGGERS,
   REVIEW_FLAGS,
   RUN_STATUSES,
+  SNAPSHOT_AUDIT_ACTIONS,
   SNAPSHOT_SOURCES,
   SUPER_ENTRY_KINDS,
   SYMBOL_ORIGINS,
@@ -306,6 +308,27 @@ export const newSnapshotSchema = z.strictObject({
   mfMovementsCents: cents,
   otherValueCents: cents,
   otherGainCents: cents,
+  // Stage 5 (migration 0005, stage-5.md §3.1–3.2): null on migrated rows.
+  offsetCents: nullable(CentsSchema.min(0)),
+  mortgageOffsetCents: nullable(CentsSchema.min(0)),
+  cashDebtCents: nullable(CentsSchema.max(0)),
+  superMeasuredThrough: nullable(IsoDateSchema),
+  note: nullable(z.string().max(200)),
+  revision: z.number().int().min(0).optional(),
+});
+
+/** Stage 5: the snapshot correction log (no provenance: never app data). */
+export const newSnapshotAuditSchema = z.strictObject({
+  id: idSchema,
+  periodMonth: IsoMonthSchema,
+  snapshotId: nullable(z.number().int().positive()),
+  action: z.enum(SNAPSHOT_AUDIT_ACTIONS),
+  trigger: z.enum(RECORD_TRIGGERS),
+  at: IsoTimestampSchema,
+  changesJson: nullable(text),
+  snapshotJson: nullable(text),
+  note: nullable(text),
+  detailJson: nullable(text),
 });
 
 export const newOtherAssetSchema = z.strictObject({
@@ -562,3 +585,4 @@ export type NewInstrument = z.output<typeof newInstrumentSchema>;
 export type NewTrade = z.output<typeof newTradeSchema>;
 export type NewDividend = z.output<typeof newDividendSchema>;
 export type NewSnapshot = z.output<typeof newSnapshotSchema>;
+export type NewSnapshotAudit = z.output<typeof newSnapshotAuditSchema>;

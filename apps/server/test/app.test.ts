@@ -122,6 +122,29 @@ describe('errors and not-found', () => {
     expect(res.body).not.toContain('secret');
   });
 
+  it('a 5xx HttpError is generic unless created with expose (CODE-3)', async () => {
+    const instance = await start();
+    instance.get('/api/hidden', () => {
+      throw new HttpError(500, 'run 42 failed at /some/path');
+    });
+    instance.get('/api/stopping', () => {
+      throw new HttpError(503, 'The server is stopping', 'INTERNAL_SERVER_ERROR', {
+        expose: true,
+      });
+    });
+    const hidden = await instance.inject({ method: 'GET', url: '/api/hidden' });
+    expect(hidden.statusCode).toBe(500);
+    expect(hidden.json()).toEqual({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error' },
+    });
+    const stopping = await instance.inject({ method: 'GET', url: '/api/stopping' });
+    expect(stopping.statusCode).toBe(503);
+    expect(stopping.json()).toEqual({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'The server is stopping' },
+    });
+    expect(new HttpError(503, 'x').expose).toBe(false);
+  });
+
   it('passes HttpError status, code and message through', async () => {
     const instance = await start();
     instance.get('/api/teapot', () => {
@@ -218,6 +241,62 @@ describe('services', () => {
       'stop:end:db-open=true',
       'closed:db-open=false',
     ]);
+  });
+
+  it('decorates the app with the snapshot recorder (Stage 5 stub: off) and stops it before the scheduler', async () => {
+    const events: string[] = [];
+    app = await buildApp({
+      config,
+      db: database,
+      services: (deps): AppServices => {
+        const services = offServices(deps);
+        const stop = services.scheduler.stop.bind(services.scheduler);
+        services.scheduler.stop = async () => {
+          events.push('scheduler.stop');
+          await stop();
+        };
+        return services;
+      },
+    });
+    expect(app.recorder.status()).toMatchObject({
+      autoRecord: { enabled: false, source: 'setting' },
+      recordHour: 23,
+      nextRunAt: null,
+      running: false,
+      blocked: null,
+    });
+    await expect(app.recorder.withLock(() => 7)).resolves.toBe(7);
+    const stop = app.recorder.stop.bind(app.recorder);
+    app.recorder.stop = async () => {
+      events.push('recorder.stop');
+      await stop();
+    };
+    await app.close();
+    app = undefined;
+    expect(events).toEqual(['recorder.stop', 'scheduler.stop']);
+  });
+
+  // Stage 5 (stage-5.md §4.2): the routes are registered and no-store (answers that need no engine
+  // figure; the pages themselves are covered in test/history and test/settings).
+  it.each([
+    ['GET', '/api/net-worth?unit=weekly', 400, 'VALIDATION_ERROR'],
+    ['GET', '/api/history/series?count=0', 400, 'VALIDATION_ERROR'],
+    ['POST', '/api/history/record', 400, 'VALIDATION_ERROR'],
+    ['PUT', '/api/history/snapshots/2026-8', 400, 'VALIDATION_ERROR'],
+    ['DELETE', '/api/history/snapshots/2026-08', 404, 'NOT_FOUND'],
+  ] as const)('%s %s is registered (%i, no-store)', async (method, url, status, code) => {
+    const res = await (await start()).inject({ method, url });
+    expect(res.statusCode).toBe(status);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.json()).toMatchObject({ error: { code } });
+  });
+
+  it('GET /api/settings answers the Settings page (no-store)', async () => {
+    const res = await (await start()).inject({ method: 'GET', url: '/api/settings' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.json()).toMatchObject({ taxSuggestion: null, allocationSumRatio: null });
+    expect(res.json<{ settings: unknown[] }>().settings).toHaveLength(61);
   });
 
   it.each([

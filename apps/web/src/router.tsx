@@ -17,11 +17,12 @@ import { BudgetPage } from './pages/budget/BudgetPage';
 import { CashPage } from './pages/cash/CashPage';
 import { DividendsPage } from './pages/dividends/DividendsPage';
 import { ErrorPage } from './pages/ErrorPage';
+import { HistoryPage } from './pages/history/HistoryPage';
 import { ImportPage } from './pages/import/ImportPage';
 import { ImportRunPage } from './pages/import/ImportRunPage';
 import { HoldingDetailPage } from './pages/investments/HoldingDetailPage';
 import { InvestmentPage } from './pages/investments/InvestmentPage';
-import { NetWorthPage } from './pages/NetWorthPage';
+import { NetWorthPage } from './pages/netWorth/NetWorthPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { OtherAssetsPage } from './pages/otherAssets/OtherAssetsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
@@ -30,6 +31,7 @@ import { PropertyPage } from './pages/property/PropertyPage';
 import { RecordsEntityPage } from './pages/records/RecordsEntityPage';
 import { RecordsIndexPage } from './pages/records/RecordsIndexPage';
 import { ScreenPreviewPage } from './pages/ScreenPreviewPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
 import { SideIncomePage } from './pages/sideIncome/SideIncomePage';
 import { StyleguidePage } from './pages/styleguide/StyleguidePage';
 import { SuperPage } from './pages/super/SuperPage';
@@ -171,6 +173,25 @@ const propertyRoute = createRoute({
   component: PropertyPage,
 });
 
+// Stage 5: the Net Worth dashboard, History and Settings (stage-5.md §6.1).
+const netWorthRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/',
+  component: NetWorthPage,
+});
+
+const historyRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/history',
+  component: HistoryPage,
+});
+
+const settingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings',
+  component: SettingsPage,
+});
+
 const BUILT_PAGE_ROUTES = [
   recordsRoute,
   importRoute,
@@ -186,6 +207,9 @@ const BUILT_PAGE_ROUTES = [
   otherAssetsRoute,
   superRoute,
   propertyRoute,
+  netWorthRoute,
+  historyRoute,
+  settingsRoute,
 ];
 const BUILT_PATHS: ReadonlySet<string> = new Set([
   '/records',
@@ -202,6 +226,9 @@ const BUILT_PATHS: ReadonlySet<string> = new Set([
   '/other-assets',
   '/super',
   '/property',
+  '/',
+  '/history',
+  '/settings',
 ]);
 
 // Every other page renders its placeholder until its stage lands.
@@ -209,7 +236,7 @@ const pageRoutes = PAGES.filter((page) => !BUILT_PATHS.has(page.path)).map((page
   createRoute({
     getParentRoute: () => appRoute,
     path: page.path,
-    component: page.id === 'net-worth' ? NetWorthPage : placeholderFor(page),
+    component: placeholderFor(page),
   }),
 );
 

@@ -22,6 +22,7 @@ import {
   savingsGoals,
   sideIncomeDeposits,
   sideIncomeEntries,
+  snapshotAudit,
   snapshots,
   superBalanceEntries,
   superEntries,
@@ -37,6 +38,7 @@ import {
   dumpDomainTablesJson,
   SEED_WORKBOOK_AS_OF,
   seedGenericData,
+  seedRecordedMonth,
   type TestDb,
 } from '../src/testing/index';
 import { parseReviewFlags } from '../src/index';
@@ -68,7 +70,8 @@ describe('createTestDb', () => {
 /**
  * Tables the seed leaves empty on purpose: the Stage 3 overlays and events cache (§3.6), the
  * Stage 1 side-income period entries (never written again: the server reads deposits), and the
- * Stage 4 sales, SG statements (an overlay), offset links and series history (stage-4.md §3.6).
+ * Stage 4 sales, SG statements (an overlay), offset links and series history (stage-4.md §3.6),
+ * and the Stage 5 snapshot audit log (only `seedRecordedMonth` writes it; stage-5.md §3.6).
  */
 const UNSEEDED: ReadonlySet<unknown> = new Set([
   savingsAdjustments,
@@ -79,6 +82,7 @@ const UNSEEDED: ReadonlySet<unknown> = new Set([
   superSgOverrides,
   loanOffsetLinks,
   marketQuoteHistory,
+  snapshotAudit,
 ]);
 
 describe('seedGenericData', () => {
@@ -339,6 +343,59 @@ describe('seedGenericData: Stage 4 rows (stage-4.md §3.6)', () => {
     seedGenericData(testDb.db);
     expect(count('super_sg_overrides')).toBe(0);
     expect(count('market_quote_history')).toBe(0);
+  });
+});
+
+describe('seedRecordedMonth (stage-5.md §3.6)', () => {
+  it('adds one recorded app month with the four extras and one audit row', () => {
+    seedGenericData(testDb.db);
+    const { snapshotId, auditId } = seedRecordedMonth(testDb.db, {
+      periodMonth: '2026-08',
+      runDate: '2026-08-31',
+    });
+    const row = testDb.db.select().from(snapshots).where(eq(snapshots.id, snapshotId)).get()!;
+    expect(row).toMatchObject({
+      periodMonth: '2026-08',
+      runDate: '2026-08-31',
+      source: 'recorded',
+      origin: 'app',
+      sheetRef: null,
+      revision: 0,
+      offsetCents: 1500000,
+      mortgageOffsetCents: 1000000,
+      cashDebtCents: -30000,
+      superMeasuredThrough: '2026-08-27',
+      liabilitiesBalanceCents: 0,
+      liabilitiesPaidCents: 0,
+    });
+    // The derived columns follow §2.5: O against the seed's Jul 2026 cash, Z net of linked offsets.
+    const jul = testDb.db
+      .select()
+      .from(snapshots)
+      .where(eq(snapshots.periodMonth, '2026-07'))
+      .get()!;
+    expect(row.cashGainCents).toBe(row.cashValueCents! - jul.cashValueCents!);
+    expect(row.propertyEquityCents).toBe(
+      row.propertyValueCents! + row.mortgageBalanceCents! + row.mortgageOffsetCents!,
+    );
+    const g = row.stocksGainCents!;
+    expect(Number(row.stocksGainRatio)).toBeCloseTo(g / (row.stocksValueCents! - g), 12);
+    const audit = testDb.db
+      .select()
+      .from(snapshotAudit)
+      .where(eq(snapshotAudit.id, auditId))
+      .get()!;
+    expect(audit).toMatchObject({
+      periodMonth: '2026-08',
+      snapshotId,
+      action: 'record',
+      trigger: 'manual',
+    });
+    expect(JSON.parse(audit.snapshotJson!)).toMatchObject({ id: snapshotId, source: 'recorded' });
+    // Seeding again clears the recorded month and its audit row.
+    seedGenericData(testDb.db);
+    expect(count('snapshots')).toBe(3);
+    expect(count('snapshot_audit')).toBe(0);
   });
 });
 

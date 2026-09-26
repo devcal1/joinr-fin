@@ -255,16 +255,20 @@ export function computeSuper(input: SuperInput): SuperResult {
   };
 
   // ─── Window flows (step 4) ───
-  /** SG and contributions over (after, through]; transfers in over (after, transfersThrough]. */
+  /**
+   * SG and contributions over (after, through]; transfers in over (transfersAfter,
+   * transfersThrough] (by default the same window).
+   */
   const flowsOver = (
     after: IsoDate,
     through: IsoDate,
     transfersThrough: IsoDate = through,
+    transfersAfter: IsoDate = after,
   ): { flows: SuperFlows; sgFund: Dec } => {
     const sgGross = sgGrossBetween(after, through);
     const sgFundDec = sgGross.times(toFund);
     const cs = contributions.filter((c) => inWindow(c.day, after, through));
-    const transfers = allEntries.filter((e) => inWindow(e.day, after, transfersThrough));
+    const transfers = allEntries.filter((e) => inWindow(e.day, transfersAfter, transfersThrough));
     return {
       flows: {
         sgGrossCents: roundCents(sgGross),
@@ -284,18 +288,40 @@ export function computeSuper(input: SuperInput): SuperResult {
   // (on or before asOf) among the funds not archived. The stale rule below puts it inside
   // (lastRun, asOf] whenever the provisional period is a valuation point. SG and contributions after
   // it wait for the next update (the window's `flows`, the savings side, still run to asOf).
-  const balancesThrough: IsoDate =
-    funds
-      .filter((f) => !f.fund.archived)
-      .map((f) => latestOnOrBefore(f.entries, asOf)?.asOf)
-      .filter((d): d is IsoDate => d !== undefined)
-      .sort(compareIso)[0] ?? asOf;
+  const latestBalanceDates = funds
+    .filter((f) => !f.fund.archived)
+    .map((f) => latestOnOrBefore(f.entries, asOf)?.asOf)
+    .filter((d): d is IsoDate => d !== undefined)
+    .sort(compareIso);
+  const balancesThrough: IsoDate = latestBalanceDates[0] ?? asOf;
   const windows = periodWindows(input.snapshots, asOf, true);
   const periods: SuperPeriod[] = [];
   const returns: (Dec | null)[] = [];
-  /** Each period's measured end: its run date; the provisional valuation's balancesThrough. */
+  /**
+   * Each period's measured end: its run date, or for a valuation point its effective
+   * measured-through date; the provisional valuation's balancesThrough.
+   */
   const measuredTo: IsoDate[] = [];
-  let lastValuation: { date: IsoDate; value: Cents } | null = null;
+  /**
+   * The previous valuation point: its run date (the transfers' window), its value and its effective
+   * measured-through date (stage-5.md §2.11, D88a: the gain's SG and contributions window starts
+   * there).
+   */
+  let lastValuation: { date: IsoDate; value: Cents; measured: IsoDate } | null = null;
+  /**
+   * §2.11: m' = min(run, max(m ?? run, the previous valuation point's m')), so the measured dates
+   * never go backwards (no SG counted twice) and never pass the run date.
+   */
+  const effectiveMeasured = (
+    runDate: IsoDate,
+    measured: IsoDate | null | undefined,
+    previous: IsoDate | null,
+  ): IsoDate => {
+    let m = measured ?? runDate;
+    dayNumber(m);
+    if (previous !== null && previous > m) m = previous;
+    return m < runDate ? m : runDate;
+  };
   windows.forEach((w, i) => {
     const value =
       w.snapshot === null
@@ -320,10 +346,17 @@ export function computeSuper(input: SuperInput): SuperResult {
       returnRatio: null,
     };
     measuredTo.push(w.through);
+    /** This snapshot's effective measured-through date as a valuation point (§2.11). */
+    const measuredHere = (): IsoDate =>
+      effectiveMeasured(w.runDate, w.snapshot?.measuredThrough, lastValuation?.measured ?? null);
     if (w.status === 'first' || w.after === null) {
       periods.push({ ...base, notUpdated: false, flows: null, ...none });
       returns.push(null);
-      if (value !== null) lastValuation = { date: w.through, value };
+      if (value !== null) {
+        const measured = measuredHere();
+        measuredTo[i] = measured;
+        lastValuation = { date: w.through, value, measured };
+      }
       return;
     }
     const previous = periods[i - 1]!.valueCents;
@@ -340,19 +373,29 @@ export function computeSuper(input: SuperInput): SuperResult {
       notUpdated = value === null || value === previous;
     }
     const { flows } = flowsOver(w.after, w.through);
-    const from: { date: IsoDate; value: Cents } | null = lastValuation;
+    const from: { date: IsoDate; value: Cents; measured: IsoDate } | null = lastValuation;
     if (notUpdated || value === null || from === null) {
       periods.push({ ...base, notUpdated, flows, ...none });
       returns.push(null);
-      if (!notUpdated && value !== null) lastValuation = { date: w.through, value };
+      if (!notUpdated && value !== null) {
+        const measured = measuredHere();
+        measuredTo[i] = measured;
+        lastValuation = { date: w.through, value, measured };
+      }
       return;
     }
     // D69: the gain over (gainFrom, through] = change − SG to the fund − yours to the fund − transfers.
     // D79: the provisional gain counts SG and contributions only to balancesThrough; every transfer
     // in to asOf sits on a balance entry the value already holds, so it still counts.
-    const gainThrough = w.status === 'provisional' ? balancesThrough : w.through;
-    measuredTo[i] = gainThrough;
-    const g = flowsOver(from.date, gainThrough, w.through);
+    // D88a (stage-5.md §2.11): SG and contributions run between the effective measured-through
+    // dates, so those after a month's measured balance date carry into the next month's gain;
+    // transfers in keep the run-date window. Null measured dates are the run dates (Stage 4).
+    const measured =
+      w.status === 'provisional'
+        ? effectiveMeasured(asOf, balancesThrough, from.measured)
+        : measuredHere();
+    measuredTo[i] = measured;
+    const g = flowsOver(from.measured, measured, w.through, from.date);
     const changeCents = value - from.value;
     const gainCents =
       changeCents - g.flows.sgFundCents - g.flows.memberFundCents - g.flows.transferInCents;
@@ -373,7 +416,7 @@ export function computeSuper(input: SuperInput): SuperResult {
       returnRatio: ret === null ? null : ratioString(ret),
     });
     returns.push(ret);
-    lastValuation = { date: w.through, value };
+    lastValuation = { date: w.through, value, measured };
   });
 
   // ─── The annualised return: the chained Modified Dietz periods (step 5, §11 fix 21) ───
@@ -612,5 +655,7 @@ export function computeSuper(input: SuperInput): SuperResult {
       superGainRatio: provisional?.gainRatio ?? null,
     },
     flags: orderedFlags(SUPER_FLAGS, flags),
+    // D88a: the provisional period's D79 cut-off, stored with a recorded month (stage-5.md §2.11).
+    measuredThrough: provisional !== null && latestBalanceDates.length > 0 ? balancesThrough : null,
   };
 }

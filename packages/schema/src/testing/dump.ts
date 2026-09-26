@@ -6,7 +6,9 @@ import type { JoinrDb } from '../db/index';
  * Every table the import writes (the replace-all set, instruments, settings and pricing), parents
  * before children. The Stage 3 overlays (`savings_adjustments`, `savings_goals`) and the
  * `dividend_events` cache are not dumped: the import never writes them (stage-3.md §3.2); nor are
- * the Stage 4 overlay (`super_sg_overrides`) and cache (`market_quote_history`) (stage-4.md §3.2).
+ * the Stage 4 overlay (`super_sg_overrides`) and cache (`market_quote_history`) (stage-4.md §3.2),
+ * nor the Stage 5 `snapshot_audit` log (stage-5.md §3.2; the new snapshot columns are dumped with
+ * the row).
  */
 export const DUMPED_TABLES: readonly { table: string; orderBy: string }[] = [
   { table: 'instruments', orderBy: 'id' },

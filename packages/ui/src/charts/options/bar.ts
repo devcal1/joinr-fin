@@ -1,28 +1,35 @@
 // Bar chart option builder (pure). Thin bars (≤ 24px) with a 4px rounded data end and a square
 // baseline; stacked segments are separated by a 2px surface gap; gain/loss uses --go/--stop.
-import type { BarSeriesOption } from 'echarts/charts';
+// Stage 5 (additive, stage-5.md §6.1): stacked negatives go below zero ('samesign'), line overlays
+// (a rate on a right-hand axis, a dashed trend) are drawn over the bars, and the stacked total can
+// be named ("Net worth").
+import type { BarSeriesOption, LineSeriesOption } from 'echarts/charts';
 import type { EChartsCoreOption } from 'echarts/core';
 import { COLORS } from '../../core';
 import { formatChartNumber } from '../format';
 import { CHART_GAIN, CHART_LOSS, resolveSeriesColor } from '../palette';
 import { readParamIndex, tooltipHtml, type TooltipRow } from '../tooltip';
-import type { BarChartProps, ChartLegendItem } from '../types';
+import type { BarChartProps, BarOverlay, ChartLegendItem, ValueFormatter } from '../types';
 import {
+  MARKER_RING,
   TOOLTIP_BASE,
   alignSeries,
   ariaOption,
   changeWord,
+  finiteOrNull,
   GRID,
   NO_LEGEND,
-  seriesLegend,
   signed,
   type ChartOption,
 } from './common';
+import { LINE_WIDTH, MARKER_SIZE } from './line';
 
 export const BAR_MAX_WIDTH = 24;
 export const BAR_RADIUS = 4;
 /** Surface gap between stacked segments. */
 export const STACK_GAP = 2;
+/** The default name of a stacked chart's total in the tooltip. */
+export const DEFAULT_TOTAL_LABEL = 'Total';
 
 type Radius = [number, number, number, number];
 
@@ -50,14 +57,31 @@ export function stackEnds(values: (number | null)[][]): { top: number[]; bottom:
   return { top, bottom };
 }
 
-/** Legend entries: one per series when there are two or more (none for gain/loss colouring). */
+/** An overlay's colour: its own (when safe), else the palette slot after the bars. */
+export function overlayColor(overlay: BarOverlay, index: number, barCount: number): string {
+  return resolveSeriesColor(barCount + index, overlay.color);
+}
+
+/**
+ * Legend entries when two or more things are drawn: a swatch per bar series (none for gain/loss
+ * colouring: those colours are status), a stroke per line overlay, a dashed stroke per dashed one.
+ */
 export function barLegend(p: BarChartProps): ChartLegendItem[] {
-  if (p.signColors) return [];
-  return seriesLegend(
-    p.series.map((s) => s.name),
-    p.series.map((s, i) => resolveSeriesColor(i, s.color)),
-    'swatch',
-  );
+  const bars: ChartLegendItem[] = p.signColors
+    ? []
+    : p.series.map((s, i) => ({
+        name: s.name,
+        color: resolveSeriesColor(i, s.color),
+        key: 'swatch',
+      }));
+  const lines: ChartLegendItem[] = (p.overlays ?? []).map((o, i) => ({
+    name: o.name,
+    color: overlayColor(o, i, p.series.length),
+    key: o.dashed ? 'dashed-line' : 'line',
+  }));
+  const drawn = p.series.length + lines.length;
+  if (drawn < 2) return [];
+  return [...bars, ...lines];
 }
 
 export function barOption(p: BarChartProps): EChartsCoreOption {
@@ -75,11 +99,20 @@ export function barOption(p: BarChartProps): EChartsCoreOption {
   const colors = series.map((s, i) => resolveSeriesColor(i, s.color));
   const isStacked = stacked && series.length > 1;
   const ends = isStacked ? stackEnds(values) : null;
+  const overlays = p.overlays ?? [];
+  const secondary = !horizontal && overlays.some((o) => o.axis === 'secondary');
+  const secondaryFormat: ValueFormatter = p.secondaryAxisFormatter ?? format;
+  const totalLabel = p.totalLabel ?? DEFAULT_TOTAL_LABEL;
+  const overlayColors = overlays.map((o, i) => overlayColor(o, i, series.length));
+  const overlayValues = overlays.map((o) => categories.map((_, i) => finiteOrNull(o.values[i])));
+  const onSecondary = (o: BarOverlay): boolean => secondary && o.axis === 'secondary';
 
   const barSeries: BarSeriesOption[] = series.map((s, si) => ({
     type: 'bar',
     name: s.name,
     stack: isStacked ? 'total' : undefined,
+    // Positives stack up and negatives down (a loss, a debt), so each stack adds up to its total.
+    stackStrategy: isStacked ? 'samesign' : undefined,
     barMaxWidth: BAR_MAX_WIDTH,
     barGap: '15%',
     barCategoryGap: '35%',
@@ -103,6 +136,32 @@ export function barOption(p: BarChartProps): EChartsCoreOption {
     }),
   }));
 
+  const lineSeries: LineSeriesOption[] = overlays.map((o, oi) => {
+    const color = overlayColors[oi];
+    return {
+      type: 'line',
+      name: o.name,
+      yAxisIndex: onSecondary(o) ? 1 : 0,
+      data: overlayValues[oi] ?? [],
+      connectNulls: false,
+      smooth: false,
+      symbol: 'circle',
+      symbolSize: MARKER_SIZE,
+      // A lone point would be invisible without its marker.
+      showSymbol: categories.length === 1,
+      z: 3,
+      lineStyle: {
+        color,
+        width: LINE_WIDTH,
+        cap: 'round',
+        join: 'round',
+        type: o.dashed ? 'dashed' : 'solid',
+      },
+      itemStyle: { color, ...MARKER_RING },
+      emphasis: { focus: 'none', lineStyle: { width: LINE_WIDTH } },
+    };
+  });
+
   const categoryAxis = {
     type: 'category' as const,
     data: categories,
@@ -115,40 +174,87 @@ export function barOption(p: BarChartProps): EChartsCoreOption {
     type: 'value' as const,
     axisLabel: { formatter: (v: number) => axisFormat(v), hideOverlap: true },
   };
+  // The one chart with a second axis (stage-5.md §6.1): a rate against money bars. The axis is
+  // named after its overlay; it draws no gridlines of its own.
+  const secondaryAxis = {
+    type: 'value' as const,
+    position: 'right' as const,
+    name: overlays.find((o) => o.axis === 'secondary')?.name,
+    nameTextStyle: { color: COLORS.textSecondary, fontSize: 11 },
+    splitLine: { show: false },
+    axisLabel: { formatter: (v: number) => secondaryFormat(v), hideOverlap: true },
+  };
+
+  const barRow = (si: number, ci: number): TooltipRow | null => {
+    const s = series[si];
+    const v = values[si]?.[ci];
+    if (!s || v === null || v === undefined) return null;
+    return signColors
+      ? {
+          name: s.name,
+          value: signed(format, v),
+          color: v >= 0 ? CHART_GAIN : CHART_LOSS,
+          note: changeWord(v),
+        }
+      : { name: s.name, value: format(v), color: colors[si] ?? COLORS.textMuted };
+  };
+  const totalOf = (ci: number): { name: string; value: string } | undefined =>
+    isStacked
+      ? { name: totalLabel, value: format(values.reduce((sum, r) => sum + (r[ci] ?? 0), 0)) }
+      : undefined;
+
+  const itemTooltip = {
+    ...TOOLTIP_BASE,
+    trigger: 'item' as const,
+    formatter: (params: unknown) => {
+      const at = readParamIndex(params);
+      if (!at || at.seriesIndex >= series.length) return '';
+      const row = barRow(at.seriesIndex, at.dataIndex);
+      if (!row) return '';
+      return tooltipHtml({
+        title: categories[at.dataIndex],
+        rows: [row],
+        total: totalOf(at.dataIndex),
+      });
+    },
+  };
+  // With lines over the bars, one tooltip per category lists every bar and every line.
+  const axisTooltip = {
+    ...TOOLTIP_BASE,
+    trigger: 'axis' as const,
+    axisPointer: { type: 'shadow' as const },
+    formatter: (params: unknown) => {
+      const at = readParamIndex(params);
+      if (!at) return '';
+      const ci = at.dataIndex;
+      const rows: TooltipRow[] = series.flatMap((_, si) => {
+        const row = barRow(si, ci);
+        return row ? [row] : [];
+      });
+      overlays.forEach((o, oi) => {
+        const v = overlayValues[oi]?.[ci];
+        if (v === null || v === undefined) return;
+        rows.push({
+          name: o.name,
+          value: (onSecondary(o) ? secondaryFormat : format)(v),
+          color: overlayColors[oi] ?? COLORS.textMuted,
+          key: 'line',
+        });
+      });
+      if (rows.length === 0) return '';
+      return tooltipHtml({ title: categories[ci], rows, total: totalOf(ci) });
+    },
+  };
 
   const option: ChartOption = {
     aria: ariaOption(ariaLabel),
-    color: colors,
+    color: [...colors, ...overlayColors],
     legend: NO_LEGEND,
     grid: GRID,
     xAxis: horizontal ? valueAxis : categoryAxis,
-    yAxis: horizontal ? categoryAxis : valueAxis,
-    tooltip: {
-      ...TOOLTIP_BASE,
-      trigger: 'item',
-      formatter: (params: unknown) => {
-        const at = readParamIndex(params);
-        const s = at ? series[at.seriesIndex] : undefined;
-        const v = at ? values[at.seriesIndex]?.[at.dataIndex] : null;
-        if (!at || !s || v === null || v === undefined) return '';
-        const row: TooltipRow = signColors
-          ? {
-              name: s.name,
-              value: signed(format, v),
-              color: v >= 0 ? CHART_GAIN : CHART_LOSS,
-              note: changeWord(v),
-            }
-          : { name: s.name, value: format(v), color: colors[at.seriesIndex] ?? COLORS.textMuted };
-        const total = isStacked
-          ? {
-              name: 'Total',
-              value: format(values.reduce((sum, r) => sum + (r[at.dataIndex] ?? 0), 0)),
-            }
-          : undefined;
-        return tooltipHtml({ title: categories[at.dataIndex], rows: [row], total });
-      },
-    },
-    series: barSeries,
+    yAxis: horizontal ? categoryAxis : secondary ? [valueAxis, secondaryAxis] : valueAxis,
+    tooltip: overlays.length === 0 ? itemTooltip : axisTooltip,
+    series: [...barSeries, ...lineSeries],
   };
   return option;
 }

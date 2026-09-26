@@ -31,6 +31,8 @@ export const RECORD_ENTITY_IDS = [
   'property-valuations',
   'loan-balance-entries',
   'loan-offset-links',
+  // Stage 5 (stage-5.md §3.2).
+  'snapshot-audit',
 ] as const;
 export type RecordEntityId = (typeof RECORD_ENTITY_IDS)[number];
 
@@ -101,6 +103,7 @@ export const RECORD_ENTITY_TABLES: Readonly<Record<RecordEntityId, string>> = {
   'property-valuations': 'property_valuations',
   'loan-balance-entries': 'loan_balance_entries',
   'loan-offset-links': 'loan_offset_links',
+  'snapshot-audit': 'snapshot_audit',
 };
 
 const col = (id: string, label: string, type: RecordColumnType): RecordColumn => ({
@@ -312,6 +315,13 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('period', 'Period', 'month'),
       col('source', 'Source', 'text'),
       ...SNAPSHOT_VALUE_COLUMNS.map((c) => col(c.id, c.label, c.type)),
+      // Stage 5 (stage-5.md §3.2): the extras (null on migrated rows), the corrections and note.
+      col('offset', 'Offset accounts', 'money'),
+      col('linkedOffsets', 'Linked offsets', 'money'),
+      col('cashInDebit', 'Accounts in debit', 'money'),
+      col('superMeasuredTo', 'Super measured to', 'date'),
+      col('revision', 'Corrections', 'integer'),
+      col('note', 'Note', 'text'),
     ],
   },
   'other-assets': {
@@ -550,6 +560,19 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
     group: 'assets',
     defaultSort: { columnId: 'account' },
     columns: [col('account', 'Account', 'text'), col('loan', 'Loan', 'text')],
+  },
+  'snapshot-audit': {
+    id: 'snapshot-audit',
+    label: 'Snapshot audit',
+    group: 'history',
+    defaultSort: { columnId: 'at', desc: true },
+    columns: [
+      col('at', 'When', 'timestamp'),
+      col('period', 'Period', 'month'),
+      col('action', 'Action', 'text'),
+      col('trigger', 'Trigger', 'text'),
+      col('note', 'Note', 'text'),
+    ],
   },
 };
 

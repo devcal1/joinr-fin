@@ -30,6 +30,7 @@ import { useId, useState, type JSX } from 'react';
 import { useDeleteAdjustment, useSaveAdjustment, useSavePeriodNote } from '../../api/hooks';
 import { Missing } from '../../components/QueryStates';
 import { plural } from '../../formatting';
+import { HistoryLinkText } from '../history/HistoryLinkText';
 import { Segmented } from '../investments/Segmented';
 import { BalanceCell, FlowCell, PeriodCell, SavingsCell, SavingsRateCell } from '../cashflow/cells';
 import { RATE_CHECK_NOTE, periodLabel, rateNeedsCheck } from '../cashflow/display';
@@ -51,10 +52,10 @@ import { periodActionKey } from './cashText';
 import { SavingsCharts } from './SavingsCharts';
 
 export const NO_SNAPSHOTS =
-  'Savings start after the first recorded month. Import the workbook for past months; recording arrives in Stage 5.';
+  'Savings start after the first recorded month. Import the workbook for past months, or record a month on the History page.';
 export const BASELINE_NOTE = 'The first recorded month is the baseline.';
 export const RECORDING_NOTE =
-  'Recording a month arrives in Stage 5; until then the current period stays provisional.';
+  'The current period stays provisional until the month is recorded (History).';
 export const ADJUSTMENT_HINT =
   "A one-off inflow that isn't income, such as an asset sale or a loan repaid. It is taken out of savings.";
 export const ADJUSTMENT_KEPT = 'Adjustments are kept when you re-import the workbook.';
@@ -289,7 +290,9 @@ export function SavingsSection({ page, editor }: SavingsSectionProps): JSX.Eleme
       ))}
       {periods.length === 0 ? (
         <Callout kind="note" title="No recorded months">
-          <p>{NO_SNAPSHOTS}</p>
+          <p>
+            <HistoryLinkText text={NO_SNAPSHOTS} />
+          </p>
         </Callout>
       ) : (
         <>
@@ -331,7 +334,9 @@ export function SavingsSection({ page, editor }: SavingsSectionProps): JSX.Eleme
       )}
       <div className="jf-app-footnotes">
         <p className="jf-app-meta">{BASELINE_NOTE}</p>
-        <p className="jf-app-meta">{RECORDING_NOTE}</p>
+        <p className="jf-app-meta">
+          <HistoryLinkText text={RECORDING_NOTE} />
+        </p>
       </div>
     </>
   );

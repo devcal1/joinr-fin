@@ -150,8 +150,7 @@ function EoyGoalCard({ page }: { page: CashPageResponse }): JSX.Element {
         <KeyValueTable caption="End-of-year cash goal" items={items} />
         {anchorMonth ? (
           <p className="jf-app-meta" data-testid="eoy-anchor-note">
-            Projected from the last recorded month ({anchorMonth}); recording a month arrives in
-            Stage 5.
+            Projected from the last recorded month ({anchorMonth}).
           </p>
         ) : null}
       </div>

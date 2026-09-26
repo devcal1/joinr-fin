@@ -32,6 +32,7 @@ import {
 } from '../primitives';
 import {
   isEditableSettingKey,
+  SETTING_WRITE_BOUNDS,
   settingDef,
   settingValueSchema,
   type EditableSettingKey,
@@ -283,10 +284,10 @@ export type DividendEventKey = z.output<typeof dividendEventKeySchema>;
 // ─── Settings ───────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The most keys one `PATCH /api/settings` body may change (Stage 4: 30, above the 22 editable
- * keys, so one PATCH can hold every editable key; stage-4.md §3.2).
+ * The most keys one `PATCH /api/settings` body may change (Stage 5: 64, above the 60 editable
+ * keys, so one PATCH can hold every editable key; stage-5.md §3.2).
  */
-export const SETTINGS_PATCH_MAX_KEYS = 30;
+export const SETTINGS_PATCH_MAX_KEYS = 64;
 
 /**
  * The largest whole number an editable integer setting without a registry maximum accepts
@@ -297,11 +298,21 @@ export const SETTINGS_INTEGER_MAX = 1200;
 /**
  * The write bounds of an editable setting (`PATCH /api/settings` only): a ratio within its
  * registry min..max, money up to CASHFLOW_MONEY_MAX, an integer up to its registry max or
- * SETTINGS_INTEGER_MAX. `settingValueSchema` itself stays lenient, because the importer and the
+ * SETTINGS_INTEGER_MAX, and the Stage 5 write-only bounds (`SETTING_WRITE_BOUNDS`, which win over
+ * the registry's). `settingValueSchema` itself stays lenient, because the importer and the
  * database reader use it for values the workbook holds. Returns the issue message, or null.
  */
 function settingWriteBoundIssue(key: EditableSettingKey, value: SettingValue): string | null {
   const def = settingDef(key);
+  const bound = SETTING_WRITE_BOUNDS[key];
+  if (bound !== undefined) {
+    const out =
+      typeof value === 'string'
+        ? compareDecimals(value, String(bound.min)) < 0 ||
+          compareDecimals(value, String(bound.max)) > 0
+        : typeof value === 'number' && (value < bound.min || value > bound.max);
+    return out ? `must be between ${bound.min} and ${bound.max}` : null;
+  }
   if (def.type === 'ratio' && typeof value === 'string') {
     const below = def.min !== undefined && compareDecimals(value, String(def.min)) < 0;
     const above = def.max !== undefined && compareDecimals(value, String(def.max)) > 0;
@@ -618,11 +629,6 @@ export interface CashPageResponse {
   charts: CashChartsDto;
   /** The Cash page's keys (§3.3). */
   settings: SettingsSliceDto;
-  /**
-   * Stage 3: other assets / super / mortgage came from the import until Stage 4. Always false from
-   * Stage 4 (the live engines feed the provisional period); Stage 5 may drop it.
-   */
-  staticUntilStage4: boolean;
 }
 
 export interface CashAccountMutationResponse {

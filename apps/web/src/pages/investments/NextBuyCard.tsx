@@ -16,9 +16,14 @@ import { Link } from '@tanstack/react-router';
 import { CircleAlert } from 'lucide-react';
 import type { JSX } from 'react';
 import { Missing } from '../../components/QueryStates';
+import { HistoryLinkText } from '../history/HistoryLinkText';
+import { settingsGroupsOf } from '../settings/groupLinks';
+import { SettingsGroupLinks } from '../settings/SettingsLinks';
 import {
   IMPORTED_BUDGET_TEXT,
   LIVE_BUDGET_LINK,
+  MISSING_INPUTS_LEAD,
+  MISSING_SNAPSHOTS,
   SPLIT_OFF_LINK,
   assetClassText,
   countdownText,
@@ -27,6 +32,37 @@ import {
   monthlyAmountText,
   parcelText,
 } from './display';
+
+/**
+ * Where to set each missing input (stage-5.md §6.7, §6.5 item 10): "Set them in Settings (Pay and
+ * tax, Budget)" with one link per missing setting's group; budget items on the Budget page;
+ * snapshots on the History page.
+ */
+function MissingFooter({ missing }: { missing: readonly string[] }): JSX.Element {
+  const hasSettings = settingsGroupsOf(missing).length > 0;
+  return (
+    <p data-testid="next-buy-missing-footer">
+      {hasSettings ? (
+        <>
+          {MISSING_INPUTS_LEAD} (<SettingsGroupLinks keys={missing} separator=", " />
+          ).
+        </>
+      ) : null}
+      {missing.includes('budget.items') ? (
+        <>
+          {hasSettings ? ' ' : null}Budget items are set on the{' '}
+          <Link to="/budget">Budget page</Link>.
+        </>
+      ) : null}
+      {missing.includes('snapshots') ? (
+        <>
+          {' '}
+          <HistoryLinkText text={MISSING_SNAPSHOTS} />
+        </>
+      ) : null}
+    </p>
+  );
+}
 
 export function NextBuyCard({ page }: { page: InvestmentPageResponse }): JSX.Element {
   const { timing, kind } = page;
@@ -115,11 +151,7 @@ export function NextBuyCard({ page }: { page: InvestmentPageResponse }): JSX.Ele
                 <li key={key}>{missingInputLabel(key)}</li>
               ))}
             </ul>
-            <p data-testid="next-buy-missing-footer">
-              Pay and budget settings and budget items are set on the{' '}
-              <Link to="/budget">Budget page</Link>; everything else in the workbook, or on the
-              Settings page in Stage 5.
-            </p>
+            <MissingFooter missing={timing.missing} />
           </Callout>
         ) : null}
         <p className="jf-app-meta" data-testid="next-buy-budget-source">

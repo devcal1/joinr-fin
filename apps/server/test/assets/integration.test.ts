@@ -9,6 +9,7 @@ import {
   ASSETS_ENGINE_IMPLEMENTED,
   CASHFLOW_ENGINE_IMPLEMENTED,
   ENGINE_IMPLEMENTED,
+  HISTORY_ENGINE_IMPLEMENTED,
 } from '@joinr/engine';
 import {
   buildSyntheticWorkbook,
@@ -51,7 +52,14 @@ import { readAppEditMarker } from '../../src/db/queries/domain';
 import { makeTempDir, removeDir, testConfig } from '../helpers';
 import { AS_OF, NOW } from './helpers';
 
-const GATED = ENGINE_IMPLEMENTED && CASHFLOW_ENGINE_IMPLEMENTED && ASSETS_ENGINE_IMPLEMENTED;
+// Stage 5 (stage-5.md §7.4 step 8, the Stage 4 FEAS-1 precedent): the finance context feeds the
+// D88 figures (stored offsets, measured-through dates) into computeSavings and computeSuper, so the
+// suite also waits for HISTORY_ENGINE_IMPLEMENTED.
+const GATED =
+  ENGINE_IMPLEMENTED &&
+  CASHFLOW_ENGINE_IMPLEMENTED &&
+  ASSETS_ENGINE_IMPLEMENTED &&
+  HISTORY_ENGINE_IMPLEMENTED;
 const CAN_IMPORT =
   SYNTHETIC_WORKBOOK_IMPLEMENTED &&
   IMPORTER_IMPLEMENTED &&
@@ -175,8 +183,9 @@ describe.skipIf(!GATED)('assets API with the real engine', { timeout: 60_000 }, 
     expect(mortgageLog.map((e) => e.start)).toEqual([false, false, true]);
     expect(property.totals.mortgageCents).toBe(39800000);
 
-    // Cash: the provisional period's parts come from the live engines.
-    expect(cash.staticUntilStage4).toBe(false);
+    // Cash: the provisional period's parts come from the live engines (Stage 5 dropped the
+    // staticUntilStage4 flag).
+    expect('staticUntilStage4' in cash).toBe(false);
     // §2.9: the seed's offset account (10,000) is flagged Offset by the workbook (origin import)
     // and has no entry on or before the last run date, so the latest snapshot's offset figure is
     // its imported balance (the workbook already kept it out of the stored cash): nothing moved.
@@ -725,7 +734,7 @@ describe.skipIf(!GATED)('assets API with the real engine', { timeout: 60_000 }, 
       expect(sup.periods.length).toBeGreaterThan(0);
       expect(property.properties.length).toBeGreaterThan(0);
       expect(property.valuations.length).toBe(property.properties.length);
-      expect(cash.staticUntilStage4).toBe(false);
+      expect('staticUntilStage4' in cash).toBe(false);
       expect(cash.periods.length).toBeGreaterThan(0);
       const runs = await get<{ hasAppData: boolean }>('/api/import/runs');
       expect(runs.hasAppData).toBe(false);

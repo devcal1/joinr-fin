@@ -162,14 +162,17 @@ test.describe('app shell', () => {
   test('desktop: a short page fits the viewport, footer included', async ({ page }) => {
     test.skip(test.info().project.name !== 'desktop', 'desktop layout');
     // Short pages = routes that still render PlaceholderPage. /stocks left this list when Stage 2
-    // built it, /budget when Stage 3 did and /super when Stage 4 did; swap in another placeholder
-    // when a later stage builds one of these (/history and /settings stay until Stage 5).
-    for (const path of ['/fire', '/history']) {
+    // built it, /budget when Stage 3 did, /super when Stage 4 did and /history when Stage 5 did;
+    // swap in another placeholder when a later stage builds this one (/fire stays until Stage 6).
+    for (const path of ['/fire']) {
       await page.goto(path);
       // Measure only once the placeholder has rendered, and fail plainly if the page is built now.
-      await expect(page.getByRole('main').getByRole('note'), path).toContainText(
-        'arrives in Stage',
-      );
+      // (The synthetic workbook switches the FIRE page off, so the Stage 5 "Page switched off"
+      // note sits above the placeholder's own note.)
+      await expect(
+        page.getByRole('main').getByRole('note').filter({ hasText: 'arrives in Stage' }),
+        path,
+      ).toHaveCount(1);
       const { scrollHeight, innerHeight } = await page.evaluate(() => ({
         scrollHeight: document.documentElement.scrollHeight,
         innerHeight: window.innerHeight,

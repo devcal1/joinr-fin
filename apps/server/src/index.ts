@@ -1,5 +1,5 @@
 // Server entry point: load config → open DB → migrate → clean up interrupted runs → build →
-// listen → start the scheduler.
+// listen → start the scheduler, then the snapshot recorder (stage-5.md §4.6).
 import type { FastifyInstance } from 'fastify';
 import { buildApp, defaultServices } from './app';
 import { ConfigError, loadConfig, type Config } from './config';
@@ -102,6 +102,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   app.scheduler.start();
+  app.recorder.start();
 }
 
 main().catch((err: unknown) => {

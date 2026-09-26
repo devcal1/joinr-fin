@@ -124,6 +124,10 @@ describe('Zod insert schemas match the Drizzle tables', () => {
     expectTypeOf<Out<typeof rows.newMarketQuoteHistorySchema>>().toEqualTypeOf<
       typeof t.marketQuoteHistory.$inferInsert
     >();
+    // Stage 5 (migration 0005).
+    expectTypeOf<Out<typeof rows.newSnapshotAuditSchema>>().toEqualTypeOf<
+      typeof t.snapshotAudit.$inferInsert
+    >();
   });
 
   it('covers every table and every column (runtime)', () => {
@@ -163,6 +167,7 @@ describe('Zod insert schemas match the Drizzle tables', () => {
       [rows.newLoanBalanceEntrySchema, t.loanBalanceEntries],
       [rows.newLoanOffsetLinkSchema, t.loanOffsetLinks],
       [rows.newMarketQuoteHistorySchema, t.marketQuoteHistory],
+      [rows.newSnapshotAuditSchema, t.snapshotAudit],
     ];
     expect(pairs).toHaveLength(Object.keys(t.tables).length);
     for (const [schema, table] of pairs) {

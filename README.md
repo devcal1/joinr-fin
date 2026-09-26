@@ -2,7 +2,7 @@
 
 A self-hosted personal-finance web app. It tracks net worth, investments (shares, ETFs, managed funds and crypto), cash flow, super, property and a FIRE plan. It rebuilds a personal-wealth spreadsheet template as a web app that runs on a home server and opens in a browser on any PC or phone. It is styled to the Joinr brand in dark mode.
 
-**Status:** Stages 0–3 are done (foundations, data and importer, investments, cash flow and income); Stage 4 (other assets, super and property) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
+**Status:** Stages 0–4 are done (foundations, data and importer, investments, cash flow and income, other assets, super and property); Stage 5 (history, the net worth dashboard and settings) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
 
 > [!IMPORTANT]
 > **This repository is public.** It holds code and generic documentation only. The owner's workbook, specs, notes and data live in git-ignored folders, and a pre-commit **privacy guard** blocks them (see [Privacy](#privacy)). Code, tests, seeds and docs use obviously generic values such as "Example Co", `$12,480.00` and `user@example.com`.
@@ -69,6 +69,7 @@ Everything is set through environment variables. The server validates them at st
 | `MARKET_DATA_MODE` | server | `live` (`off` under `NODE_ENV=test`) | `live` fetches prices (Yahoo chart, CoinGecko), `fake` gives deterministic offline prices (e2e, demos), `off` never fetches (refresh answers `503`). Playwright defaults to `fake`. |
 | `PRICE_REFRESH_MINUTES` | server | `60` (`0` under `NODE_ENV=test`) | The scheduled price refresh interval, `0`–`1440`. `0` switches the timer off; **Refresh now** still works. |
 | `IMPORT_CORRECTIONS_FILE` | server, import CLI | unset (auto) | The corrections file for the workbook import. A path (relative to the repo root), or `none` to switch corrections off. Unset: `<DATA_DIR>/import-corrections.json`, else `reference/import-corrections.json` in a dev checkout, else none. Playwright defaults to `none`. |
+| `AUTO_RECORD` | server | unset | `true`/`false` (also `1`/`0`, `yes`/`no`). Records each month automatically on its last day at 23:00 server time, and catches up missed months at start-up. Unset: the **Record each month automatically** setting decides (off by default); set, it overrides the setting and locks it. Leave it unset while you still re-import the workbook: a recorded month blocks a re-import. Ignored under `NODE_ENV=test`. |
 | `PW_CHANNEL` | Playwright | `chrome` | Uses an installed browser: `chrome`, `msedge`, or `chromium` (the cached build). Browsers are never downloaded. |
 
 To use different ports (for example, a second copy running side by side):
@@ -157,7 +158,14 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `POST /api/property/properties`, `PUT`/`DELETE /api/property/properties/:id`; `PUT /api/property/valuations`, `DELETE /api/property/valuation-entries/:id` | Properties and their valuations. |
 | `POST /api/property/loans`, `PUT`/`DELETE /api/property/loans/:id`; `PUT /api/property/loan-balances`, `PUT`/`DELETE /api/property/loan-balance-entries/:id` | Loans and their balance log (with optional actual repayments per entry). |
 | `PUT /api/property/loans/:id/offsets` | Link offset accounts to a loan (`{ "accountIds": [5] }`; the list replaces the loan's links). |
-| `PATCH /api/settings` | Changes the settings the Cash, Budget, Super, Other Assets and Property pages edit (`{ "values": { "savings.yearBasis": "calendar" } }`); the answer holds the settings of every page the change named. |
+| `GET /api/net-worth` | The Net Worth dashboard: today's net worth and its breakdown, assets and liabilities, the changes since the last recorded month and this financial year, the distribution, the savings-rate gauge, the liquid allocation, the rolling net-worth table with a 12-month projection, the charts (grouped by month, quarter or year) with their trend lines, the recorder's status. `?unit=monthly|quarterly|yearly&count=1…240` changes the chart grouping for this answer only. |
+| `GET /api/history` | The History page: every recorded month (newest first) with its figures, net worth, savings rate and consistency check, the live month, which months can be recorded, the consistency summary, the audit trail (newest 200) and the chart. |
+| `GET /api/history/series` | The recorded months aggregated by month, quarter or year (`?unit=&count=`), with each column's rule (end of group, sum, or a ratio recomputed). |
+| `POST /api/history/record` | Records months (`{ "periodMonths": ["2026-09"], "note": null }`, see below). |
+| `PUT /api/history/snapshots/:periodMonth` | Corrects a recorded month's figures (`{ "values": { "cashValueCents": 2700000 }, "note": "why" }`). |
+| `DELETE /api/history/snapshots/:periodMonth` | Deletes the latest month recorded in the app. |
+| `GET /api/settings` | The Settings page: every setting with its group, value, where it came from, whether saving it blocks a re-import, the pages that use it, a suggested marginal tax rate for the gross salary, the allocation targets' sum and the recorder's status. |
+| `PATCH /api/settings` | Changes settings (`{ "values": { "savings.yearBasis": "calendar" } }`; every setting but the server-written cap year); the answer holds the settings of every page the change named, plus the named settings themselves. |
 
 ```http
 GET /api/health
@@ -169,7 +177,7 @@ GET /api/health
   "version": "0.1.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
-  "db": { "ok": true, "journalMode": "wal", "migrations": 5 }
+  "db": { "ok": true, "journalMode": "wal", "migrations": 6 }
 }
 ```
 
@@ -235,6 +243,18 @@ Every figure on these pages comes from the engine too, in the same request conte
 
 **What blocks a re-import here (D34).** Creating or editing items, prices, sales, funds, balances, contributions, option notes, properties, valuations, loans, loan balances and offset links counts as app data, as does changing the salary, marginal tax rate or job start date. These never count, and a re-import keeps them: choosing the fund that receives employer SG (the flag alone), SG statement months, and the settings that exist only in the app (the stale-price days, your employer's SG rate, the contributions tax, the cap override and how imported contributions are read).
 
+### History, net worth and settings
+
+Every figure on the Net Worth and History pages comes from the engine, in the same request context as every other page: the live month is composed from today's results of the investment, cash, super, property and other-asset engines.
+
+- **Recording a month** freezes its figures. `POST /api/history/record` takes the months to record (only the months after the latest recorded month, up to this month; `400` otherwise) and refreshes prices first (unless the market is off). Every month recorded in one request gets today's date; the current month is stored as recorded, an earlier month as recorded late. A month is never recorded twice (`409 SNAPSHOT_EXISTS`), and one record runs at a time (`409 RECORD_IN_PROGRESS` after a 30-second wait).
+- **Correcting a month** changes the named figures only, with a required reason; the gain %, cash change and equity that depend on a changed figure (and the next month's cash change) are recalculated, the others keep their stored values (the first month's typed cash change is kept, moved by a corrected cash balance), the correction count goes up and every before and after is kept in the audit trail. A month's date and identity never change (the database refuses it).
+- **Deleting** is for the latest month recorded in the app only (`409 SNAPSHOT_NOT_LATEST`); imported months can be corrected but not deleted (`409 SNAPSHOT_NOT_DELETABLE`). A deleted month can be recorded again, and the audit trail keeps a copy.
+- **Automatic recording** (off by default; the setting or `AUTO_RECORD`) records each month on its last day at 23:00 server time and catches up missed months later, marked recorded late. It waits instead of leaving a gap when an earlier month is missing.
+- Every change answers `409 IMPORT_IN_PROGRESS` while an upload import runs.
+
+**What blocks a re-import (D34).** A recorded month is app data, and so is a correction of an imported month: a re-import is then refused until the recorded months are deleted (latest first) or the CLI replaces them (`--yes --replace-app-data`, which keeps the audit trail). The audit trail, the auto-record switch and the display choices (the chart grouping and the page switches) never count, and a re-import keeps the display choices.
+
 ### Upload import
 
 **`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`, or a deleted workbook row; see [Investments](#investments)); a dry run is still allowed, and only the CLI can override (see below).
@@ -276,7 +296,7 @@ An import **replaces** the imported investments, cash, budget, income, assets an
 
 - **Unit and component tests** use Vitest. Each app, package and tool is a Vitest project, and `pnpm test` runs them all. Server tests use Fastify's `inject` against a temporary `DATA_DIR`.
 - **End-to-end tests** use Playwright, at desktop and phone widths, against the installed Chrome. Screenshots go to `artifacts/screenshots/`.
-- **Golden tests** compare the importer (Stage 1), the engine and the APIs (Stage 2 on: import → database → API; the investment pages, then the cash-flow pages in Stage 3 and the other assets, super and property pages in Stage 4) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
+- **Golden tests** compare the importer (Stage 1), the engine and the APIs (Stage 2 on: import → database → API; the investment pages, then the cash-flow pages in Stage 3, the other assets, super and property pages in Stage 4, and History and Net Worth in Stage 5, where a month is also recorded) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
 - **Synthetic workbook.** `buildSyntheticWorkbook()` (`@joinr/importer/testing`) builds a generic workbook in the template's layout, so the importer, the upload route and the e2e specs are tested without the private file. Synthetic imports always run with corrections off.
 - **No network in unit tests.** A setup file makes `fetch` fail; price providers are tested with mocked responses.
 

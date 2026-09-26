@@ -390,8 +390,8 @@ describe('buildCashPage', () => {
         'property.offsetsIncludeEmergencyFund': null,
       },
     });
-    // Stage 4: the provisional period's parts come from the live engines (always false).
-    expect(page.staticUntilStage4).toBe(false);
+    // Stage 5 (stage-5.md §3.2): the staticUntilStage4 flag is gone.
+    expect('staticUntilStage4' in page).toBe(false);
   });
 
   it('attaches the spend note of a recorded month', () => {

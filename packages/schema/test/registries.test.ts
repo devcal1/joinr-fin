@@ -104,8 +104,9 @@ describe('settings registry', () => {
 
 describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
   it('adds the app-only year basis, default FY', () => {
+    // Stage 5 (stage-5.md §3.2, D86): the registry labels take the pages' words.
     expect(settingDef('savings.yearBasis')).toMatchObject({
-      label: 'Year for the cash figures',
+      label: 'Year basis',
       category: 'savings',
       type: 'enum',
       enumValues: ['fy', 'calendar'],
@@ -115,18 +116,19 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
     expect(settingValueSchema('savings.yearBasis').safeParse('calendar').success).toBe(true);
     expect(settingValueSchema('savings.yearBasis').safeParse('month').success).toBe(false);
     expect(settingDef('goals.houseDepositInvestmentShare').label).toBe(
-      'Savings goals: share of investments counted',
+      'Share of investments counted toward goals',
     );
   });
 
   it('lists the editable keys: registry keys, the nine Budget ones first', () => {
-    // Stage 4 (stage-4.md §3.3): 22 editable keys, the Stage 3 fifteen first.
-    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(22);
-    expect(EDITABLE_SETTING_KEYS).toHaveLength(22);
+    // Stage 4 (stage-4.md §3.3): 22 editable keys, the Stage 3 fifteen first; Stage 5 (§3.3): 60.
+    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(60);
+    expect(EDITABLE_SETTING_KEYS).toHaveLength(60);
     for (const key of EDITABLE_SETTING_KEYS) expect(isSettingKey(key), key).toBe(true);
     expect(EDITABLE_SETTING_KEYS.slice(0, 9).every((k) => /^(pay|budget)./.test(k))).toBe(true);
     expect(isEditableSettingKey('savings.yearBasis')).toBe(true);
-    expect(isEditableSettingKey('allocation.etf')).toBe(false);
+    expect(isEditableSettingKey('allocation.etf')).toBe(true);
+    expect(isEditableSettingKey('super.concessionalCapFy')).toBe(false);
     expect(isEditableSettingKey(42)).toBe(false);
   });
 
@@ -142,8 +144,8 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
   it('appends the Stage 3 enums and codes as subsets where they must be', () => {
     for (const k of BUDGET_AUTO_KINDS) expect(BUDGET_ITEM_KINDS).toContain(k);
     for (const k of EDITABLE_NOTE_KINDS) expect(PERIOD_NOTE_KINDS).toContain(k);
-    expect(JOB_NAMES).toEqual(['prices', 'dividends']);
-    expect(API_ERROR_CODES.slice(-6, -3)).toEqual([
+    expect(JOB_NAMES).toEqual(['prices', 'dividends', 'snapshot']);
+    expect(API_ERROR_CODES.slice(-10, -7)).toEqual([
       'ACCOUNT_IN_USE',
       'STREAM_IN_USE',
       'LAST_BALANCE_ENTRY',
@@ -151,7 +153,10 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
   });
 });
 
-/** Every app-only key (no workbook source): Stage 3's year basis and the six Stage 4 keys. */
+/**
+ * Every app-only key (no workbook source): Stage 3's year basis, the six Stage 4 keys and the
+ * Stage 5 auto-record switch.
+ */
 const APP_ONLY_KEYS = [
   'savings.yearBasis',
   'otherAssets.stalePriceDays',
@@ -160,11 +165,12 @@ const APP_ONLY_KEYS = [
   'super.concessionalCapCents',
   'super.concessionalCapFy',
   'super.importedContributionType',
+  'history.autoRecord',
 ] as const;
 
 describe('settings registry: Stage 4 (stage-4.md §3.3)', () => {
   it('appends six app-only keys with their defaults and bounds', () => {
-    expect(SETTING_KEYS.slice(-6)).toEqual(APP_ONLY_KEYS.slice(1));
+    expect(SETTING_KEYS.slice(-7, -1)).toEqual(APP_ONLY_KEYS.slice(1, 7));
     expect(settingDef('otherAssets.stalePriceDays')).toMatchObject({
       category: 'assets',
       type: 'integer',
@@ -198,7 +204,7 @@ describe('settings registry: Stage 4 (stage-4.md §3.3)', () => {
 
   it('makes the Super page keys editable, never the cap FY (the server writes it)', () => {
     expect(EDITABLE_SETTING_KEYS.slice(0, 15)).toHaveLength(15);
-    expect(EDITABLE_SETTING_KEYS.slice(15)).toEqual([
+    expect(EDITABLE_SETTING_KEYS.slice(15, 22)).toEqual([
       'pay.grossAnnualSalaryCents',
       'tax.marginalRate',
       'otherAssets.stalePriceDays',
@@ -216,7 +222,7 @@ describe('settings registry: Stage 4 (stage-4.md §3.3)', () => {
     for (const t of SUPER_CONTRIBUTION_TYPES) expect(SUPER_ENTRY_KINDS).toContain(t);
     expect(SUPER_ENTRY_KINDS.slice(0, 2)).toEqual(['voluntary_contribution', 'reported_gain']);
     expect(EDITABLE_NOTE_KINDS).toEqual(['spend', 'side_income', 'super_option']);
-    expect(API_ERROR_CODES.slice(-3)).toEqual([
+    expect(API_ERROR_CODES.slice(-7, -4)).toEqual([
       'FUND_IN_USE',
       'PROPERTY_HAS_LOAN',
       'SALE_OVERSELL',
@@ -280,7 +286,7 @@ describe('record registry', () => {
   });
 
   it('lists the Stage 3 entities and the side-income deposits (stage-3.md §3.2)', () => {
-    expect(RECORD_ENTITY_IDS.slice(-11, -7)).toEqual([
+    expect(RECORD_ENTITY_IDS.slice(-12, -8)).toEqual([
       'cash-balance-entries',
       'savings-adjustments',
       'savings-goals',
@@ -312,7 +318,7 @@ describe('record registry', () => {
       'loan-balance-entries',
       'loan-offset-links',
     ] as const;
-    expect(RECORD_ENTITY_IDS.slice(-7)).toEqual([...stage4]);
+    expect(RECORD_ENTITY_IDS.slice(-8, -1)).toEqual([...stage4]);
     for (const id of stage4) expect(RECORD_ENTITIES[id].group).toBe('assets');
     const ids = (id: (typeof RECORD_ENTITY_IDS)[number]) =>
       RECORD_ENTITIES[id].columns.map((c) => c.id);
@@ -364,7 +370,31 @@ describe('record registry', () => {
     });
     expect(SNAPSHOT_VALUE_COLUMNS[35]).toMatchObject({ historyColumn: 'AK', id: 'otherGain' });
     expect(SNAPSHOT_VALUE_COLUMNS.filter((c) => c.type === 'ratio')).toHaveLength(7);
-    expect(RECORD_ENTITIES.snapshots.columns).toHaveLength(39);
+    // Stage 5 (stage-5.md §3.2): the extras, the corrections and the note are appended.
+    expect(RECORD_ENTITIES.snapshots.columns).toHaveLength(45);
+  });
+
+  it('lists the Stage 5 columns and the snapshot audit (stage-5.md §3.2) in the History group', () => {
+    expect(RECORD_ENTITY_IDS.at(-1)).toBe('snapshot-audit');
+    expect(RECORD_ENTITY_TABLES['snapshot-audit']).toBe('snapshot_audit');
+    const audit = RECORD_ENTITIES['snapshot-audit'];
+    expect(audit.group).toBe('history');
+    expect(audit.defaultSort).toEqual({ columnId: 'at', desc: true });
+    expect(audit.columns.map((c) => [c.id, c.type])).toEqual([
+      ['at', 'timestamp'],
+      ['period', 'month'],
+      ['action', 'text'],
+      ['trigger', 'text'],
+      ['note', 'text'],
+    ]);
+    expect(RECORD_ENTITIES.snapshots.columns.slice(-6).map((c) => [c.id, c.type])).toEqual([
+      ['offset', 'money'],
+      ['linkedOffsets', 'money'],
+      ['cashInDebit', 'money'],
+      ['superMeasuredTo', 'date'],
+      ['revision', 'integer'],
+      ['note', 'text'],
+    ]);
   });
 });
 

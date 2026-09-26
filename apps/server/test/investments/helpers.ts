@@ -1,6 +1,6 @@
 // Shared helpers for the investments suites: a fake engine (neutral answers plus a units-only
 // holdings model, so tests that do not depend on real FIFO run before the engine lands; Stage 4's
-// six members answer neutrally too), result
+// six and Stage 5's twelve members answer neutrally too), result
 // builders, a fake price service and a service factory that spies on notifyInstrumentsChanged.
 // Generic values only.
 import {
@@ -13,6 +13,8 @@ import {
   type HoldingResult,
   type InvestmentsInput,
   type InvestmentsResult,
+  type NetWorthBreakdown,
+  type SnapshotFigures,
   type SummaryResult,
   type TradeResult,
 } from '@joinr/engine';
@@ -22,6 +24,9 @@ import {
   financialYearOfIso,
   JoinrDecimal,
   multiplyToCents,
+  NET_WORTH_CLASSES,
+  NET_WORTH_LIABILITIES,
+  SNAPSHOT_FIGURE_COLUMNS,
   normaliseDecimal,
   tradeFeeCents,
   type DecimalValue,
@@ -216,6 +221,26 @@ function fakeCashTotals(i: Parameters<EngineApi['cashTotals']>[0]): CashTotalsRe
     emergencyFundTestCents:
       (i.loansCountForEmergencyFund ? totalCashCents : availableCashCents) +
       (i.offsetsIncludeEmergencyFund ? offsetCents : 0),
+  };
+}
+
+/** Stage 5: every figure null (neutral). */
+function nullFigures(): SnapshotFigures {
+  return Object.fromEntries(
+    SNAPSHOT_FIGURE_COLUMNS.map((c) => [c, null]),
+  ) as unknown as SnapshotFigures;
+}
+
+/** Stage 5: a zero breakdown (neutral). */
+function zeroBreakdown(): NetWorthBreakdown {
+  return {
+    liquidCents: 0,
+    superCents: 0,
+    propertyCents: 0,
+    liabilitiesCents: 0,
+    offsetsCents: 0,
+    netWorthCents: 0,
+    missing: [],
   };
 }
 
@@ -507,6 +532,72 @@ export function fakeEngine(overrides: Partial<EngineApi> = {}): FakeEngine {
       ...property.snapshot,
       ...otherAssets.snapshot,
     }),
+    // Stage 5 (stage-5.md §2.2): neutral answers (nothing composed, nothing recordable).
+    composeSnapshot: () => nullFigures(),
+    deriveSnapshotColumns: () => ({
+      stocksGainRatio: '0',
+      etfGainRatio: '0',
+      cryptoGainRatio: '0',
+      cashGainCents: null,
+      cashIncreaseRatio: '0',
+      superGainRatio: '0',
+      propertyEquityCents: null,
+      propertyGainRatio: '0',
+      mfGainRatio: '0',
+    }),
+    checkSnapshots: ({ snapshots }) => ({
+      checked: 0,
+      matched: 0,
+      rows: snapshots.map((x) => ({
+        periodMonth: x.periodMonth,
+        runDate: x.runDate,
+        source: x.source,
+        checked: 0,
+        differences: [],
+      })),
+    }),
+    netWorthOf: () => zeroBreakdown(),
+    netWorthDashboard: ({ kpis, plannedSavingsRatio, considerNext }) => ({
+      breakdown: zeroBreakdown(),
+      assetsCents: 0,
+      liabilitiesCents: 0,
+      classes: NET_WORTH_CLASSES.map((key) => ({
+        key,
+        valueCents: 0,
+        gainCents: null,
+        gainRatio: null,
+      })),
+      liabilities: NET_WORTH_LIABILITIES.map((key) => ({
+        key,
+        balanceCents: 0,
+        grossCents: 0,
+        offsetCents: 0,
+      })),
+      assetsExSuperCents: 0,
+      sinceLastRecord: { base: null, cents: null, ratio: null },
+      thisYear: { base: null, cents: null, ratio: null, year: kpis.year },
+      distribution: { values: [], slices: [], excluded: [], drawnCents: 0 },
+      savingsRate: {
+        ratio: kpis.yearSavingsRatio,
+        rawRatio: kpis.yearSavingsRawRatio,
+        year: kpis.year,
+        periods: kpis.yearPeriods,
+        targetRatio: plannedSavingsRatio,
+      },
+      averageSavings: { monthCents: null, yearCents: null, periods: 0 },
+      allocation: considerNext,
+    }),
+    rollingNetWorth: () => [],
+    aggregateSnapshots: () => [],
+    linearTrend: (points) => ({
+      fittedCents: points.map(() => null),
+      slopePerMonthCents: null,
+      points: 0,
+    }),
+    nextRecordMonth: (_snapshots, today) => today.slice(0, 7),
+    recordableMonths: () => [],
+    recordingsDue: () => ({ due: [], blocked: null }),
+    suggestMarginalRate: () => null,
     ...overrides,
   };
   const calls = {} as Record<keyof EngineApi, unknown[][]>;

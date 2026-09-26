@@ -1,10 +1,10 @@
-// The frozen public API (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2): the `engine` value satisfies
-// EngineApi member by member, and the functions keep their exact signatures (checked by tsc in
+// The frozen public API (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2, stage-5.md §2.2): the
+// `engine` value satisfies EngineApi member by member, and the functions keep their exact signatures (checked by tsc in
 // `pnpm typecheck`).
-import { INSTRUMENT_KINDS } from '@joinr/schema';
+import { INSTRUMENT_KINDS, type SnapshotFiguresShape } from '@joinr/schema';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as api from '../src/index';
-import type { EngineApi } from '../src/index';
+import type { EngineApi, SnapshotFigures } from '../src/index';
 
 describe('@joinr/engine public API', () => {
   it('exposes every function as one EngineApi value (compile time and run time)', () => {
@@ -46,6 +46,19 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.computeProperty).toEqualTypeOf<EngineApi['computeProperty']>();
     expectTypeOf(api.amortise).toEqualTypeOf<EngineApi['amortise']>();
     expectTypeOf(api.assetsSnapshotColumns).toEqualTypeOf<EngineApi['assetsSnapshotColumns']>();
+    // Stage 5.
+    expectTypeOf(api.composeSnapshot).toEqualTypeOf<EngineApi['composeSnapshot']>();
+    expectTypeOf(api.deriveSnapshotColumns).toEqualTypeOf<EngineApi['deriveSnapshotColumns']>();
+    expectTypeOf(api.checkSnapshots).toEqualTypeOf<EngineApi['checkSnapshots']>();
+    expectTypeOf(api.netWorthOf).toEqualTypeOf<EngineApi['netWorthOf']>();
+    expectTypeOf(api.netWorthDashboard).toEqualTypeOf<EngineApi['netWorthDashboard']>();
+    expectTypeOf(api.rollingNetWorth).toEqualTypeOf<EngineApi['rollingNetWorth']>();
+    expectTypeOf(api.aggregateSnapshots).toEqualTypeOf<EngineApi['aggregateSnapshots']>();
+    expectTypeOf(api.linearTrend).toEqualTypeOf<EngineApi['linearTrend']>();
+    expectTypeOf(api.nextRecordMonth).toEqualTypeOf<EngineApi['nextRecordMonth']>();
+    expectTypeOf(api.recordableMonths).toEqualTypeOf<EngineApi['recordableMonths']>();
+    expectTypeOf(api.recordingsDue).toEqualTypeOf<EngineApi['recordingsDue']>();
+    expectTypeOf(api.suggestMarginalRate).toEqualTypeOf<EngineApi['suggestMarginalRate']>();
 
     const members: (keyof EngineApi)[] = [
       'computeInvestments',
@@ -81,6 +94,18 @@ describe('@joinr/engine public API', () => {
       'computeProperty',
       'amortise',
       'assetsSnapshotColumns',
+      'composeSnapshot',
+      'deriveSnapshotColumns',
+      'checkSnapshots',
+      'netWorthOf',
+      'netWorthDashboard',
+      'rollingNetWorth',
+      'aggregateSnapshots',
+      'linearTrend',
+      'nextRecordMonth',
+      'recordableMonths',
+      'recordingsDue',
+      'suggestMarginalRate',
     ];
     expect(Object.keys(api.engine).sort()).toEqual([...members].sort());
     for (const name of members) expect(api.engine[name]).toBe(api[name]);
@@ -91,6 +116,12 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
     expectTypeOf(api.CASHFLOW_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
     expectTypeOf(api.ASSETS_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
+    expectTypeOf(api.HISTORY_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
+  });
+
+  it('declares SnapshotFigures as the schema SnapshotFiguresShape (both directions, stage-5.md §3.2)', () => {
+    expectTypeOf<SnapshotFigures>().toExtend<SnapshotFiguresShape>();
+    expectTypeOf<SnapshotFiguresShape>().toExtend<SnapshotFigures>();
   });
 
   it('gives the FY or calendar year containing a date (§2.3)', () => {

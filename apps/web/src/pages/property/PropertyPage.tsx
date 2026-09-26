@@ -40,11 +40,6 @@ import {
 } from './propertyText';
 import { ValuationHistory } from './ValuationHistory';
 
-const SETTING_LABELS: Partial<Record<EditableSettingKey, string>> = {
-  'savings.includeMortgagePrincipal': 'Count mortgage principal as savings',
-  'property.offsetsIncludeEmergencyFund': 'Offsets count toward the emergency fund',
-};
-
 const SETTING_UNSET: Partial<Record<EditableSettingKey, string>> = {
   'savings.includeMortgagePrincipal': 'counted (Yes)',
   'property.offsetsIncludeEmergencyFund': 'not counted (No)',
@@ -394,7 +389,6 @@ function PropertyContent({
         title="Settings for this page"
         role="reference"
         keys={PROPERTY_SETTING_KEYS}
-        labels={SETTING_LABELS}
         unset={SETTING_UNSET}
         hints={{
           'property.offsetsIncludeEmergencyFund': 'Also on the Cash page',

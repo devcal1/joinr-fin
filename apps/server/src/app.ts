@@ -1,9 +1,10 @@
 // Builds the Fastify app. No side effects at import; nothing listens until index.ts says so.
-import type { EngineApi } from '@joinr/engine';
+import { engine as defaultEngine, type EngineApi } from '@joinr/engine';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Config } from './config';
 import { closeDatabase, type AppDatabase } from './db/database';
 import { registerErrorHandler } from './errors';
+import { createSnapshotRecorder, type SnapshotRecorder } from './history/recorder';
 import {
   createDividendEventsService,
   createOffDividendEventsService,
@@ -17,8 +18,10 @@ import { budgetRoutes } from './routes/budget';
 import { cashRoutes } from './routes/cash';
 import { dividendsRoutes } from './routes/dividends';
 import { healthRoutes } from './routes/health';
+import { historyRoutes } from './routes/history';
 import { importRoutes } from './routes/import';
 import { investmentsRoutes } from './routes/investments';
+import { netWorthRoutes } from './routes/netWorth';
 import { otherAssetsRoutes } from './routes/otherAssets';
 import { pricesRoutes } from './routes/prices';
 import { propertyRoutes } from './routes/property';
@@ -27,8 +30,8 @@ import { settingsRoutes } from './routes/settings';
 import { sideIncomeRoutes } from './routes/sideIncome';
 import { statusRoutes } from './routes/status';
 import { superRoutes } from './routes/super';
-import { createScheduler } from './scheduler/index';
-import type { Scheduler } from './scheduler/types';
+import { createScheduler, systemClock } from './scheduler/index';
+import type { Clock, Scheduler } from './scheduler/types';
 import { APP_VERSION } from './version';
 import { assertWebDist, createNotFoundHandler, registerWebApp } from './web';
 
@@ -56,6 +59,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     market: MarketDataService;
     scheduler: Scheduler;
+    /** Stage 5 (stage-5.md §4.6): the month-end recorder; index.ts starts it. */
+    recorder: SnapshotRecorder;
   }
 }
 
@@ -74,6 +79,11 @@ export interface BuildAppOptions {
    * (tests inject a fake).
    */
   engine?: EngineApi;
+  /**
+   * Stage 5 (stage-5.md §4.6): the recorder's timer clock (tests; default `systemClock`). Its dates
+   * and hours come from `now`.
+   */
+  recorderClock?: Clock;
 }
 
 export const SECURITY_HEADERS = {
@@ -125,6 +135,7 @@ export async function buildApp({
   now,
   services = offServices,
   engine,
+  recorderClock,
 }: BuildAppOptions): Promise<FastifyInstance> {
   // Fail before creating anything, so the caller only has the database to clean up.
   if (config.serveWeb) assertWebDist(config.webDistDir);
@@ -135,6 +146,17 @@ export async function buildApp({
   const dividendEvents = built.dividendEvents ?? createOffDividendEventsService();
   app.decorate('scheduler', scheduler);
   app.decorate('market', market);
+  const recorder = createSnapshotRecorder({
+    database: db,
+    config,
+    market,
+    scheduler,
+    engine: engine ?? defaultEngine,
+    log: app.log,
+    now,
+    clock: recorderClock ?? systemClock,
+  });
+  app.decorate('recorder', recorder);
 
   app.addHook('onSend', async (request, reply, payload) => {
     reply.headers(SECURITY_HEADERS);
@@ -144,8 +166,10 @@ export async function buildApp({
     }
     return payload;
   });
-  // Stop the scheduler (abort and await an in-flight job) before the database closes.
+  // Stop the recorder (it aborts its own price wait) and then the scheduler (abort and await an
+  // in-flight job) before the database closes (stage-5.md §4.6).
   app.addHook('preClose', async () => {
+    await recorder.stop();
     await scheduler.stop();
   });
   app.addHook('onClose', async () => {
@@ -177,6 +201,9 @@ export async function buildApp({
   await app.register(otherAssetsRoutes, cashflow);
   await app.register(superRoutes, cashflow);
   await app.register(propertyRoutes, cashflow);
+  // Stage 5 (stage-5.md §4.2): the same options object (`GET /settings` is in settingsRoutes).
+  await app.register(netWorthRoutes, cashflow);
+  await app.register(historyRoutes, cashflow);
   if (config.serveWeb) await registerWebApp(app, config.webDistDir);
   app.setNotFoundHandler(createNotFoundHandler(config.serveWeb));
 

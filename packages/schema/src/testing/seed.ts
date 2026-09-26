@@ -28,6 +28,7 @@ import {
   savingsGoals,
   settings,
   sideIncomeDeposits,
+  snapshotAudit,
   snapshots,
   superBalanceEntries,
   superEntries,
@@ -39,6 +40,7 @@ import {
 } from '../db/index';
 import type { ReconciliationReport } from '../dto/report';
 import { totalsOf } from '../dto/report';
+import { JoinrDecimal, normaliseDecimal } from '../decimal';
 import type { InstrumentKind } from '../enums';
 import { serialiseReviewFlags } from '../rows';
 
@@ -73,8 +75,8 @@ function isoDateLocal(d: Date): string {
 
 /**
  * Deletes every row the seed writes (everything except other app_meta keys), plus the Stage 3
- * overlays (savings adjustments and goals) and the Stage 4 overlay (SG statements) and series
- * history, so a seeded database starts without them.
+ * overlays (savings adjustments and goals), the Stage 4 overlay (SG statements) and series
+ * history, and the Stage 5 snapshot audit log, so a seeded database starts without them.
  */
 export function clearSeededTables(db: JoinrDb): void {
   db.transaction((tx) => {
@@ -83,6 +85,7 @@ export function clearSeededTables(db: JoinrDb): void {
     tx.delete(savingsGoals).run();
     tx.delete(superSgOverrides).run();
     tx.delete(marketQuoteHistory).run();
+    tx.delete(snapshotAudit).run();
     tx.delete(instruments).run(); // cascades price_sources, prices and dividend_events
     tx.delete(marketQuotes).run();
     tx.delete(settings).run();
@@ -1031,5 +1034,115 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
       .get().id;
 
     return { instrumentIds: ids, importRunId, jobRunId };
+  });
+}
+
+/**
+ * Stage 5 (stage-5.md §3.6, testing only): inserts one `recorded` snapshot for `periodMonth` with
+ * generic figures, origin `app`, the four extras set (offsets $15,000 of which $10,000 are linked
+ * to the mortgage, an account $300 in debit, super measured four days before the run date) and one
+ * audit `record` row. The derived columns follow the stage-5.md §2.5 rules against the latest
+ * snapshot before it (its `cash_value_cents`). Returns the new ids.
+ */
+export function seedRecordedMonth(
+  db: JoinrDb,
+  { periodMonth, runDate }: { periodMonth: string; runDate: string },
+): { snapshotId: number; auditId: number } {
+  const ratio = (g: number, v: number): string =>
+    v - g === 0
+      ? '0'
+      : normaliseDecimal(
+          new JoinrDecimal(g).div(v - g).toSignificantDigits(12, JoinrDecimal.ROUND_HALF_UP),
+        );
+  const previous = db
+    .select({ cash: snapshots.cashValueCents, runDate: snapshots.runDate })
+    .from(snapshots)
+    .all()
+    .filter((r) => r.runDate <= runDate)
+    .sort((a, b) => (a.runDate < b.runDate ? -1 : a.runDate > b.runDate ? 1 : 0))
+    .at(-1);
+  const cash = 2700000;
+  const previousCash = previous?.cash ?? null;
+  const cashGain = previousCash === null ? null : cash - previousCash;
+  const property = 60300000;
+  const mortgage = -39600000;
+  const linked = 1000000;
+  const recordedAt = `${runDate}T13:00:05.000Z`;
+  const measured = new Date(`${runDate}T00:00:00.000Z`);
+  measured.setUTCDate(measured.getUTCDate() - 4);
+  const row = {
+    runDate,
+    periodMonth,
+    source: 'recorded' as const,
+    recordedAt,
+    origin: 'app' as const,
+    sheetRef: null,
+    stocksValueCents: 185000,
+    stocksGainCents: 13000,
+    stocksGainRatio: ratio(13000, 185000),
+    stocksMovementsCents: 0,
+    etfValueCents: 370000,
+    etfGainCents: 26000,
+    etfGainRatio: ratio(26000, 370000),
+    etfMovementsCents: 0,
+    cryptoValueCents: 800000,
+    cryptoGainCents: 100000,
+    cryptoGainRatio: ratio(100000, 800000),
+    cryptoMovementsCents: 0,
+    cashValueCents: cash,
+    cashGainCents: cashGain,
+    cashIncreaseRatio: cashGain === null ? '0' : ratio(cashGain, cash),
+    superValueCents: 5120000,
+    superContribCents: 20000,
+    superGainCents: 10000,
+    superGainRatio: ratio(10000, 5120000),
+    liabilitiesBalanceCents: 0,
+    liabilitiesPaidCents: 0,
+    salaryMonthlyCents: 600000,
+    propertyValueCents: property,
+    propertyPurchaseCents: 50000000,
+    propertyEquityCents: property + mortgage + linked,
+    propertyGainCents: property - 50000000,
+    mortgageBalanceCents: mortgage,
+    mortgageInterestFeesCents: 450000,
+    mortgagePrincipalPaidCents: 400000,
+    propertyGainRatio: ratio(property - 50000000, property),
+    mfValueCents: 150000,
+    mfGainCents: 0,
+    mfGainRatio: '0',
+    mfMovementsCents: 0,
+    otherValueCents: 200000,
+    otherGainCents: 20000,
+    offsetCents: 1500000,
+    mortgageOffsetCents: linked,
+    cashDebtCents: -30000,
+    superMeasuredThrough: measured.toISOString().slice(0, 10),
+    note: null,
+    revision: 0,
+  };
+  return db.transaction((tx) => {
+    const snapshotId = tx.insert(snapshots).values(row).returning({ id: snapshots.id }).get().id;
+    const auditId = tx
+      .insert(snapshotAudit)
+      .values({
+        periodMonth,
+        snapshotId,
+        action: 'record',
+        trigger: 'manual',
+        at: recordedAt,
+        changesJson: null,
+        snapshotJson: JSON.stringify({ id: snapshotId, ...row }),
+        note: null,
+        detailJson: JSON.stringify({
+          pricesAsOf: null,
+          marketMode: 'off',
+          pricesRefreshed: false,
+          pricesAgeMs: null,
+          jobRunId: null,
+        }),
+      })
+      .returning({ id: snapshotAudit.id })
+      .get().id;
+    return { snapshotId, auditId };
   });
 }

@@ -210,7 +210,7 @@ describe('api hooks', () => {
     expect(queryKeys.dividends).toEqual(['dividends']);
   });
 
-  it('a cash-flow mutation invalidates the four pages, investments, instruments, records, import and status', async () => {
+  it('a settings save invalidates the four pages, investments, instruments, records, import and status', async () => {
     const api = mockApi({ 'PATCH /api/settings': { body: settingsPatchResponse } });
     const { wrapper, invalidated, queryClient } = setup();
     const pages = {
@@ -242,7 +242,7 @@ describe('api hooks', () => {
     ]) {
       expect(invalidated(key)).toBe(true);
     }
-    // Prices are not moved by a cash-flow change.
+    // Prices are not moved by a settings change.
     expect(invalidated(queryKeys.prices)).toBe(false);
   });
 

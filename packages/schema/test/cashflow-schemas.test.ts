@@ -270,8 +270,9 @@ describe('settingsPatchSchema', () => {
   });
 
   it('refuses a key that is not editable here, and a bad value with its key path', () => {
-    expect(issues(settingsPatchSchema, { values: { 'allocation.etf': '0.6' } })).toEqual([
-      'values.allocation.etf: not editable here',
+    // Stage 5 (D86, D91): every key is editable but the server-written cap FY.
+    expect(issues(settingsPatchSchema, { values: { 'super.concessionalCapFy': 2026 } })).toEqual([
+      'values.super.concessionalCapFy: not editable here',
     ]);
     expect(issues(settingsPatchSchema, { values: { 'savings.yearBasis': 'weekly' } })).toHaveLength(
       1,
@@ -287,17 +288,17 @@ describe('settingsPatchSchema', () => {
     ]);
   });
 
-  it('takes 1–30 keys (Stage 4: above the 22 editable keys) and is strict', () => {
-    expect(SETTINGS_PATCH_MAX_KEYS).toBe(30);
+  it('takes 1–64 keys (Stage 5: above the 60 editable keys) and is strict', () => {
+    expect(SETTINGS_PATCH_MAX_KEYS).toBe(64);
     expect(EDITABLE_SETTING_KEYS.length).toBeLessThanOrEqual(SETTINGS_PATCH_MAX_KEYS);
     expect(issues(settingsPatchSchema, { values: {} })).toEqual([
-      'values: must hold 1 to 30 settings',
+      'values: must hold 1 to 64 settings',
     ]);
     const tooMany = Object.fromEntries(
-      Array.from({ length: 31 }, (_, i) => [`key${i}`, 1] as const),
+      Array.from({ length: 65 }, (_, i) => [`key${i}`, 1] as const),
     );
     expect(issues(settingsPatchSchema, { values: tooMany })).toEqual([
-      'values: must hold 1 to 30 settings',
+      'values: must hold 1 to 64 settings',
     ]);
     expect(ok(settingsPatchSchema, { values: { 'savings.yearBasis': 'fy' }, extra: 1 })).toBe(
       false,

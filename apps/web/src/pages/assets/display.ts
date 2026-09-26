@@ -1,5 +1,5 @@
 // Display helpers shared by the Other Assets, Super and Property pages (stage-4.md §6.1, §6.3–6.5):
-// the status markers (defined once, UX-12), rate words (`formatRate`, UX-15), payment and
+// the status markers (defined once, UX-12; Stage 5 adds the History markers, stage-5.md §6.1), rate words (`formatRate`, UX-15), payment and
 // compounding frequencies, the payoff text, the FX line, the short name of a URL-named item, the
 // cap status words and a few number helpers. Pure functions, no React.
 import {
@@ -39,7 +39,14 @@ export type MarkerId =
   | 'baseline'
   | 'notUpdated'
   | 'check'
-  | 'loanStart';
+  | 'loanStart'
+  // Stage 5 (stage-5.md §6.1): the History markers, in the same registry.
+  | 'recorded'
+  | 'recordedLate'
+  | 'imported'
+  | 'corrected'
+  | 'live'
+  | 'projected';
 
 export type MarkerSpec =
   | { kind: 'badge'; status: StatusKind; label: string }
@@ -63,7 +70,20 @@ export const MARKERS: Readonly<Record<MarkerId, MarkerSpec>> = {
   notUpdated: { kind: 'badge', status: 'pending', label: 'Not updated' },
   check: { kind: 'badge', status: 'check', label: 'Check' },
   loanStart: { kind: 'pill', tone: 'teal', label: 'Loan start' },
+  // Stage 5: a month recorded in the app; one recorded late (at start-up or by you for an ended
+  // month) is a finished record too, not a pending one; imported and corrected are tags; the
+  // current period is pending ("Live (provisional)" on its first mention on a page, then "Live",
+  // LIVE_FIRST_LABEL); a projection is not a status.
+  recorded: { kind: 'badge', status: 'recorded', label: 'Recorded' },
+  recordedLate: { kind: 'badge', status: 'recorded', label: 'Recorded late' },
+  imported: { kind: 'pill', tone: 'teal', label: 'Imported' },
+  corrected: { kind: 'pill', tone: 'teal', label: 'Corrected' },
+  live: { kind: 'badge', status: 'pending', label: 'Live' },
+  projected: { kind: 'pill', tone: 'na', label: 'Projected' },
 };
+
+/** The current period's marker on its first mention on a page (then MARKERS.live, "Live"). */
+export const LIVE_FIRST_LABEL = 'Live (provisional)';
 
 // ─── Rates and percentages ──────────────────────────────────────────────────────────────────────
 
@@ -354,7 +374,6 @@ export function chartCategory(point: { label: string; live: boolean }): string {
 }
 
 export const LIVE_POINT_NOTE = "The last point is live: it uses today's prices and balances.";
-export const NO_HISTORY_NOTE =
-  'History starts after the first recorded month (Stage 5 records months).';
+export const NO_HISTORY_NOTE = 'History starts after the first recorded month.';
 export const PROVISIONAL_NOTE =
-  'The current period stays provisional until a month is recorded (Stage 5).';
+  'The current period stays provisional until the month is recorded (History).';

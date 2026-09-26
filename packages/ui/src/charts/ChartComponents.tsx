@@ -23,6 +23,7 @@ export function DonutChart({
   data,
   target,
   valueFormatter,
+  maxSegments,
   centerLabel,
   centerValue,
   height,
@@ -30,10 +31,13 @@ export function DonutChart({
   emptyMessage,
 }: DonutChartProps): JSX.Element {
   const option = useMemo(
-    () => donutOption({ ariaLabel, data, target, valueFormatter }),
-    [ariaLabel, data, target, valueFormatter],
+    () => donutOption({ ariaLabel, data, target, valueFormatter, maxSegments }),
+    [ariaLabel, data, target, valueFormatter, maxSegments],
   );
-  const legend = useMemo(() => donutLegend({ data, target }), [data, target]);
+  const legend = useMemo(
+    () => donutLegend({ data, target, maxSegments }),
+    [data, target, maxSegments],
+  );
   const [left, top] = DONUT_CENTER;
   return (
     <EChart
@@ -68,6 +72,9 @@ export function BarChart({
   height,
   loading,
   emptyMessage,
+  overlays,
+  secondaryAxisFormatter,
+  totalLabel,
 }: BarChartProps): JSX.Element {
   const option = useMemo(
     () =>
@@ -80,12 +87,27 @@ export function BarChart({
         signColors,
         valueFormatter,
         axisFormatter,
+        overlays,
+        secondaryAxisFormatter,
+        totalLabel,
       }),
-    [ariaLabel, categories, series, stacked, horizontal, signColors, valueFormatter, axisFormatter],
+    [
+      ariaLabel,
+      categories,
+      series,
+      stacked,
+      horizontal,
+      signColors,
+      valueFormatter,
+      axisFormatter,
+      overlays,
+      secondaryAxisFormatter,
+      totalLabel,
+    ],
   );
   const legend = useMemo(
-    () => barLegend({ ariaLabel, categories, series, signColors }),
-    [ariaLabel, categories, series, signColors],
+    () => barLegend({ ariaLabel, categories, series, signColors, overlays }),
+    [ariaLabel, categories, series, signColors, overlays],
   );
   return (
     <EChart
@@ -170,6 +192,7 @@ export function GaugeChart({
   ariaLabel,
   value,
   target,
+  targetLabel = 'Target',
   label,
   valueFormatter = percentFormatter,
   min,
@@ -201,7 +224,7 @@ export function GaugeChart({
         {hasTarget ? (
           <span className="jf-chart__center-note">
             <span className="jf-chart__target-key" aria-hidden="true" />
-            Target {valueFormatter(target)}
+            {targetLabel} {valueFormatter(target)}
           </span>
         ) : null}
       </div>

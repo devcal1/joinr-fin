@@ -1,7 +1,8 @@
 // Chart data (stage-2.md §5): market value, gain $ and % from the snapshots, cumulative
 // contributions and net purchases from the engine (so corrections, in-app trades and exited
 // instruments count), plus a live point when no snapshot exists for the as-of month. Points are
-// compressed with the engine's `compressSeries` (charts.dateUnit, charts.unitCount).
+// compressed with the engine's `compressSeries` (charts.dateUnit, charts.unitCount). Stage 5
+// (stage-5.md §11 fix 5, D52): the yearly unit groups financial years, as every other chart.
 import type { SeriesPoint } from '@joinr/engine';
 import {
   isoMonthOf,
@@ -116,7 +117,7 @@ export function buildCharts(ctx: InvestmentsContext, kind: InstrumentKind): Inve
   }
   points.sort((a, b) => (a.period < b.period ? -1 : a.period > b.period ? 1 : 0));
 
-  const compressed = ctx.engine.compressSeries(points, unit, count, MODES);
+  const compressed = ctx.engine.compressSeries(points, unit, count, MODES, 'fy');
   return {
     unit,
     count,

@@ -2108,8 +2108,9 @@ function settingUnit(def: SettingDef): Check['unit'] {
 const display = (v: SettingValue | null): string | number | null =>
   v === null ? null : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v;
 
-function settingsChecks({ r, model, db }: Ctx): Check[] {
+function settingsChecks({ r, model, db, written }: Ctx): Check[] {
   const out: Check[] = [];
+  const kept = new Set(written.keptAppPreferences);
   const idRows = sheetOptionRows(r);
   const stored = new Map(db.settings.map((s) => [s.key, s]));
   const defsById = new Map<number, SettingDef>();
@@ -2128,12 +2129,19 @@ function settingsChecks({ r, model, db }: Ctx): Check[] {
         const expected =
           def.type === 'enum' || def.type === 'boolean' ? plan.sheetValue : display(plan.value);
         const ok = actual !== null && JSON.stringify(actual) === JSON.stringify(plan.value);
+        // D95: a display preference set in the app is kept, so it may differ from the workbook.
+        const keptApp = kept.has(def.key);
         return check({
           ...base,
           expected,
           actual: display(actual),
-          status: ok ? 'match' : 'unexplained',
-          reason: ok ? null : 'The stored value differs from the workbook',
+          status: ok ? 'match' : keptApp ? 'info' : 'unexplained',
+          reason: ok
+            ? null
+            : keptApp
+              ? 'Kept the value set in the app (a display preference)'
+              : 'The stored value differs from the workbook',
+          refs: !ok && keptApp ? { decision: 'D95', entity: 'settings' } : null,
         });
       }
       case 'formula_default':
@@ -2271,6 +2279,32 @@ function settingsChecks({ r, model, db }: Ctx): Check[] {
   for (const def of SETTINGS) {
     if (def.source === null || 'id' in def.source) continue;
     out.push(valueCheck(def, `settings.${def.key}`, def.label, null));
+  }
+  // Stage 5 (stage-5.md §3.5 item 1): counts only, never the keys' values.
+  const reset = written.settingsResetToDefault.length;
+  if (reset > 0) {
+    out.push(
+      info(
+        'settings.resetToDefault',
+        'settings',
+        'Settings reset to their default',
+        null,
+        `${reset} imported setting${reset === 1 ? '' : 's'} the workbook no longer provides now read the app default`,
+        { unit: 'count', actual: reset, refs: { decision: 'D87', entity: 'settings' } },
+      ),
+    );
+  }
+  if (kept.size > 0) {
+    out.push(
+      info(
+        'settings.keptAppPreference',
+        'settings',
+        'Display preferences kept from the app',
+        null,
+        `${kept.size} display preference${kept.size === 1 ? '' : 's'} set in the app (the chart view, the page switches) kept over the workbook`,
+        { unit: 'count', actual: kept.size, refs: { decision: 'D95', entity: 'settings' } },
+      ),
+    );
   }
   return out;
 }

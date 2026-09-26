@@ -3,8 +3,19 @@
 // ['prices'], ['status']. Stage 2 (stage-2.md §6.2): ['investments', kind],
 // ['investments', kind, 'trades'], ['instruments', id]. Stage 3 (stage-3.md §6.2): ['cash'],
 // ['side-income'], ['budget'], ['dividends']. Stage 4 (stage-4.md §6.2): ['other-assets'], ['super'],
-// ['property'].
+// ['property']. Stage 5 (stage-5.md §6.2): ['net-worth', unit, count], ['history'],
+// ['history-series', unit, count], ['settings'].
 import type {
+  ChartDateUnit,
+  CorrectionResponse,
+  DeleteSnapshotResponse,
+  HistoryPageResponse,
+  HistorySeriesResponse,
+  NetWorthPageResponse,
+  RecordRequestBody,
+  RecordResponse,
+  SettingsPageResponse,
+  SnapshotCorrectionBody,
   AppStatus,
   LoanBalanceEntryUpdate,
   LoanBalancesInput,
@@ -91,6 +102,7 @@ import type {
   TradeMutationResponse,
 } from '@joinr/schema';
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -98,7 +110,7 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { apiGet, apiSend, apiUpload } from './client';
+import { apiGet, apiSend, apiUpload, withQuery } from './client';
 
 export const queryKeys = {
   records: ['records'] as const,
@@ -120,7 +132,35 @@ export const queryKeys = {
   otherAssets: ['other-assets'] as const,
   super: ['super'] as const,
   property: ['property'] as const,
+  netWorth: ['net-worth'] as const,
+  netWorthPage: (view: ChartView) => ['net-worth', view.unit ?? null, view.count ?? null] as const,
+  history: ['history'] as const,
+  historySeries: ['history-series'] as const,
+  historySeriesPage: (view: ChartView) =>
+    ['history-series', view.unit ?? null, view.count ?? null] as const,
+  settings: ['settings'] as const,
 };
+
+/**
+ * A chart view override (the page's view switch, stage-5.md §6.2): sent as the query, never
+ * saved. Undefined fields fall back to the saved chart settings on the server.
+ */
+export interface ChartView {
+  unit?: ChartDateUnit;
+  count?: number;
+}
+
+/** The overview pages' keys (Net Worth, History and its series; stage-5.md §6.2). */
+const OVERVIEW_PAGE_KEYS = [
+  queryKeys.netWorth,
+  queryKeys.history,
+  queryKeys.historySeries,
+] as const;
+
+/** Stage 5: every Stage 2–4 invalidation also refreshes the overview pages. */
+function invalidateOverviewPages(queryClient: QueryClient): Promise<void>[] {
+  return OVERVIEW_PAGE_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey }));
+}
 
 /** The four cash-flow pages' keys (stage-3.md §6.2). */
 const CASHFLOW_PAGE_KEYS = [
@@ -153,6 +193,8 @@ export const INVESTMENTS_POLL_MS = 60_000;
 export const CASHFLOW_POLL_MS = 60_000;
 /** The three assets pages refetch every minute while visible (stage-4.md §6.2). */
 export const ASSETS_POLL_MS = 60_000;
+/** Net Worth and History refetch every minute while visible: the recorder status moves (§6.2). */
+export const OVERVIEW_POLL_MS = 60_000;
 
 // ─── Queries ──────────────────────────────────────────────────────────────────────────────────
 
@@ -317,6 +359,65 @@ export function usePropertyPage(): UseQueryResult<PropertyPageResponse> {
   });
 }
 
+// Stage 5: the overview pages and Settings (stage-5.md §4.2, §6.2).
+
+/** The query string of a view override (undefined fields are dropped). */
+function viewQuery(view: ChartView): { unit?: string; count?: number } {
+  return { unit: view.unit, count: view.count };
+}
+
+/**
+ * `GET /api/net-worth[?unit=&count=]`: the dashboard. A view change keeps the previous response
+ * on screen (`isPlaceholderData`) until the new one arrives, so the page never unmounts.
+ */
+export function useNetWorthPage(view: ChartView = {}): UseQueryResult<NetWorthPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.netWorthPage(view),
+    queryFn: () => apiGet<NetWorthPageResponse>(withQuery('/api/net-worth', viewQuery(view))),
+    placeholderData: keepPreviousData,
+    refetchInterval: OVERVIEW_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** `GET /api/history`: recorded months, the live row, the recorder, consistency and the audit. */
+export function useHistoryPage(): UseQueryResult<HistoryPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.history,
+    queryFn: () => apiGet<HistoryPageResponse>('/api/history'),
+    refetchInterval: OVERVIEW_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * `GET /api/history/series?unit=&count=` (the aggregation API): the History chart under a view
+ * override. Fetched only while `enabled` (the page shows its own groups otherwise); a view
+ * change keeps the previous groups on screen.
+ */
+export function useHistorySeries(
+  view: ChartView,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<HistorySeriesResponse> {
+  return useQuery({
+    queryKey: queryKeys.historySeriesPage(view),
+    queryFn: () => apiGet<HistorySeriesResponse>(withQuery('/api/history/series', viewQuery(view))),
+    placeholderData: keepPreviousData,
+    enabled: options.enabled ?? true,
+  });
+}
+
+/** `GET /api/settings`: every setting by group, the tax suggestion and the recorder status. */
+export function useSettingsPage(
+  options: { enabled?: boolean } = {},
+): UseQueryResult<SettingsPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.settings,
+    queryFn: () => apiGet<SettingsPageResponse>('/api/settings'),
+    enabled: options.enabled ?? true,
+  });
+}
+
 // ─── Mutations ────────────────────────────────────────────────────────────────────────────────
 
 export interface ImportRequest {
@@ -339,6 +440,8 @@ export function invalidateAfterImport(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     ...invalidateCashflowPages(queryClient),
     ...invalidateAssetsPages(queryClient),
+    ...invalidateOverviewPages(queryClient),
+    queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
   ]).then(() => undefined);
 }
 
@@ -355,6 +458,7 @@ function invalidatePrices(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     ...invalidateCashflowPages(queryClient),
     ...invalidateAssetsPages(queryClient),
+    ...invalidateOverviewPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -373,6 +477,7 @@ export function invalidateAfterInvestmentChange(queryClient: QueryClient): Promi
     queryClient.invalidateQueries({ queryKey: queryKeys.import }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
     ...invalidateCashflowPages(queryClient),
+    ...invalidateOverviewPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -391,6 +496,7 @@ export function invalidateAfterCashflowChange(queryClient: QueryClient): Promise
     queryClient.invalidateQueries({ queryKey: queryKeys.records }),
     queryClient.invalidateQueries({ queryKey: queryKeys.import }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+    ...invalidateOverviewPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -556,6 +662,7 @@ export function invalidateAfterInstrumentDelete(
     queryClient.invalidateQueries({ queryKey: queryKeys.import }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
     ...invalidateCashflowPages(queryClient),
+    ...invalidateOverviewPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -864,11 +971,33 @@ export function useRestoreSuggestion() {
 
 // Settings
 
-/** `PATCH /api/settings`: the settings a page edits (1–30 editable keys; null clears one). */
-export function usePatchSettings() {
-  return useCashflowMutation((body: SettingsPatch) =>
-    apiSend<SettingsPatchResponse>('PATCH', '/api/settings', body),
-  );
+/**
+ * After a settings save, from the Settings page or a page's own form (stage-5.md §6.2): settings
+ * feed every page, so every page key (the prices page reads none), the Settings page and the
+ * header status.
+ */
+export function invalidateAfterSettingsChange(queryClient: QueryClient): Promise<void> {
+  return Promise.all([
+    ...invalidateCashflowPages(queryClient),
+    ...invalidateAssetsPages(queryClient),
+    ...invalidateOverviewPages(queryClient),
+    queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.records }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.import }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+  ]).then(() => undefined);
+}
+
+/** `PATCH /api/settings`: 1–64 editable keys (null clears one); only the changed keys are sent. */
+export function usePatchSettings(): UseMutationResult<SettingsPatchResponse, Error, SettingsPatch> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SettingsPatch) =>
+      apiSend<SettingsPatchResponse>('PATCH', '/api/settings', body),
+    onSuccess: () => invalidateAfterSettingsChange(queryClient),
+  });
 }
 
 // ─── Assets (stage-4.md §4.2, §6.2) ──────────────────────────────────────────────────────────────
@@ -888,6 +1017,7 @@ export function invalidateAfterAssetsChange(queryClient: QueryClient): Promise<v
     queryClient.invalidateQueries({ queryKey: queryKeys.records }),
     queryClient.invalidateQueries({ queryKey: queryKeys.import }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+    ...invalidateOverviewPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -1157,5 +1287,68 @@ export interface LoanOffsetsRequest {
 export function useSaveLoanOffsets() {
   return useAssetsMutation(({ loanId, body }: LoanOffsetsRequest) =>
     apiSend<LoanOffsetsResponse>('PUT', `/api/property/loans/${loanId}/offsets`, body),
+  );
+}
+
+// ─── History (stage-5.md §4.2, §6.2) ─────────────────────────────────────────────────────────────
+
+/**
+ * After a record, a correction or a delete: a recorded month closes every page's provisional
+ * period, so every page that shows one, plus records, the import runs (`hasAppData`) and the
+ * header status.
+ */
+export function invalidateAfterHistoryChange(queryClient: QueryClient): Promise<void> {
+  return Promise.all([
+    ...invalidateOverviewPages(queryClient),
+    ...invalidateCashflowPages(queryClient),
+    ...invalidateAssetsPages(queryClient),
+    queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.records }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.import }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+  ]).then(() => undefined);
+}
+
+/** A mutation whose success refreshes everything a recorded month can move. */
+function useHistoryMutation<TVariables, TResult>(
+  mutationFn: (variables: TVariables) => Promise<TResult>,
+): UseMutationResult<TResult, Error, TVariables> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => invalidateAfterHistoryChange(queryClient),
+  });
+}
+
+/** `POST /api/history/record` → 201 with the recorded months (ascending). */
+export function useRecordMonths() {
+  return useHistoryMutation((body: RecordRequestBody) =>
+    apiSend<RecordResponse>('POST', '/api/history/record', body),
+  );
+}
+
+export interface CorrectSnapshotRequest {
+  periodMonth: IsoMonth;
+  body: SnapshotCorrectionBody;
+}
+
+/** `PUT /api/history/snapshots/:periodMonth`: the changed figures and a reason. */
+export function useCorrectSnapshot() {
+  return useHistoryMutation(({ periodMonth, body }: CorrectSnapshotRequest) =>
+    apiSend<CorrectionResponse>(
+      'PUT',
+      `/api/history/snapshots/${encodeURIComponent(periodMonth)}`,
+      body,
+    ),
+  );
+}
+
+/** `DELETE /api/history/snapshots/:periodMonth`: the latest app-recorded month only (D92). */
+export function useDeleteSnapshot() {
+  return useHistoryMutation((periodMonth: IsoMonth) =>
+    apiSend<DeleteSnapshotResponse>(
+      'DELETE',
+      `/api/history/snapshots/${encodeURIComponent(periodMonth)}`,
+    ),
   );
 }

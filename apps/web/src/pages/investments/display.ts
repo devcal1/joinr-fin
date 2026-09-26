@@ -433,9 +433,13 @@ export function missingInputLabel(key: string): string {
   return isSettingKey(key) ? settingDef(key).label : key;
 }
 
-/** The missing-inputs footer in words (the card links "Budget page"). */
-export const MISSING_INPUTS_FOOTER =
-  'Pay and budget settings and budget items are set on the Budget page; everything else in the workbook, or on the Settings page in Stage 5.';
+/**
+ * The missing-inputs footer's lead (stage-5.md §6.7): "Set them in Settings (Pay and tax, Budget)"
+ * with one link per missing setting's group; budget items are on the Budget page.
+ */
+export const MISSING_INPUTS_LEAD = 'Set them in Settings';
+export const MISSING_BUDGET_ITEMS = 'Budget items are set on the Budget page.';
+export const MISSING_SNAPSHOTS = 'Monthly snapshots are recorded on the History page.';
 /** The card's foot line (a link to /budget) when the timing reads the live budget. */
 export const LIVE_BUDGET_LINK = 'From your budget';
 /** The foot line while a server still sends the Stage 2 imported budget. */

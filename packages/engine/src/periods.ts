@@ -6,6 +6,7 @@ import {
   addMonthsIso,
   financialYearOfIso,
   isoMonthOf,
+  monthEndOf,
   type ChartDateUnit,
   type IsoDate,
   type IsoMonth,
@@ -82,16 +83,33 @@ export function sortByRunDate<T extends { periodMonth: IsoMonth; runDate: IsoDat
 }
 
 /**
- * §2.3: the provisional period's month: `isoMonthOf(asOf)`, unless a snapshot already has that
- * month, then the month after the latest snapshot's month. `sorted` is in run-date order.
+ * stage-5.md §2.9: the month a record fills: the month after the latest snapshot's month (the
+ * greatest period month, so a record never names a month at or before an existing one), or
+ * `isoMonthOf(today)` without snapshots. Validates the dates.
+ */
+export function nextRecordMonth(
+  snapshots: readonly { periodMonth: IsoMonth }[],
+  today: IsoDate,
+): IsoMonth {
+  dayNumber(today);
+  let latest: IsoMonth | null = null;
+  for (const s of snapshots) {
+    monthLabel(s.periodMonth); // validates the month
+    if (latest === null || s.periodMonth > latest) latest = s.periodMonth;
+  }
+  return latest === null ? isoMonthOf(today) : nextMonth(latest);
+}
+
+/**
+ * The provisional period's month (stage-3.md §2.3, changed by stage-5.md §11 fix 9): the next month
+ * to record (nextRecordMonth), so a missed month keeps its name until it is recorded. With no gap it
+ * is asOf's month (or the month after when asOf's month is already recorded), as Stage 3.
  */
 export function provisionalMonth(
   sorted: readonly { periodMonth: IsoMonth }[],
   asOf: IsoDate,
 ): IsoMonth {
-  const month = isoMonthOf(asOf);
-  if (!sorted.some((s) => s.periodMonth === month)) return month;
-  return nextMonth(sorted[sorted.length - 1]!.periodMonth);
+  return nextRecordMonth(sorted, asOf);
 }
 
 /** One period of the §2.3 model: the window (after, through] and the snapshot it closes. */
@@ -218,8 +236,10 @@ export function monthLabel(period: IsoMonth): string {
 
 /**
  * The chart group of a point: monthly by its period month, a calendar quarter of its period month
- * (FY quarters coincide with calendar quarters), or the year window of its date on `basis`
- * (`calendar` keeps the Stage 2 grouping: every Stage 2 point's period is its date's month).
+ * (FY quarters coincide with calendar quarters), or the year window on `basis` of its period
+ * month's last day (stage-5.md §2.3, §11 fix 20, D29: a June recorded on 1 July stays in June's
+ * year; the date still bounds nothing here). Every Stage 2 point's period is its date's month, so
+ * the Stage 2 groups are unchanged.
  */
 export function groupOf(
   period: IsoMonth,
@@ -237,7 +257,8 @@ export function groupOf(
       return { key: `${year}-Q${q}`, label: `Q${q} ${year}` };
     }
     case 'yearly': {
-      const w = yearWindow(date, basis);
+      dayNumber(date);
+      const w = yearWindow(monthEndOf(period), basis);
       return { key: `${basis}:${w.year}`, label: yearLabel(w) };
     }
   }

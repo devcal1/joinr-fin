@@ -12,16 +12,23 @@ import type {
   KpiTrend,
   LoanEntryFlag,
   LoanFlag,
+  NetWorthClass,
+  NetWorthLiability,
   OtherAssetFlag,
   PriceStatus,
+  RecordTrigger,
   RunStatus,
   SavingsPeriodStatus,
+  SnapshotAuditAction,
+  SnapshotSource,
   SuperCapStatus,
   SuperFlag,
   YearBasis,
 } from '../enums';
+import type { SettingGroupId } from '../settings';
 import { otherAssetsPages, propertyPages, superPages } from './assets';
 import { cashPages, dividendsPages } from './cashflow';
+import { historyPages, netWorthPages, settingsPages } from './history';
 import { allInvestmentPageFixtures } from './investments';
 import { importRunDetails, priceItems } from './sampleDtos';
 
@@ -34,7 +41,9 @@ const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
  * fixtures; every suggestion status and DRP advice in the Dividends page fixtures (stage-3.md §3.6);
  * every other-asset flag, price status (the four the engine gives) and FX source in the Other
  * Assets fixtures, every super flag and cap status in the Super fixtures, and every loan and
- * loan-entry flag in the Property fixtures (stage-4.md §3.6).
+ * loan-entry flag in the Property fixtures (stage-4.md §3.6); every snapshot source, audit action
+ * and record trigger in the History fixtures, every net-worth class and liability in the Net Worth
+ * fixtures, and every setting group in the Settings fixtures (stage-5.md §3.6).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -56,6 +65,12 @@ export const FIXTURE_COVERAGE: {
   loanFlags: LoanFlag[];
   loanEntryFlags: LoanEntryFlag[];
   fxRateSources: FxRateSource[];
+  snapshotSources: SnapshotSource[];
+  netWorthClasses: NetWorthClass[];
+  netWorthLiabilities: NetWorthLiability[];
+  snapshotAuditActions: SnapshotAuditAction[];
+  recordTriggers: RecordTrigger[];
+  settingGroups: SettingGroupId[];
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -102,4 +117,23 @@ export const FIXTURE_COVERAGE: {
       p.assets.flatMap((a) => (a.purchaseFxSource === null ? [] : [a.purchaseFxSource])),
     ),
   ),
+  snapshotSources: unique(
+    Object.values(historyPages).flatMap((p) => p.snapshots.map((x) => x.source)),
+  ),
+  // Classes and liabilities with a non-zero figure somewhere (every row lists every key).
+  netWorthClasses: unique(
+    Object.values(netWorthPages).flatMap((p) =>
+      p.classes.filter((c) => c.valueCents !== 0).map((c) => c.key),
+    ),
+  ),
+  netWorthLiabilities: unique(
+    Object.values(netWorthPages).flatMap((p) =>
+      p.liabilities.filter((l) => l.balanceCents !== 0).map((l) => l.key),
+    ),
+  ),
+  snapshotAuditActions: unique(
+    Object.values(historyPages).flatMap((p) => p.audit.map((a) => a.action)),
+  ),
+  recordTriggers: unique(Object.values(historyPages).flatMap((p) => p.audit.map((a) => a.trigger))),
+  settingGroups: unique(Object.values(settingsPages).flatMap((p) => p.groups.map((g) => g.id))),
 };

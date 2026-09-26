@@ -88,7 +88,7 @@ The start-up sequence is in `apps/server/src/index.ts`:
 7. **Listen.** It logs `Joinr Finance listening on http://HOST:PORT`, then starts the scheduler.
 
 Shutdown:
-- The first `SIGINT`, `SIGTERM` or `SIGBREAK` runs `app.close()`. A `preClose` hook stops the scheduler first (aborting and awaiting an in-flight price run), then an `onClose` hook closes SQLite.
+- The first `SIGINT`, `SIGTERM` or `SIGBREAK` runs `app.close()`. A `preClose` hook stops the snapshot recorder (it aborts its own price wait), then the scheduler (aborting and awaiting an in-flight price run), then an `onClose` hook closes SQLite.
 - A second signal, or a 10-second timeout, forces the exit.
 
 | Module | Responsibility |
@@ -107,9 +107,12 @@ Shutdown:
 | `routes/investments.ts` | The investment pages, the trade ledger, holding detail, and trade and holding changes. |
 | `routes/{cash,sideIncome,budget,dividends,settings}.ts` | The cash-flow pages and their changes (Stage 3), the dividend suggestions and the settings PATCH. |
 | `routes/{otherAssets,super,property}.ts` | The Other Assets, Super and Property pages and their changes (Stage 4). |
+| `routes/{netWorth,history}.ts`, `GET /api/settings` | The Net Worth dashboard, the History page, the aggregation API, record, correct and delete (Stage 5), and the Settings page. |
 | `assets/` | The Stage 4 engine inputs (`inputs.ts`), the page builders (`otherAssets.ts`, `super.ts`, `property.ts`), the mutations (`mutations/`), the responses and the pages' settings keys (`constants.ts`). |
 | `investments/` | Loads every finance row in one read transaction (`load.ts`), maps engine results to the investment DTOs (`page.ts`, `trades.ts`, `detail.ts`, `charts.ts`, `timing.ts`, `mappers.ts`), and runs the trade and holding mutations (`mutations.ts`). |
 | `cashflow/` | The finance context (`context.ts`: one request's rows, prices and memoised engine results), the engine inputs (`inputs.ts`), the page builders (`cash.ts`, `sideIncome.ts`, `budget.ts`, `dividends.ts`), the mutations (`mutations/`), the responses and the owner-confirmed constants (`constants.ts`). |
+| `history/` | The Stage 5 engine inputs (`inputs.ts`), the page builders (`pages.ts`, `snapshots.ts`), the DTO mappers (`dto.ts`), the month writer (`record.ts`, `writeRecordedMonths`), corrections and deletes (`mutations.ts`), the audit log (`audit.ts`), the responses and the month-end recorder (`recorder.ts`). |
+| `settings/` | The Settings page (`page.ts`) and the pages that read each setting (`readers.ts`, `SETTING_READERS`). |
 | `market/dividends/` | The dividend-events service: Yahoo chart events and closes cached in `dividend_events` by a daily `dividends` job. |
 | `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. The price and dividend-events services share one set of provider cool-downs. |
 | `scheduler/` | A small generic job scheduler that logs every run in `job_runs`. |
@@ -271,6 +274,44 @@ GET /api/other-assets · /api/super · /api/property (and every page that reads 
 | SG statement months (an overlay) and the market series history (a cache) | No |
 | The app-only settings (stale-price days, your employer's SG rate, contributions tax, the cap override and its financial year, how imported contributions are read) | No |
 | The workbook's salary, marginal tax rate and job start date edited in the app | Yes |
+
+## History, net worth and settings
+
+```
+GET /api/net-worth · /api/history · /api/history/series · /api/settings
+  FinanceContext (the same memoised request context as every page)
+    snapshots() (run-date order) ─► nextRecordMonth · recordableMonths
+    composeLive(): composeSnapshot(the four investment results, every trade by kind, cash totals
+                   and accounts, monthly pay, the Stage 4 seam, the super measured-through date)
+                   at asOf; null when a month was recorded today (no provisional period)
+    netWorth(): netWorthDashboard · rolling(): rollingNetWorth · check(): checkSnapshots
+  ─► aggregateSnapshots (the aggregation API: end, sum or a recomputed ratio per column)
+     · compressCashflow · linearTrend (the displayed groups)
+  ─► page builders ─► DTOs (+ the audit trail, the recorder's status, notes and origins)
+
+POST /api/history/record ─► import-lock check ─► recorder.record (mutex, price refresh)
+  ─► writeRecordedMonths: one BEGIN IMMEDIATE transaction; per month (ascending) a fresh context
+     inside it, composeSnapshot at today, deriveSnapshotColumns, insert + audit "record"
+PUT / DELETE /api/history/snapshots/:month ─► import-lock check ─► recorder.withLock
+  ─► correct (figures only; the row and the next row's cash change re-derived; revision + 1;
+     audit "correct") or delete (the latest app-recorded month only; audit "delete")
+```
+
+- **The snapshot model.** A `snapshots` row is one History row (B…AK) plus four Stage 5 figures (Σ offset accounts, the offsets linked to mortgages, accounts in debit, the super measured-through date), its source (`migrated`, `recorded`, `lookback`, `late`), a note and a correction count. A trigger refuses any change of a row's run date, month, source or recorded time; the audit log (`snapshot_audit`, no foreign key) keeps every record, correction (before and after, the next month's follow-ups keyed `YYYY-MM.column`) and delete (the full row). The stored derived columns come from `deriveSnapshotColumns` (a correction recomputes only those whose inputs changed; the first month's cash change is a typed seed, shifted by a corrected cash balance, never cleared), so they agree with their inputs; the History page's consistency check recomputes them, and the movement columns from the trades, for every month.
+- **Recorded figures feed later periods.** The savings engine reads each recorded month's stored offset figure (the last imported month keeps the Stage 4 derivation at its run date, earlier imported months none), and the super engine each month's measured-through date, so contributions after a month's measured balance date count in the next month.
+- **The recorder** (`history/recorder.ts`) owns the one-at-a-time mutex that every snapshot write goes through, the month-end timer on an injectable clock (23:00 server time on the month's last day; it never sleeps more than 6 hours), the start-up catch-up (missed months recorded `late` with today's date, never before auto-record was switched on) and the `snapshot` job's `job_runs` rows. It refreshes prices before a record and never holds the import lock: it checks the lock before the price wait and again, synchronously, right before the write.
+- **The aggregation API** (`GET /api/history/series`) groups the months by month, quarter or year (the financial year by default; a month belongs to its period month's year, so June recorded on 1 July stays in June's year) and answers each column's mode. The Net Worth and History charts read the same groups.
+- **Settings** (`settings/**`): `GET /api/settings` lists every registry key with its group, stored value and origin, whether it is editable and whether saving it blocks a re-import, the pages that read it (`SETTING_READERS`), and the engine's marginal-rate suggestion for the gross salary. `PATCH /api/settings` writes every editable key; `history.autoRecord` is locked while `AUTO_RECORD` is set, and a written switch tells the recorder to re-read it.
+
+**D34 in Stage 5.**
+
+| Kind of data | Counts as app data |
+|---|---|
+| A recorded month (`recorded`, `lookback`, `late`) | Yes; deleting it (latest first) clears it again |
+| A correction of an imported month | Yes (the row becomes `origin = 'app'`) |
+| The audit log and the recorder's `app_meta` state | No |
+| `history.autoRecord` (app-only) and the display choices (`charts.*`, `features.*`; a re-import keeps them) | No |
+| The workbook settings the app does not use, edited in the app | Yes |
 
 ## Price service and scheduler
 

@@ -633,10 +633,12 @@ describe('buildCharts (fake engine)', () => {
     expect(engine.calls.purchaseWindows[0]).toEqual([runDates, AS_OF]);
     const points = engine.calls.compressSeries[0]![0] as SeriesPoint[];
     expect(points.map((p) => p.live)).toEqual([false, false, false, true]);
+    // Stage 5 (stage-5.md §11 fix 5): the yearly unit groups financial years.
     expect(engine.calls.compressSeries[0]!.slice(1)).toEqual([
       'monthly',
       null,
       { value: 'end', contributions: 'end', gain: 'end', purchases: 'sum', idx: 'end' },
+      'fy',
     ]);
 
     expect(charts.points).toEqual([
@@ -676,9 +678,15 @@ describe('buildCharts (fake engine)', () => {
   });
 
   it('adds no live point when a snapshot exists for the as-of month', () => {
-    t.sqlite.exec(
-      "UPDATE snapshots SET period_month = '2026-09', run_date = '2026-09-20' WHERE period_month = '2026-07'",
-    );
+    // Stage 5: the identity trigger (stage-5.md §3.1) refuses an UPDATE of the month or run date,
+    // so the row is deleted and inserted again with the wanted month and date.
+    t.sqlite.exec(`
+      CREATE TEMP TABLE moved AS SELECT * FROM snapshots WHERE period_month = '2026-07';
+      UPDATE moved SET period_month = '2026-09', run_date = '2026-09-20';
+      DELETE FROM snapshots WHERE period_month = '2026-07';
+      INSERT INTO snapshots SELECT * FROM moved;
+      DROP TABLE moved;
+    `);
     const engine = engineFor({});
     const charts = buildCharts(createInvestmentsContext(deps(engine)), 'etf');
     expect(charts.points.map((p) => p.live)).toEqual([false, false, false]);

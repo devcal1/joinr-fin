@@ -4,6 +4,7 @@
 export type {
   AreaChartProps,
   BarChartProps,
+  BarOverlay,
   ChartCardProps,
   ChartLegendItem,
   ChartStateProps,

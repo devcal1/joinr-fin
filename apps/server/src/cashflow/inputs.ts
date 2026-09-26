@@ -3,7 +3,8 @@
 // the input table is unit-tested on its own; the request context (context.ts) memoises the engine
 // calls that consume them. Stage 4 (stage-4.md §2.8, §4.5): the live savings input comes from the
 // assets engines' results (no static imported parts any more), and the latest snapshot carries the
-// offset figure; the Stage 4 engine inputs themselves are built in `assets/inputs.ts`.
+// offset figure; the Stage 4 engine inputs themselves are built in `assets/inputs.ts`. Stage 5
+// (stage-5.md §4.5, D88b): recorded months pass their stored offset figure.
 import type {
   BudgetRowInput,
   Cents,
@@ -89,21 +90,40 @@ export function latestSnapshot(snapshots: readonly SnapshotRow[]): SnapshotRow |
 }
 
 /**
- * The snapshots for the savings engine (§2.9, D78): each History row as `toSavingsSnapshot`, and
- * the **latest** one (by run date) carries `offsetCents` = Σ today's offset accounts' latest
- * balance entries on or before its run date (`offsetCentsAt`: an account with none by then counts
- * 0 when it was created or flagged Offset in the app, and its imported balance when the workbook
- * flagged it, because the workbook already kept that balance out of the stored cash); every
- * earlier snapshot passes null (closed periods keep Δ offsets 0), and all are null when no offset
- * account exists.
+ * The snapshots for the savings engine (stage-5.md §4.5 "Savings: offsetCents", D88b; the Stage 4
+ * rule generalised): each History row as `toSavingsSnapshot`, with `offsetCents`
+ * - **the stored figure** on a non-migrated snapshot (every recorded month stores one, §4.3);
+ * - on **the last migrated month** (the latest snapshot with source `migrated`; migrated months
+ *   always sort before recorded ones, since recorded months block a re-import), the Stage 4
+ *   derivation at its run date (`offsetCentsAt`: Σ today's offset accounts' latest balance entries
+ *   on or before it, with the workbook-flag exception), so the first recorded month's Δ offsets is
+ *   exact;
+ * - null on every earlier migrated month (Δ offsets 0 between migrated months).
+ * The seam is defined by source, not by a null value, and a correction can never set or clear an
+ * offset figure on a migrated row, so no correction moves it. With no offset account and no stored
+ * figure, everything stays null.
  */
 export function savingsSnapshots(data: InvestmentData): SavingsSnapshotInput[] {
-  const latest = latestSnapshot(data.snapshots);
+  const lastMigrated = latestSnapshot(data.snapshots.filter((s) => s.source === 'migrated'));
   const anyOffset = offsetAccounts(data).length > 0;
   return data.snapshots.map((s) => ({
     ...toSavingsSnapshot(s),
-    offsetCents: anyOffset && s === latest ? offsetCentsAt(data, s.runDate) : null,
+    offsetCents:
+      s.source !== 'migrated'
+        ? s.offsetCents
+        : anyOffset && s === lastMigrated
+          ? offsetCentsAt(data, s.runDate)
+          : null,
   }));
+}
+
+/**
+ * Whether the provisional period passes Σ offset accounts now (`liveSavingsInput.offsetCents`):
+ * when any offset account exists, or when a recorded month stores an offset figure (so money
+ * leaving the last offset account still reads as a Δ against the stored figure).
+ */
+export function liveOffsetsKnown(data: InvestmentData): boolean {
+  return offsetAccounts(data).length > 0 || data.snapshots.some((s) => s.offsetCents !== null);
 }
 
 /**

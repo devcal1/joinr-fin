@@ -1,4 +1,5 @@
-// The running header's freshness line and the footer's right-hand text (stage-1.md §6.6).
+// The running header's freshness line and the footer's right-hand text (stage-1.md §6.6). Stage 5
+// (stage-5.md §6.6): "Snapshot Feb 2027 · auto" while auto-record is on.
 import type { AppStatus } from '@joinr/schema';
 import { formatMonth } from '@joinr/ui';
 import { formatTimeOrDate } from '../formatting';
@@ -7,6 +8,8 @@ export const NO_PRICES = 'No prices yet';
 export const NO_SNAPSHOTS = 'No snapshots yet';
 export const EMPTY_FRESHNESS = `${NO_PRICES} · ${NO_SNAPSHOTS}`;
 export const EMPTY_FOOTER = 'Last snapshot — · Prices —';
+/** Appended to the header's snapshot part while auto-record is on. */
+export const AUTO_MARK = ' · auto';
 
 export interface Freshness {
   /** "Prices 14:32 · Snapshot Aug 2026" (or the "No … yet" words). */
@@ -33,8 +36,9 @@ export function freshnessOf(status: AppStatus | undefined, now: Date): Freshness
   if (!status) return { header: EMPTY_FRESHNESS, footer: EMPTY_FOOTER };
   const prices = formatTimeOrDate(status.prices.lastRefreshAt, now);
   const month = status.snapshots.count > 0 ? snapshotMonth(status.snapshots.latestPeriod) : null;
+  const auto = status.history?.autoRecord === true ? AUTO_MARK : '';
   return {
-    header: `${prices ? `Prices ${prices}` : NO_PRICES} · ${month ? `Snapshot ${month}` : NO_SNAPSHOTS}`,
+    header: `${prices ? `Prices ${prices}` : NO_PRICES} · ${month ? `Snapshot ${month}` : NO_SNAPSHOTS}${auto}`,
     footer: `Last snapshot ${month ?? '—'} · Prices ${prices ?? '—'}`,
   };
 }

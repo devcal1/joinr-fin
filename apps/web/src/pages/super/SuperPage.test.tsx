@@ -63,7 +63,7 @@ describe('Super page: states (§6.9)', () => {
     await openPage(superPages.empty);
     expect(screen.getByRole('note', { name: 'No funds' })).toHaveTextContent('No super funds yet.');
     expect(screen.getByRole('note', { name: 'No recorded months' })).toHaveTextContent(
-      'History starts after the first recorded month (Stage 5 records months).',
+      'History starts after the first recorded month.',
     );
     expect(screen.queryByRole('button', { name: 'Update balances' })).toBeNull();
   });

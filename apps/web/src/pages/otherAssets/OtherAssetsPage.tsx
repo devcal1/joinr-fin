@@ -284,7 +284,6 @@ function OtherAssetsContent({
         title="Settings for this page"
         role="reference"
         keys={['otherAssets.stalePriceDays']}
-        labels={{ 'otherAssets.stalePriceDays': 'A price is stale after (days)' }}
         hints={{ 'otherAssets.stalePriceDays': 'Kept when you re-import' }}
         slice={page.settings}
         editing={open?.form === 'settings'}

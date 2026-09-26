@@ -84,11 +84,11 @@ describe('RecordsEntityPage', () => {
     );
   });
 
-  it('shows the 36 snapshot value columns', async () => {
+  it('shows the 36 snapshot value columns and the six Stage 5 columns', async () => {
     mockApi(recordRoutes());
     renderApp('/records/snapshots');
     const table = await findTable('Snapshots');
-    expect(within(table).getAllByRole('columnheader')).toHaveLength(39);
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(45);
     expect(within(table).getByText('Jul 2026')).toBeInTheDocument();
   });
 

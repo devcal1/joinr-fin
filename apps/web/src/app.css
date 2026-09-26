@@ -108,6 +108,11 @@
     font-size: var(--fs-dense);
   }
 
+  /* A prose note inside a figure cell (which sets the mono face): the body face. */
+  .jf-app-meta--prose {
+    font-family: var(--font-sans);
+  }
+
   .jf-app-strong {
     color: var(--text-bright);
     font-weight: 700;
@@ -1038,6 +1043,23 @@
     padding: 0;
   }
 
+  /* A form's group title (the correct form's Investments, Cash, …): a sub-heading above the field
+     labels, white rather than teal (the card title is the teal H3), with a hairline between groups
+     (Fixer, STYLE-9). */
+  .jf-app-fieldset__legend {
+    color: var(--text-bright);
+    font-size: var(--fs-h3);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .jf-app-fieldset + .jf-app-fieldset {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--hairline);
+  }
+
   /* Wide assets tables (loan log, fund history, contributions, sales, super periods): multi-word
      headers wrap and cells keep 8px at the sides, so the log tables fit the 1152 px content area
      at 1440 px (UX-20); the figures themselves stay on one line. */
@@ -1109,6 +1131,206 @@
     .jf-app-assets-table .jf-table__cell--first,
     .jf-app-assets-table .jf-table__th--first {
       max-width: 11rem;
+    }
+  }
+
+  /* ── Overview and Settings (Stage 5: net worth, history, settings) ── */
+
+  /* A router link that looks like a Button (the page header's navigation actions). */
+  .jf-app-link-button {
+    text-decoration: none;
+  }
+
+  /* The subtotal rows of the assets-and-liabilities table: white bold (never teal). */
+  .jf-app-total-cell {
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+
+  /* The assets table fits its card: the item column keeps whole words. */
+  .jf-app-networth-table .jf-table__th--first,
+  .jf-app-networth-table .jf-table__cell--first {
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
+  /* Its figure headers ("Gain %") keep one line; the column takes the width (Fixer, STYLE-12). */
+  .jf-app-networth-table .jf-table__th--num {
+    white-space: nowrap;
+  }
+
+  /* Wide overview tables (rolling net worth, recorded months, audit trail): multi-word headers wrap
+     and cells keep 8px at the sides; from 768 to 1199 px the first column keeps 200 px (§6.8). */
+  .jf-app-wide-table .jf-table__th {
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
+  @media (min-width: 768px) and (max-width: 1199.98px) {
+    .jf-app-wide-table .jf-table__th--first,
+    .jf-app-wide-table .jf-table__cell--first {
+      min-width: 200px;
+    }
+  }
+
+  /* The recorded months may scroll inside their container at 1440 px: from 1200 px the Actions
+     column (the last) stays in view at the right edge, so Delete is never off-screen (the Stage 4
+     assets-table rule). */
+  @media (min-width: 1200px) {
+    .jf-app-history-months .jf-table__th:last-child,
+    .jf-app-history-months .jf-table__cell:last-child {
+      position: sticky;
+      right: 0;
+      z-index: 1;
+      border-left: 1px solid transparent;
+    }
+
+    .jf-app-history-months .jf-table__scroll[role='region'] .jf-table__th:last-child,
+    .jf-app-history-months .jf-table__scroll[role='region'] .jf-table__cell:last-child {
+      border-left-color: var(--hairline);
+    }
+  }
+
+  /* The chart view switch in a section bar: the unit, the count and the Settings link. */
+  .jf-app-view-switch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .jf-app-view-switch__count {
+    width: 7rem;
+  }
+
+  .jf-app-view-switch__link {
+    align-self: center;
+  }
+
+  .jf-section-bar__actions .jf-app-view-switch .jf-field__label {
+    color: var(--text-secondary);
+  }
+
+  /* The gauge's empty state: a dash over its reason. */
+  .jf-app-gauge-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .jf-app-gauge-empty__figure {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: var(--fs-kpi);
+  }
+
+  /* The tax suggestion's "Use N%" buttons: a row, full width on phone (§6.8; Fixer, STYLE-8). */
+  .jf-app-tax-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-app-tax-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .jf-app-tax-actions > * {
+      width: 100%;
+    }
+  }
+
+  /* A status in words that needs attention (the targets' sum): the check tint. */
+  .jf-app-check-text,
+  .jf-app-sum--check {
+    color: var(--orange-tint);
+  }
+
+  .jf-app-sum--go {
+    color: var(--go-tint);
+  }
+
+  .jf-app-sum {
+    font-weight: 700;
+  }
+
+  .jf-app-projection {
+    opacity: 0.85;
+  }
+
+  /* History: the lead under the header, the status card, the month checkboxes, the notes. */
+  .jf-app-lead {
+    max-width: 70ch;
+    color: var(--text);
+  }
+
+  .jf-app-status-card {
+    display: grid;
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+  }
+
+  .jf-app-month-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+  }
+
+  .jf-app-record-notes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+    padding-left: 1.2em;
+  }
+
+  .jf-app-changes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    white-space: normal;
+  }
+
+  .jf-app-changes__line {
+    max-width: 32ch;
+  }
+
+  /* Settings: the in-page index, a field with its used-on line, the switches. */
+  .jf-app-settings-index {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jf-app-setting {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .jf-app-switch-setting {
+    padding-top: var(--space-2);
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-app-status-card {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .jf-app-settings-index {
+      flex-direction: column;
+    }
+
+    .jf-app-view-switch__count {
+      width: 100%;
     }
   }
 }

@@ -36,6 +36,7 @@ export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Co
     marketDataMode: 'off',
     importCorrections: { kind: 'off' },
     repoRoot: null,
+    autoRecord: null,
     ...overrides,
   };
 }

@@ -293,7 +293,6 @@ const CASH_PAGES_POPULATED = {
       'property.offsetsIncludeEmergencyFund': 'import',
     },
   },
-  staticUntilStage4: false,
 } satisfies CashPageResponse;
 
 /** No accounts, no snapshots, no goals. */

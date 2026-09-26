@@ -5,6 +5,7 @@ export {
   SEED_META_KEY,
   SEED_WORKBOOK_AS_OF,
   seedGenericData,
+  seedRecordedMonth,
   type SeedOptions,
   type SeedResult,
 } from './seed';

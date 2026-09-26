@@ -9,6 +9,7 @@ import {
   ASSETS_ENGINE_IMPLEMENTED,
   CASHFLOW_ENGINE_IMPLEMENTED,
   ENGINE_IMPLEMENTED,
+  HISTORY_ENGINE_IMPLEMENTED,
 } from '@joinr/engine';
 import {
   buildSyntheticWorkbook,
@@ -45,7 +46,14 @@ import { readAppEditMarker } from '../../src/db/queries/domain';
 import { makeTempDir, removeDir, testConfig } from '../helpers';
 import { AS_OF, NOW } from './helpers';
 
-const GATED = ENGINE_IMPLEMENTED && CASHFLOW_ENGINE_IMPLEMENTED && ASSETS_ENGINE_IMPLEMENTED;
+// Stage 5 (stage-5.md §7.4 step 8, the Stage 4 FEAS-1 precedent): the finance context feeds the
+// D88 figures (stored offsets, measured-through dates) into computeSavings and computeSuper, so the
+// suite also waits for HISTORY_ENGINE_IMPLEMENTED.
+const GATED =
+  ENGINE_IMPLEMENTED &&
+  CASHFLOW_ENGINE_IMPLEMENTED &&
+  ASSETS_ENGINE_IMPLEMENTED &&
+  HISTORY_ENGINE_IMPLEMENTED;
 const CAN_IMPORT =
   SYNTHETIC_WORKBOOK_IMPLEMENTED && IMPORTER_IMPLEMENTED && IMPORTER_STAGE3_IMPLEMENTED;
 

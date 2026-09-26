@@ -573,9 +573,12 @@ describe('PATCH /api/settings', () => {
   });
 
   it('refuses keys it does not edit and invalid values', async () => {
-    const res = await patch({ 'allocation.etf': '0.5', 'pay.dayOfMonth': 40 });
+    // Stage 5 (D86, D91): every key is editable but the server-written cap FY.
+    const res = await patch({ 'super.concessionalCapFy': 2026, 'pay.dayOfMonth': 40 });
     expect(res.status).toBe(400);
-    expect(errorOf(res.body).message).toContain('values.allocation.etf: not editable here');
+    expect(errorOf(res.body).message).toContain(
+      'values.super.concessionalCapFy: not editable here',
+    );
     expect(errorOf(res.body).message).toContain('values.pay.dayOfMonth');
   });
 

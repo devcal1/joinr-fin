@@ -24,6 +24,11 @@ export const API_ERROR_CODES = [
   'FUND_IN_USE',
   'PROPERTY_HAS_LOAN',
   'SALE_OVERSELL',
+  // Stage 5 (stage-5.md §4.1): 409 · 409 · 409 · 409.
+  'SNAPSHOT_EXISTS',
+  'SNAPSHOT_NOT_LATEST',
+  'SNAPSHOT_NOT_DELETABLE',
+  'RECORD_IN_PROGRESS',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 

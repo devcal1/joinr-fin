@@ -1,6 +1,6 @@
 // Stage 4 changes to the Stage 3 settings and period-note routes (stage-4.md §3.3, §4.5 step 7,
 // §7.4 step 3): the settings slice of every page a PATCH names (Budget, Cash, Super, Other Assets,
-// Property), a PATCH of all 22 editable keys, the server-written cap FY (with the cap; null when it
+// Property; Stage 5 adds the named keys themselves, stage-5.md §4.5), a PATCH of the 22 page keys, the server-written cap FY (with the cap; null when it
 // is cleared; never editable), and the `super_option` note kind (returned, not null; any month up to
 // the as-of month, while `spend` and `side_income` keep their recorded-period rule). Generic values
 // only.
@@ -43,8 +43,21 @@ async function patch(values: Record<string, unknown>) {
   });
 }
 
-/** A valid, non-default value for every editable key. */
-const EVERY_KEY: Record<EditableSettingKey, SettingValue> = {
+/**
+ * The Stage 3–4 editable keys: the first 22 of EDITABLE_SETTING_KEYS, every one on a page (Stage 5
+ * appends every other key, stage-5.md §3.3; those sit on the Settings page only).
+ */
+const PAGE_KEYS = EDITABLE_SETTING_KEYS.slice(0, 22);
+const ALL_PAGE_KEYS = [
+  ...BUDGET_PAGE_SETTING_KEYS,
+  ...CASH_PAGE_SETTING_KEYS,
+  ...SUPER_PAGE_SETTING_KEYS,
+  ...OTHER_ASSETS_PAGE_SETTING_KEYS,
+  ...PROPERTY_PAGE_SETTING_KEYS,
+];
+
+/** A valid, non-default value for every Stage 3–4 editable key. */
+const EVERY_KEY: Partial<Record<EditableSettingKey, SettingValue>> = {
   'pay.frequency': 'monthly',
   'pay.netPayCents': 450000,
   'pay.dayOfMonth': 20,
@@ -70,8 +83,8 @@ const EVERY_KEY: Record<EditableSettingKey, SettingValue> = {
 };
 
 describe('the settings slice of every named page (§3.3)', () => {
-  it('lists the five pages’ keys (Cash explicit, 22 editable in all)', () => {
-    expect(EDITABLE_SETTING_KEYS).toHaveLength(22);
+  it('lists the five pages’ keys (Cash explicit); every page key is editable', () => {
+    expect(EDITABLE_SETTING_KEYS).toHaveLength(60);
     expect(CASH_PAGE_SETTING_KEYS).toHaveLength(6);
     expect(SUPER_PAGE_SETTING_KEYS).toHaveLength(7);
     expect(OTHER_ASSETS_PAGE_SETTING_KEYS).toEqual(['otherAssets.stalePriceDays']);
@@ -79,15 +92,12 @@ describe('the settings slice of every named page (§3.3)', () => {
       'savings.includeMortgagePrincipal',
       'property.offsetsIncludeEmergencyFund',
     ]);
-    // Every editable key sits on at least one page.
-    const onPages = new Set<string>([
-      ...BUDGET_PAGE_SETTING_KEYS,
-      ...CASH_PAGE_SETTING_KEYS,
-      ...SUPER_PAGE_SETTING_KEYS,
-      ...OTHER_ASSETS_PAGE_SETTING_KEYS,
-      ...PROPERTY_PAGE_SETTING_KEYS,
-    ]);
-    expect(EDITABLE_SETTING_KEYS.filter((k) => !onPages.has(k))).toEqual([]);
+    // The page keys are exactly the Stage 3–4 editable keys (a subset of the 60 editable keys);
+    // the Stage 5 keys are edited on the Settings page only.
+    const onPages = new Set<string>(ALL_PAGE_KEYS);
+    expect([...onPages].sort()).toEqual([...PAGE_KEYS].sort());
+    const editable = new Set<string>(EDITABLE_SETTING_KEYS);
+    expect(ALL_PAGE_KEYS.filter((k) => !editable.has(k))).toEqual([]);
   });
 
   it('a Super key answers the Super slice; a shared key brings both pages', async () => {
@@ -104,6 +114,15 @@ describe('the settings slice of every named page (§3.3)', () => {
     ]);
   });
 
+  it('a key on no page answers itself beside the named pages’ slices (stage-5.md §4.5)', async () => {
+    const res = await patch({ 'otherAssets.stalePriceDays': 45, 'features.budget': false });
+    expect(Object.keys(res.body.settings.values)).toEqual([
+      'otherAssets.stalePriceDays',
+      'features.budget',
+    ]);
+    expect(res.body.settings.origins['features.budget']).toBe('app');
+  });
+
   it('the Other Assets and Property keys answer their slices (Property keys also bring Cash)', async () => {
     const stale = await patch({ 'otherAssets.stalePriceDays': 30 });
     expect(stale.body.settings).toEqual({
@@ -115,11 +134,13 @@ describe('the settings slice of every named page (§3.3)', () => {
     expect(principal.body.settings.values['savings.includeMortgagePrincipal']).toBe(true);
   });
 
-  it('a PATCH of all 22 editable keys writes them all and answers every slice', async () => {
+  it('a PATCH of the 22 Stage 3–4 editable keys writes them all and answers every slice', async () => {
     const res = await patch(EVERY_KEY);
     expect(res.status).toBe(200);
-    expect(new Set(Object.keys(res.body.settings.values))).toEqual(new Set(EDITABLE_SETTING_KEYS));
-    for (const key of EDITABLE_SETTING_KEYS) {
+    // The named-keys rule (stage-5.md §4.5): every page slice holding a named key, plus the named
+    // keys themselves; here both are the 22 page keys.
+    expect(new Set(Object.keys(res.body.settings.values))).toEqual(new Set(PAGE_KEYS));
+    for (const key of PAGE_KEYS) {
       expect(res.body.settings.values[key], key).toEqual(EVERY_KEY[key]);
       expect(res.body.settings.origins[key], key).toBe('app');
     }

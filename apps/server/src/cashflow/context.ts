@@ -4,10 +4,20 @@
 // each computed at most once per request. The server adds only display fields; every figure comes
 // from the engine. Stage 4 (stage-4.md §4.5): the market series (first, beside the prices), the
 // other-assets, super and property engines, the History seam, and the live savings input and the
-// other-assets class value taken from them.
+// other-assets class value taken from them. Stage 5 (stage-5.md §4.5): the snapshots in run-date
+// order, the live snapshot composed at asOf, the net-worth dashboard, the rolling table and the
+// snapshot checks; the D88 figures (stored offsets, measured-through dates) reach the savings and
+// super engines through their inputs.
 import { engine as defaultEngine } from '@joinr/engine';
 import type {
   AssetsSnapshotColumns,
+  ComposeSnapshotInput,
+  ConsiderNextResult,
+  EngineSnapshot,
+  NetWorthDashboardResult,
+  RollingNetWorthRow,
+  SnapshotCheckResult,
+  SnapshotFigures,
   BudgetInput,
   BudgetInvestInput,
   BudgetInvestResult,
@@ -31,10 +41,12 @@ import type {
 import {
   ASSET_CLASSES,
   INSTRUMENT_KINDS,
+  NET_WORTH_PROJECTION_MONTHS,
   type AssetClass,
   type DecimalString,
   type InstrumentKind,
   type IsoDate,
+  type IsoMonth,
   type MarketQuoteItem,
   type PriceItem,
 } from '@joinr/schema';
@@ -44,7 +56,6 @@ import {
   buildPropertyInput,
   buildSuperInput,
   metalsInUse,
-  offsetAccounts,
   spotHistoryFrom,
 } from '../assets/inputs';
 import type { FastifyBaseLogger } from 'fastify';
@@ -56,7 +67,9 @@ import {
   payFrequencySetting,
   stringSetting,
 } from '../db/queries/settings';
+import { engineSnapshots, figuresOf, tradesByKind } from '../history/inputs';
 import { localIsoDate, ratioOf } from '../investments/format';
+import { CLASS_TARGET_KEYS } from '../investments/timing';
 import {
   loadInvestmentData,
   rowsOfKind,
@@ -77,6 +90,7 @@ import {
   includeSideIncomeOf,
   lastSnapshotCashShare,
   lastStockOrEtfBuy,
+  liveOffsetsKnown,
   liveSavingsInput,
   offsetsIncludeEmergencyFundOf,
   otherAssetFlows,
@@ -144,6 +158,39 @@ export interface FinanceContext {
    * year before `asOf` (or the earliest bullion purchase date when later), by series id.
    */
   spotHistory(): Record<string, { date: IsoDate; value: DecimalString }[]>;
+  // ─── Stage 5 (stage-5.md §4.5; each computed once per request) ───
+  /** `monthlyPayCents` of the current pay settings (History W; the savings live input). */
+  salaryMonthly(): Cents | null;
+  /** Every snapshot as the engine takes it, in run-date order (then period month). */
+  snapshots(): EngineSnapshot[];
+  /** The latest snapshot's run date, or null. */
+  lastRun(): IsoDate | null;
+  /** `nextRecordMonth(snapshots, asOf)`: the provisional period's month (§2.9). */
+  liveMonth(): IsoMonth;
+  /** `recordableMonths(snapshots, asOf)`. */
+  recordable(): IsoMonth[];
+  /** `composeSnapshot`'s input for `periodMonth` at asOf (the previous snapshot: the latest). */
+  composeInput(periodMonth: IsoMonth): ComposeSnapshotInput;
+  /** `composeSnapshot` for `periodMonth` at asOf (memoised per month). */
+  compose(periodMonth: IsoMonth): SnapshotFigures;
+  /**
+   * The live snapshot: `compose(liveMonth())`; null when asOf ≤ the last run (no provisional
+   * period: the month was recorded today).
+   */
+  composeLive(): SnapshotFigures | null;
+  /**
+   * The figures the dashboard shows: the live snapshot, else the latest snapshot's figures (so the
+   * page still shows today's position when a month was recorded today).
+   */
+  dashboardFigures(): SnapshotFigures;
+  /** The liquid allocation (the Stage 2 timing chain's `considerNext`, as the investment pages). */
+  considerNext(): ConsiderNextResult;
+  /** `netWorthDashboard`. */
+  netWorth(): NetWorthDashboardResult;
+  /** `rollingNetWorth` (recorded, live and 12 projected rows). */
+  rolling(): RollingNetWorthRow[];
+  /** `checkSnapshots` over every snapshot and every trade. */
+  check(): SnapshotCheckResult;
 }
 
 /** The finance deps a route plugin builds from its options (the real engine and clock by default). */
@@ -277,6 +324,13 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
 
   const sideIncome = once(() => engine.computeSideIncome(sideIncomeInput(data, asOf)));
 
+  const salaryMonthly = once(() =>
+    engine.monthlyPayCents({
+      netPayCents: numberSetting(s, 'pay.netPayCents'),
+      payFrequency: payFrequencySetting(s),
+    }),
+  );
+
   const savings = once(() =>
     engine.computeSavings({
       asOf,
@@ -284,13 +338,11 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
       live: liveSavingsInput({
         // The savings engine keeps loans in (D59).
         totalCashCents: cashTotals().totalCashCents,
-        salaryMonthlyCents: engine.monthlyPayCents({
-          netPayCents: numberSetting(s, 'pay.netPayCents'),
-          payFrequency: payFrequencySetting(s),
-        }),
+        salaryMonthlyCents: salaryMonthly(),
         superResult: superResult(),
         property: property(),
-        offsetCents: offsetAccounts(data).length > 0 ? cashTotals().offsetCents : null,
+        // Stage 5 (§4.5, D88b): known when an offset account exists or a month stores a figure.
+        offsetCents: liveOffsetsKnown(data) ? cashTotals().offsetCents : null,
       }),
       trades: data.trades.map(toEngineTrade),
       otherAssetPurchases: otherAssetFlows(otherAssets()),
@@ -371,6 +423,98 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
     });
   });
 
+  // ─── Stage 5 (stage-5.md §4.5) ───
+  const snapshots = once(() => engineSnapshots(data.snapshots));
+  const lastRun = once(() => snapshots().at(-1)?.runDate ?? null);
+  const liveMonth = once(() => engine.nextRecordMonth(snapshots(), asOf));
+  const recordable = once(() => engine.recordableMonths(snapshots(), asOf));
+  const trades = once(() => tradesByKind(data));
+
+  const composeInput = (periodMonth: IsoMonth): ComposeSnapshotInput => {
+    const previous = snapshots().at(-1) ?? null;
+    return {
+      periodMonth,
+      runDate: asOf,
+      previous:
+        previous === null
+          ? null
+          : { runDate: previous.runDate, cashValueCents: previous.cashValueCents },
+      investments: {
+        stock: compute('stock'),
+        etf: compute('etf'),
+        managed_fund: compute('managed_fund'),
+        crypto: compute('crypto'),
+      },
+      trades: trades(),
+      cash: cashTotals(),
+      cashAccounts: data.cashAccounts.map(toEngineCashAccount),
+      salaryMonthlyCents: salaryMonthly(),
+      assets: assetsSnapshot(),
+      superMeasuredThrough: superResult().measuredThrough ?? null,
+    };
+  };
+  const composed = new Map<IsoMonth, SnapshotFigures>();
+  const compose = (periodMonth: IsoMonth): SnapshotFigures => {
+    let figures = composed.get(periodMonth);
+    if (!figures) {
+      figures = engine.composeSnapshot(composeInput(periodMonth));
+      composed.set(periodMonth, figures);
+    }
+    return figures;
+  };
+  const composeLive = once((): SnapshotFigures | null => {
+    const last = lastRun();
+    return last !== null && asOf <= last ? null : compose(liveMonth());
+  });
+  const dashboardFigures = once((): SnapshotFigures => {
+    const live = composeLive();
+    if (live) return live;
+    // No provisional period: the latest snapshot (there is one, since asOf ≤ its run date).
+    return figuresOf(snapshots().at(-1)!);
+  });
+
+  const considerNext = once((): ConsiderNextResult => {
+    const values = classValues();
+    const classes = Object.fromEntries(
+      ASSET_CLASSES.map((c) => [
+        c,
+        { valueCents: values[c], targetRatio: stringSetting(s, CLASS_TARGET_KEYS[c]) },
+      ]),
+    ) as Record<AssetClass, { valueCents: Cents; targetRatio: DecimalString | null }>;
+    return engine.considerNext({
+      classes,
+      // The emergency-fund test cash (stage-2.md §2.4), as the investment pages' timing chain.
+      cashCents: cashTotals().emergencyFundTestCents,
+      emergencyFundCents: budgetInvest().emergencyFundCents,
+    });
+  });
+
+  const netWorth = once(() =>
+    engine.netWorthDashboard({
+      asOf,
+      live: dashboardFigures(),
+      liveMonth: liveMonth(),
+      snapshots: snapshots(),
+      property: property(),
+      cashAccounts: data.cashAccounts.map(toEngineCashAccount),
+      kpis: kpis(),
+      plannedSavingsRatio: budget().plannedSavingsRatio,
+      considerNext: considerNext(),
+    }),
+  );
+
+  const rolling = once(() => {
+    const live = composeLive();
+    return engine.rollingNetWorth({
+      snapshots: snapshots(),
+      live: live === null ? null : { periodMonth: liveMonth(), runDate: asOf, figures: live },
+      savings: savings().periods,
+      projection: { monthlyCents: kpis().avgSavingsCents, months: NET_WORTH_PROJECTION_MONTHS },
+    });
+  });
+
+  const check = once(() => engine.checkSnapshots({ snapshots: snapshots(), trades: trades() }));
+
   return {
     engine,
     now,
@@ -401,5 +545,18 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
     property,
     assetsSnapshot,
     spotHistory,
+    salaryMonthly,
+    snapshots,
+    lastRun,
+    liveMonth,
+    recordable,
+    composeInput,
+    compose,
+    composeLive,
+    dashboardFigures,
+    considerNext,
+    netWorth,
+    rolling,
+    check,
   };
 }

@@ -10,7 +10,8 @@ import type { InvestmentTimingDto } from '@joinr/schema';
 import { describe, expect, it } from 'vitest';
 import {
   HOLDING_FLAG_BADGES,
-  MISSING_INPUTS_FOOTER,
+  MISSING_INPUTS_LEAD,
+  MISSING_SNAPSHOTS,
   SPLIT_OFF_LINK,
   assetClassText,
   chartCategory,
@@ -362,9 +363,8 @@ describe('next buy', () => {
     // A wait no longer than the plan leaves the parcel line as it is.
     expect(parcelText(deficit.plan, 3)).toBe('Every 3 months · $4,860.00');
     expect(parcelText(deficit.plan, 2)).toBe('Every 3 months · $4,860.00');
-    expect(MISSING_INPUTS_FOOTER).toBe(
-      'Pay and budget settings and budget items are set on the Budget page; everything else in the workbook, or on the Settings page in Stage 5.',
-    );
+    expect(MISSING_INPUTS_LEAD).toBe('Set them in Settings');
+    expect(MISSING_SNAPSHOTS).toBe('Monthly snapshots are recorded on the History page.');
     expect(assetClassText(t.wait.timing)).toBe('ETFs: 10.4% now vs 60.0% target');
     expect(assetClassText(t.no_targets.timing)).toBeNull();
     const noTarget: InvestmentTimingDto = {
@@ -376,7 +376,9 @@ describe('next buy', () => {
 
   it('names the missing inputs', () => {
     expect(missingInputLabel('pay.netPayCents')).toBe('Net pay per pay');
-    expect(missingInputLabel('budget.emergencyFundMonths')).toBe('Emergency fund (months)');
+    expect(missingInputLabel('budget.emergencyFundMonths')).toBe(
+      'Emergency fund (months of spending)',
+    );
     expect(missingInputLabel('budget.items')).toBe('Budget items');
     expect(missingInputLabel('snapshots')).toBe('Monthly snapshots');
     expect(missingInputLabel('investments.lastPurchaseDate')).toBe('An ETF or stock buy');

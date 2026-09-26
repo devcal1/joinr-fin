@@ -27,10 +27,23 @@ describe('router', () => {
     expect(screen.getByRole('main')).toBeInTheDocument();
   });
 
-  it('renders a placeholder page with its name', async () => {
-    renderAt('/history');
-    expect(await screen.findByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument();
+  it('renders a placeholder page with its name (only /fire is left, stage-5.md §7.7)', async () => {
+    renderAt('/fire');
+    expect(await screen.findByRole('heading', { level: 1, name: 'FIRE' })).toBeInTheDocument();
   });
+
+  it.each([
+    ['/', 'Net worth', 'Could not load net worth'],
+    ['/history', 'History', 'Could not load history'],
+    ['/settings', 'Settings', 'Could not load settings'],
+  ])(
+    'renders the Stage 5 page %s with its h1 even when the API is down',
+    async (path, title, error) => {
+      renderAt(path);
+      expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument();
+      expect(await screen.findByRole('note', { name: error })).toHaveClass('jf-callout--do-not');
+    },
+  );
 
   it.each([
     ['/other-assets', 'Other Assets', 'Could not load other assets'],

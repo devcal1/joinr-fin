@@ -384,6 +384,9 @@ export function buildSuperInput(data: InvestmentData, asOf: IsoDate): SuperInput
       periodMonth: snap.periodMonth,
       runDate: snap.runDate,
       superValueCents: snap.superValueCents,
+      // Stage 5 (stage-5.md §2.11, §4.5, D88a): the D79 cut-off the month was recorded with (null
+      // on migrated rows: the run date).
+      measuredThrough: snap.superMeasuredThrough,
     })),
     funds,
     contributions,

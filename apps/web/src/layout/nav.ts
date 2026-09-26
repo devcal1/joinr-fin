@@ -1,4 +1,7 @@
 // The sidebar nav, built from the page registry, with one lucide icon per page (STYLE_GUIDE §9).
+// Stage 5 (stage-5.md §3.3, §6.6): the `features.*` settings hide their pages from the nav (a
+// missing value counts as on); Dividends hides only when ETFs, Stocks and Managed Funds are all off.
+import type { AppStatus, FeatureKey } from '@joinr/schema';
 import type { NavGroup, NavItem } from '@joinr/ui';
 import {
   BadgeDollarSign,
@@ -56,6 +59,50 @@ export const NAV: NavGroup[] = NAV_GROUPS.map((group) => ({
     icon: PAGE_ICONS[page.id],
   })),
 }));
+
+/** The feature switch of each page it hides (the sheet's First Time Setup toggles). */
+export const PAGE_FEATURES: Readonly<Record<string, FeatureKey>> = {
+  cash: 'features.cash',
+  etfs: 'features.etfs',
+  stocks: 'features.stocks',
+  'managed-funds': 'features.managedFunds',
+  crypto: 'features.crypto',
+  budget: 'features.budget',
+  'side-income': 'features.sideIncome',
+  'other-assets': 'features.otherAssets',
+  property: 'features.property',
+  super: 'features.retirement',
+  fire: 'features.fire',
+};
+
+/** Dividends shows while any of these is on (the sheet's rule). */
+export const DIVIDEND_FEATURES: readonly FeatureKey[] = [
+  'features.etfs',
+  'features.stocks',
+  'features.managedFunds',
+];
+
+export type Features = AppStatus['features'];
+
+/** A feature is on unless the status says `false` (a missing value counts as on). */
+export function featureOn(features: Features, key: FeatureKey): boolean {
+  return features?.[key] !== false;
+}
+
+/** True when the page is switched off in Settings (Pages). */
+export function pageSwitchedOff(pageId: string, features: Features): boolean {
+  if (pageId === 'dividends') return DIVIDEND_FEATURES.every((key) => !featureOn(features, key));
+  const key = PAGE_FEATURES[pageId];
+  return key !== undefined && !featureOn(features, key);
+}
+
+/** The nav without the switched-off pages (empty groups dropped). */
+export function navFor(features: Features): NavGroup[] {
+  return NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !pageSwitchedOff(item.id, features)),
+  })).filter((group) => group.items.length > 0);
+}
 
 export const SECONDARY_NAV: NavItem[] = [
   {

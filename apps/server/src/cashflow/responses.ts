@@ -130,7 +130,9 @@ const PAGE_SETTING_KEYS: readonly (readonly EditableSettingKey[])[] = [
 
 /**
  * The settings slice of every page whose keys the patch named (Budget, Cash, Super, Other Assets,
- * Property; a key on two pages brings both), and `hasAppData` after the write.
+ * Property; a key on two pages brings both), **plus the named keys themselves** (stage-5.md §4.5:
+ * a key on no page, e.g. `features.*`, `fire.*`, `charts.*` or `history.autoRecord`, is still
+ * returned), and `hasAppData` after the write.
  */
 export function settingsResponse(
   deps: FinanceDeps,
@@ -140,7 +142,10 @@ export function settingsResponse(
   const ctx = createFinanceContext(deps, log);
   const named = new Set<string>(keys);
   const slice = [
-    ...new Set(PAGE_SETTING_KEYS.filter((page) => page.some((k) => named.has(k))).flat()),
+    ...new Set<EditableSettingKey>([
+      ...PAGE_SETTING_KEYS.filter((page) => page.some((k) => named.has(k))).flat(),
+      ...keys,
+    ]),
   ];
   return {
     settings: settingsSliceDto(ctx.data.settings, ctx.data.settingOrigins, slice),

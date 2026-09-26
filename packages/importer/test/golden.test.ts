@@ -1,5 +1,6 @@
 // Golden import of the owner's local workbook (stage-1.md §7.3 step 7; the Stage 4 rows and the
-// migration equivalence, stage-4.md §7.6). Skipped when the git-ignored reference/ folder has no
+// migration equivalence, stage-4.md §7.6; the Stage 5 settings lines and the 0005 equivalence,
+// stage-5.md §7.6). Skipped when the git-ignored reference/ folder has no
 // single workbook. Every expected value and rule input is read from the workbook at runtime: this
 // file holds no owner values, and the report is never written to disk.
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,7 +23,15 @@ import { historyRows } from '../src/extract';
 import { investmentLayout } from '../src/layout';
 import { openWorkbook } from '../src/reader';
 import { describeWithLocalWorkbook, REFERENCE_DIR } from '../src/testing/localWorkbook';
-import { stage3MigrationsDir, stage3Shape, upgradeFromStage3, withoutIds } from './stage3-upgrade';
+import {
+  stage3MigrationsDir,
+  stage3Shape,
+  stage4MigrationsDir,
+  stage4Shape,
+  upgradeFromStage3,
+  upgradeFrom,
+  withoutIds,
+} from './stage3-upgrade';
 
 const GOLDEN_TIMEOUT = 120_000;
 
@@ -239,6 +248,31 @@ describeWithLocalWorkbook('golden: the local workbook', (path) => {
         expect(withoutIds(upgraded)).toEqual(withoutIds(firstDump));
       } finally {
         stage3.remove();
+      }
+    });
+
+    it('reports no settings reset or kept preference on a fresh import or its repeat (stage-5.md §3.5)', () => {
+      for (const r of [report, secondReport]) {
+        expect(
+          r.checks.filter(
+            (c) => c.id === 'settings.resetToDefault' || c.id === 'settings.keptAppPreference',
+          ),
+        ).toEqual([]);
+      }
+      expect((firstDump.settings ?? []).every((s) => s.origin === 'import')).toBe(true);
+    });
+
+    it('matches migration 0005 run on a Stage 4 import of the same workbook (stage-5.md §3.5 item 4)', () => {
+      const asOf = report.workbook.asOf!;
+      const snaps = firstDump.snapshots ?? [];
+      expect(snaps.length).toBeGreaterThan(0);
+      expect(snaps.every((s) => s.offset_cents === null && s.revision === 0)).toBe(true);
+      const stage4 = stage4MigrationsDir();
+      try {
+        const upgraded = upgradeFrom(stage4.dir, stage4Shape(firstDump), asOf);
+        expect(withoutIds(upgraded)).toEqual(withoutIds(firstDump));
+      } finally {
+        stage4.remove();
       }
     });
   });

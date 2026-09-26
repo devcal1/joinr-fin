@@ -1,12 +1,30 @@
 // The app frame for every shell page: AppShell + brand block + nav, around the routed page.
-import { AppShell, BrandBlock, MEDIA, useMediaQuery, type AppLinkProps } from '@joinr/ui';
+// Stage 5 (stage-5.md §6.6): the nav leaves out the pages switched off in Settings (Pages); a
+// switched-off page opened by a link still renders, under a note that says so.
+import { AppShell, BrandBlock, Callout, MEDIA, useMediaQuery, type AppLinkProps } from '@joinr/ui';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
-import type { JSX } from 'react';
+import { useMemo, type JSX } from 'react';
 import { useStatus } from '../api/hooks';
 import { pageForPath } from '../pages';
 import { useDocumentTitle } from './documentTitle';
 import { freshnessOf } from './freshness';
-import { NAV, SECONDARY_NAV, titleForPath } from './nav';
+import { SECONDARY_NAV, navFor, pageSwitchedOff, titleForPath } from './nav';
+
+/** Shown above a page that is switched off in Settings (Pages). */
+export const SWITCHED_OFF_NOTE = 'This page is switched off in Settings (Pages).';
+
+function SwitchedOffNote(): JSX.Element {
+  return (
+    <Callout kind="note" title="Page switched off">
+      <p>
+        {SWITCHED_OFF_NOTE}{' '}
+        <Link to="/settings" hash="features">
+          Change it in Settings
+        </Link>
+      </p>
+    </Callout>
+  );
+}
 
 /** Adapts AppShell's plain links to TanStack Router (client-side navigation, preloading). */
 function RouterLink({ href, children, ...rest }: AppLinkProps): JSX.Element {
@@ -25,17 +43,21 @@ export function RootLayout(): JSX.Element {
   const compact = useMediaQuery(MEDIA.phone);
 
   // Sub-routes (/records/trades, /import/runs/7) keep their page's nav item marked.
-  const activeHref = pageForPath(pathname)?.path ?? pathname;
+  const page = pageForPath(pathname);
+  const activeHref = page?.path ?? pathname;
   // Loading or failed → the empty text; the header never shows an error (stage-1.md §6.6).
   const { data: status } = useStatus();
   const freshness = freshnessOf(status, new Date());
+  const features = status?.features;
+  const nav = useMemo(() => navFor(features), [features]);
+  const switchedOff = page !== undefined && pageSwitchedOff(page.id, features);
 
   useDocumentTitle(pageTitle);
 
   return (
     <AppShell
       brand={<BrandBlock size={compact ? 'sm' : 'md'} />}
-      nav={NAV}
+      nav={nav}
       secondaryNav={SECONDARY_NAV}
       activeHref={activeHref}
       pageTitle={pageTitle}
@@ -43,6 +65,7 @@ export function RootLayout(): JSX.Element {
       footer={{ version: __APP_VERSION__, right: freshness.footer }}
       linkComponent={RouterLink}
     >
+      {switchedOff ? <SwitchedOffNote /> : null}
       <Outlet />
     </AppShell>
   );

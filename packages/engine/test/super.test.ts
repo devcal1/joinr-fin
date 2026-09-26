@@ -980,3 +980,147 @@ describe('computeSuper: the snapshot and the chart (§2.5 steps 8–9)', () => {
     expect(() => computeSuper(input({ grossAnnualSalaryCents: 1.5 }))).toThrow(RangeError);
   });
 });
+
+describe('computeSuper: measured-through dates (stage-5.md §2.11, D88a)', () => {
+  /** June baseline; July recorded late on 3 August with balances measured to 31 July; August. */
+  const CARRY_FUND = fund(
+    1,
+    [
+      ['2026-06-30', 10_000_000],
+      ['2026-07-31', 10_200_000],
+      ['2026-08-31', 10_400_000],
+    ],
+    { receivesSg: true },
+  );
+  const carrySnaps = (julyMeasured: string | null, augustMeasured: string | null = null) => [
+    { ...snap('2026-06-30', 10_000_000), measuredThrough: null },
+    {
+      periodMonth: '2026-07',
+      runDate: '2026-08-03',
+      superValueCents: 10_200_000,
+      measuredThrough: julyMeasured,
+    },
+    { ...snap('2026-08-31', 10_400_000), measuredThrough: augustMeasured },
+  ];
+  const carry = (julyMeasured: string | null, over: Partial<SuperInput> = {}) =>
+    computeSuper(
+      input({
+        asOf: '2026-08-31',
+        snapshots: carrySnaps(julyMeasured),
+        funds: [CARRY_FUND],
+        contributions: [contribution(1, '2026-08-02', 'after_tax', 50_000, 1)],
+        ...over,
+      }),
+    );
+
+  it('carries the SG and contributions after the measured date into the next month; the gains add up', () => {
+    const measured = carry('2026-07-31');
+    const plain = carry(null);
+    const jul = period(measured, '2026-07');
+    const aug = period(measured, '2026-08');
+    // July's gain counts July's SG only; August's counts August's SG and the 2 August contribution.
+    expect(jul.gainFlows).toMatchObject({ sgFundCents: SG_FUND, memberFundCents: 0 });
+    expect(aug.gainFlows).toMatchObject({ sgFundCents: SG_FUND, memberFundCents: 50_000 });
+    expect(jul.gainCents).toBe(200_000 - SG_FUND);
+    expect(aug.gainCents).toBe(200_000 - SG_FUND - 50_000);
+    // Without the carry the window runs to the run date (3 August): 3 days of August's SG and the
+    // contribution land in July.
+    expect(period(plain, '2026-07').gainFlows).toMatchObject({
+      sgFundCents: 111_871,
+      memberFundCents: 50_000,
+    });
+    expect(period(plain, '2026-08').gainFlows).toMatchObject({
+      sgFundCents: 92_129,
+      memberFundCents: 0,
+    });
+    const total = (r: ReturnType<typeof computeSuper>) =>
+      period(r, '2026-07').gainCents! + period(r, '2026-08').gainCents!;
+    expect(total(measured)).toBe(total(plain));
+    // The savings side keeps the run-date windows (D79).
+    expect(jul.flows).toEqual(period(plain, '2026-07').flows);
+    expect(jul.gainFrom).toBe('2026-06-30');
+    expect(aug.gainFrom).toBe('2026-08-03');
+  });
+
+  it('reproduces Stage 4 exactly with null or absent measured dates', () => {
+    const absent = computeSuper(input());
+    const nulls = computeSuper(
+      input({ snapshots: SNAPSHOTS.map((s) => ({ ...s, measuredThrough: null })) }),
+    );
+    expect(nulls).toEqual(absent);
+    // A measured date equal to the run date is the same as none.
+    const same = computeSuper(
+      input({ snapshots: SNAPSHOTS.map((s) => ({ ...s, measuredThrough: s.runDate })) }),
+    );
+    expect(same.periods).toEqual(absent.periods);
+  });
+
+  it('clamps the measured dates: never before the previous valuation point, never after the run date', () => {
+    // August's stored date is before July's: its window is empty (no SG counted twice).
+    const back = computeSuper(
+      input({
+        asOf: '2026-08-31',
+        snapshots: carrySnaps('2026-07-31', '2026-07-20'),
+        funds: [CARRY_FUND],
+        contributions: [],
+      }),
+    );
+    expect(period(back, '2026-07').gainFlows).toMatchObject({ sgFundCents: SG_FUND });
+    expect(period(back, '2026-08').gainFlows).toMatchObject({ sgFundCents: 0, memberFundCents: 0 });
+    // A date after the run date reads as the run date.
+    const late = computeSuper(
+      input({
+        asOf: '2026-08-31',
+        snapshots: carrySnaps('2026-08-10'),
+        funds: [CARRY_FUND],
+        contributions: [],
+      }),
+    );
+    expect(period(late, '2026-07').gainFlows).toEqual(
+      period(carry(null, { contributions: [] }), '2026-07').gainFlows,
+    );
+  });
+
+  it('starts the provisional gain at the previous valuation point’s measured date', () => {
+    const r = computeSuper(
+      input({
+        asOf: '2026-08-20',
+        snapshots: carrySnaps('2026-07-31').slice(0, 2),
+        funds: [
+          fund(
+            1,
+            [
+              ['2026-06-30', 10_000_000],
+              ['2026-07-31', 10_200_000],
+              ['2026-08-15', 10_400_000],
+            ],
+            { receivesSg: true },
+          ),
+        ],
+        contributions: [],
+      }),
+    );
+    const p = r.periods.at(-1)!;
+    expect(p.status).toBe('provisional');
+    // (31/07, 15/08]: 15 days of August's SG (not (03/08, 15/08]).
+    // 120,000 × 15 ÷ 31 × 0.85 = 49,354.84 → 49,355.
+    expect(p.gainFlows?.sgFundCents).toBe(49_355);
+    expect(p.gainCents).toBe(200_000 - p.gainFlows!.sgFundCents);
+    expect(r.measuredThrough).toBe('2026-08-15');
+  });
+
+  it('reports the provisional cut-off: updated, not updated, and none', () => {
+    // Updated: the oldest latest balance of the open funds.
+    expect(computeSuper(input()).measuredThrough).toBe('2026-07-15');
+    // Not updated (no entry since the last run): still the latest balance date.
+    const stale = computeSuper(
+      input({ funds: [fund(1, [['2026-06-30', 10_300_000]], { receivesSg: true })] }),
+    );
+    expect(stale.flags).toContain('balances_not_updated');
+    expect(stale.measuredThrough).toBe('2026-06-30');
+    // No provisional period (asOf = the last run), no fund with a balance, or no snapshot.
+    expect(computeSuper(input({ asOf: '2026-06-30' })).measuredThrough).toBeNull();
+    expect(computeSuper(input({ funds: [fund(1, [])] })).measuredThrough).toBeNull();
+    expect(computeSuper(input({ snapshots: [] })).measuredThrough).toBeNull();
+  });
+});

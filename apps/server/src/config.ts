@@ -49,6 +49,12 @@ export interface Config {
   importCorrections: CorrectionsSetting;
   /** The folder holding pnpm-workspace.yaml; null outside a checkout (the Docker image). */
   repoRoot: string | null;
+  /**
+   * Stage 5 (stage-5.md §4.6, D84): `AUTO_RECORD` (true|false|1|0|yes|no) overrides the
+   * `history.autoRecord` setting and locks it; null (unset, and always under NODE_ENV=test) lets
+   * the setting decide (default off).
+   */
+  autoRecord: boolean | null;
 }
 
 export const DEFAULTS = {
@@ -109,6 +115,7 @@ const envSchema = z.object({
     .enum(MARKET_DATA_MODES, { error: `must be one of ${MARKET_DATA_MODES.join(', ')}` })
     .optional(),
   IMPORT_CORRECTIONS_FILE: z.string().optional(),
+  AUTO_RECORD: booleanFlag.optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -199,5 +206,6 @@ export function loadConfig(
       e.MARKET_DATA_MODE ?? (isTest ? TEST_DEFAULTS.marketDataMode : DEFAULTS.marketDataMode),
     importCorrections: correctionsSetting(e.IMPORT_CORRECTIONS_FILE, base.repoRoot),
     repoRoot: base.workspaceRoot,
+    autoRecord: isTest ? null : (e.AUTO_RECORD ?? null),
   };
 }

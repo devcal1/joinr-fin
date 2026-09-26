@@ -76,7 +76,8 @@ export type UnitOfMeasure = (typeof UNITS_OF_MEASURE)[number];
 export const PAYMENT_FREQUENCIES = ['weekly', 'fortnightly', 'monthly'] as const;
 export type PaymentFrequency = (typeof PAYMENT_FREQUENCIES)[number];
 
-export const SNAPSHOT_SOURCES = ['migrated', 'recorded', 'lookback'] as const;
+/** Stage 5 appends 'late' (D82: caught up at start-up or at a later wake-up). */
+export const SNAPSHOT_SOURCES = ['migrated', 'recorded', 'lookback', 'late'] as const;
 export type SnapshotSource = (typeof SNAPSHOT_SOURCES)[number];
 
 export const RUN_STATUSES = ['running', 'succeeded', 'failed'] as const;
@@ -92,7 +93,7 @@ export const JOB_TRIGGERS = ['schedule', 'startup', 'manual', 'import'] as const
 export type JobTrigger = (typeof JOB_TRIGGERS)[number];
 
 /** Stage 3 adds 'dividends' (the dividend-events job); Stage 5 adds 'snapshot', Stage 7 'backup'. */
-export const JOB_NAMES = ['prices', 'dividends'] as const;
+export const JOB_NAMES = ['prices', 'dividends', 'snapshot'] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
 export const CHECK_STATUSES = ['match', 'explained', 'unexplained', 'suspect', 'info'] as const;
@@ -317,3 +318,49 @@ export type LoanFlag = (typeof LOAN_FLAGS)[number];
 /** A loan balance-log entry's checks (§2.6 step 3). */
 export const LOAN_ENTRY_FLAGS = ['repayments_below_principal', 'balance_increased'] as const;
 export type LoanEntryFlag = (typeof LOAN_ENTRY_FLAGS)[number];
+
+// ─── Stage 5: history, net worth and settings (stage-5.md §3.2) ─────────────────────────────────
+
+/** What a snapshot_audit row records. */
+export const SNAPSHOT_AUDIT_ACTIONS = ['record', 'correct', 'delete'] as const;
+export type SnapshotAuditAction = (typeof SNAPSHOT_AUDIT_ACTIONS)[number];
+
+/** Who started a record (a correction or a delete is always 'manual'). */
+export const RECORD_TRIGGERS = ['manual', 'schedule', 'startup'] as const;
+export type RecordTrigger = (typeof RECORD_TRIGGERS)[number];
+
+/** The dashboard's asset classes (no folded class: D93). */
+export const NET_WORTH_CLASSES = [
+  'etf',
+  'stock',
+  'managed_fund',
+  'crypto',
+  'cash',
+  'offsets',
+  'other_assets',
+  'super',
+  'property',
+] as const;
+export type NetWorthClass = (typeof NET_WORTH_CLASSES)[number];
+
+/** The dashboard's liabilities (other_debts: History U, LiabilitiesDebts, not rebuilt; D2). */
+export const NET_WORTH_LIABILITIES = ['mortgages', 'cash_debit', 'other_debts'] as const;
+export type NetWorthLiability = (typeof NET_WORTH_LIABILITIES)[number];
+
+/** The snapshot columns the consistency check recomputes: the 9 derived + the 4 movement columns. */
+export const SNAPSHOT_CHECK_COLUMNS = [
+  'stocksGainRatio',
+  'etfGainRatio',
+  'cryptoGainRatio',
+  'cashGainCents',
+  'cashIncreaseRatio',
+  'superGainRatio',
+  'propertyEquityCents',
+  'propertyGainRatio',
+  'mfGainRatio',
+  'stocksMovementsCents',
+  'etfMovementsCents',
+  'cryptoMovementsCents',
+  'mfMovementsCents',
+] as const;
+export type SnapshotCheckColumn = (typeof SNAPSHOT_CHECK_COLUMNS)[number];

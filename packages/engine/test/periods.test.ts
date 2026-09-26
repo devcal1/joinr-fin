@@ -90,6 +90,22 @@ describe('periodWindows (§2.3)', () => {
     expect(provisionalMonth([snap('2026-12', '2026-12-05')], '2026-12-20')).toBe('2027-01');
   });
 
+  it('names a gap month the next month to record (stage-5.md §11 fix 9), not the calendar month', () => {
+    // August was never recorded: the provisional period is August until it is.
+    const snaps = [snap('2026-06', '2026-06-30'), snap('2026-07', '2026-07-31')];
+    expect(provisionalMonth(snaps, '2026-09-24')).toBe('2026-08');
+    expect(periodWindows(snaps, '2026-09-24', true).at(-1)).toMatchObject({
+      periodMonth: '2026-08',
+      after: '2026-07-31',
+      through: '2026-09-24',
+      status: 'provisional',
+    });
+    // With no gap the two rules agree: the as-of month.
+    expect(provisionalMonth([...snaps, snap('2026-08', '2026-08-31')], '2026-09-24')).toBe(
+      '2026-09',
+    );
+  });
+
   it('buckets a day into the window that holds it; after asOf or before the start is outside', () => {
     const w = periodWindows(
       [snap('2026-01', '2026-01-15'), snap('2026-02', '2026-02-15')],

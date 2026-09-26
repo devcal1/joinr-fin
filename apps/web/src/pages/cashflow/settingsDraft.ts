@@ -21,7 +21,7 @@ export type SettingDraft = number | string | null;
 
 export type SettingDrafts = Partial<Record<EditableSettingKey, SettingDraft>>;
 
-/** Enum options with their words (only the enums the pages edit). */
+/** Enum options with their words (every enum setting; Stage 5 adds the Settings page's). */
 export const ENUM_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'pay.frequency': PAY_FREQUENCY_LABELS,
   'savings.yearBasis': YEAR_BASIS_LABELS,
@@ -29,6 +29,13 @@ export const ENUM_LABELS: Readonly<Record<string, Readonly<Record<string, string
   'super.importedContributionType': {
     salary_sacrifice: 'Salary sacrifice',
     after_tax: 'After-tax',
+  },
+  // Stage 5 (stage-5.md §6.5): the Settings page edits every enum.
+  'charts.dateUnit': { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' },
+  'investing.allocationAggressiveness': {
+    light: 'Light',
+    normal: 'Normal',
+    aggressive: 'Aggressive',
   },
 };
 

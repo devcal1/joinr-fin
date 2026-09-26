@@ -15,6 +15,7 @@ const MUTATING_SPECS = [
   /trades\.spec\.ts/,
   /cashflow-mutations\.spec\.ts/,
   /assets-mutations\.spec\.ts/,
+  /history-mutations\.spec\.ts/,
 ];
 
 export default defineConfig({
@@ -70,6 +71,15 @@ export default defineConfig({
       use: { viewport: { width: 1440, height: 900 } },
       testMatch: /assets-mutations\.spec\.ts/,
       dependencies: ['cashflow-mutations'],
+    },
+    // Recording, correcting and deleting a month (and the one app-only setting it flips) are app
+    // data too, so the History mutations run alone after the assets mutations: the four mutating
+    // projects form one chain and never overlap (stage-5.md §7.8 step 5).
+    {
+      name: 'history-mutations',
+      use: { viewport: { width: 1440, height: 900 } },
+      testMatch: /history-mutations\.spec\.ts/,
+      dependencies: ['assets-mutations'],
     },
   ],
   webServer: {

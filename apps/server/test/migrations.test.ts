@@ -1,8 +1,9 @@
 // Migrations are append-only (stage-1.md §2.1, §7.2 step 3; stage-2.md §3.1; stage-3.md §3.1;
-// stage-4.md §3.1): a fresh database reaches every committed migration, Stage 0–3 databases
-// upgrade cleanly and keep their data (0003 converts cash balances and side income; 0004 converts
-// other-asset prices, super balances and contributions, valuations and loan balances), and the FKs
-// behave as specified. Counts come from COMMITTED_MIGRATION_COUNT, never literals.
+// stage-4.md §3.1; stage-5.md §3.1): a fresh database reaches every committed migration, Stage 0–4
+// databases upgrade cleanly and keep their data (0003 converts cash balances and side income; 0004
+// converts other-asset prices, super balances and contributions, valuations and loan balances; 0005
+// adds the snapshot extras, the audit log and the identity trigger), and the FKs behave as
+// specified. Counts come from COMMITTED_MIGRATION_COUNT, never literals.
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -67,6 +68,26 @@ const STAGE0_TAGS = ['0000_app_meta'];
 const STAGE1_TAGS = ['0000_app_meta', '0001_stage1_core'];
 const STAGE2_TAGS = ['0000_app_meta', '0001_stage1_core', '0002_stage2_investments'];
 const STAGE3_TAGS = [...STAGE2_TAGS, '0003_stage3_cashflow'];
+const STAGE4_TAGS = [...STAGE3_TAGS, '0004_stage4_assets'];
+
+/** The snapshot columns migration 0005 adds (stage-5.md §3.1). */
+const STAGE5_SNAPSHOT_COLUMNS = [
+  'offset_cents',
+  'mortgage_offset_cents',
+  'cash_debt_cents',
+  'super_measured_through',
+  'note',
+  'revision',
+];
+/** What 0005 gives an existing snapshot row: null extras and revision 0. */
+const STAGE5_SNAPSHOT_DEFAULTS: Record<string, unknown> = {
+  offset_cents: null,
+  mortgage_offset_cents: null,
+  cash_debt_cents: null,
+  super_measured_through: null,
+  note: null,
+  revision: 0,
+};
 
 /** The tables migration 0003 adds (stage-3.md §3.1). */
 const STAGE3_TABLES = [
@@ -118,6 +139,7 @@ function stage1SeedDump(): DomainDump {
     const without = (rows: Row[], cols: string[]) =>
       rows.map((row) => Object.fromEntries(Object.entries(row).filter(([k]) => !cols.includes(k))));
     dump.other_assets = without(dump.other_assets!, STAGE4_OTHER_ASSET_COLUMNS);
+    dump.snapshots = without(dump.snapshots!, STAGE5_SNAPSHOT_COLUMNS);
     dump.super_funds = without(dump.super_funds!, STAGE4_SUPER_FUND_COLUMNS);
     dump.super_entries = dump
       .super_entries!.filter((e) => !String(e.sheet_ref).startsWith('History!R'))
@@ -434,6 +456,142 @@ describe('migrations', () => {
       'source',
       'fetched_at',
     ]);
+    // Stage 5 (stage-5.md §3.1).
+    expect(columnNames(database, 'snapshots')).toEqual(
+      expect.arrayContaining(STAGE5_SNAPSHOT_COLUMNS),
+    );
+    expect(columnNames(database, 'snapshot_audit')).toEqual([
+      'id',
+      'period_month',
+      'snapshot_id',
+      'action',
+      'trigger',
+      'at',
+      'changes_json',
+      'snapshot_json',
+      'note',
+      'detail_json',
+    ]);
+    const indexes = database.sqlite
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'snapshot_audit'",
+      )
+      .all() as { name: string }[];
+    expect(indexes.map((i) => i.name)).toContain('snapshot_audit_period_idx');
+    const triggers = database.sqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+      .all() as { name: string }[];
+    expect(triggers.map((t) => t.name)).toEqual(['snapshots_identity_immutable']);
+  });
+
+  it('0005 holds only CREATE TABLE, CREATE INDEX, ALTER TABLE … ADD and the identity trigger', () => {
+    const text = readFileSync(join(MIGRATIONS_DIR, '0005_stage5_history.sql'), 'utf8');
+    expect(text).not.toMatch(/__new_/);
+    expect(text).not.toMatch(/PRAGMA/i);
+    expect(text).not.toMatch(/DROP /i);
+    expect(text).not.toMatch(/^(INSERT|UPDATE|DELETE)/im);
+    const statements = text
+      .split('--> statement-breakpoint')
+      .map((chunk) =>
+        chunk
+          .split('\n')
+          .filter((line) => !line.trim().startsWith('--'))
+          .join('\n')
+          .trim(),
+      )
+      .filter((chunk) => chunk !== '');
+    for (const st of statements.slice(0, -1)) {
+      expect(st, st.slice(0, 60)).toMatch(/^(CREATE TABLE|CREATE INDEX|ALTER TABLE `\w+` ADD)/);
+    }
+    expect(statements.at(-1)).toMatch(
+      /^CREATE TRIGGER `snapshots_identity_immutable` BEFORE UPDATE OF/,
+    );
+  });
+
+  describe('0005 upgrades a Stage 4 database with data (stage-5.md §3.1)', () => {
+    const all = (database: AppDatabase, table: string): Row[] =>
+      database.sqlite.prepare(`SELECT * FROM "${table}" ORDER BY rowid`).all() as Row[];
+
+    /** A database stopped at 0004 with its own raw snapshots (two import rows, one app row). */
+    function stage4Database(dir: string, withAppRow: boolean): Row[] {
+      const first = open(dir);
+      expect(runMigrations(first, migrationsDirUpTo(STAGE4_TAGS))).toEqual({
+        applied: 5,
+        total: 5,
+      });
+      expect(columnNames(first, 'snapshots')).not.toContain('revision');
+      expect(tableNames(first)).not.toContain('snapshot_audit');
+      const insert = first.sqlite.prepare(
+        `INSERT INTO snapshots (id, run_date, period_month, source, recorded_at, origin, sheet_ref,
+           stocks_value_cents, stocks_gain_cents, stocks_gain_ratio, cash_value_cents,
+           cash_gain_cents, cash_increase_ratio, super_value_cents, mortgage_balance_cents,
+           property_equity_cents)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      // prettier-ignore
+      insert.run(1, '2026-06-30', '2026-06', 'migrated', null, 'import', 'History!A3', 150000, 10000, '0.0714285714286', 2500000, null, '0', 5000000, -40000000, 20000000);
+      // prettier-ignore
+      insert.run(2, '2026-07-31', '2026-07', 'migrated', null, 'import', 'History!A4', 160000, 11000, '0.0738255033557', 2550000, 50000, '0.02', 5030000, -39900000, 20100000);
+      if (withAppRow) {
+        // prettier-ignore
+        insert.run(3, '2026-08-31', '2026-08', 'recorded', '2026-08-31T13:00:00.000Z', 'app', null, 170000, 12000, '0.0759493670886', 2600000, 50000, '0.0196078431373', 5060000, -39800000, 20200000);
+      }
+      const before = all(first, 'snapshots');
+      expect(hasAppData(first.db)).toBe(withAppRow);
+      closeDatabase(first);
+      return before;
+    }
+
+    it.each([false, true])(
+      'keeps every snapshot value, null extras and revision 0, and hasAppData (app row: %s)',
+      (withAppRow) => {
+        const dir = join(tempDir, `stage4-${String(withAppRow)}`);
+        const before = stage4Database(dir, withAppRow);
+        const second = open(dir);
+        expect(runMigrations(second, MIGRATIONS_DIR)).toEqual({
+          applied: COMMITTED_MIGRATION_COUNT - 5,
+          total: COMMITTED_MIGRATION_COUNT,
+        });
+        expect(all(second, 'snapshots')).toEqual(
+          before.map((row) => ({ ...row, ...STAGE5_SNAPSHOT_DEFAULTS })),
+        );
+        expect(all(second, 'snapshot_audit')).toEqual([]);
+        expect(hasAppData(second.db)).toBe(withAppRow);
+      },
+    );
+  });
+
+  it('the identity trigger refuses a change of run date, month, source or recorded time', () => {
+    const database = open();
+    runMigrations(database, MIGRATIONS_DIR);
+    database.sqlite
+      .prepare(
+        "INSERT INTO snapshots (id, run_date, period_month, source, origin) VALUES (1, '2026-07-31', '2026-07', 'recorded', 'app')",
+      )
+      .run();
+    for (const [column, value] of [
+      ['run_date', '2026-08-01'],
+      ['period_month', '2026-08'],
+      ['source', 'late'],
+      ['recorded_at', '2026-08-01T00:00:00.000Z'],
+    ] as const) {
+      expect(
+        () => database.sqlite.prepare(`UPDATE snapshots SET ${column} = ? WHERE id = 1`).run(value),
+        column,
+      ).toThrow('snapshot identity is immutable');
+    }
+    // A figure update (a correction) is allowed.
+    database.sqlite
+      .prepare(
+        'UPDATE snapshots SET cash_value_cents = 100000, revision = revision + 1 WHERE id = 1',
+      )
+      .run();
+    expect(
+      database.sqlite.prepare('SELECT run_date, cash_value_cents, revision FROM snapshots').get(),
+    ).toEqual({ run_date: '2026-07-31', cash_value_cents: 100000, revision: 1 });
+    // A delete is allowed too (the latest app-recorded month, D92).
+    database.sqlite.prepare('DELETE FROM snapshots WHERE id = 1').run();
+    expect(database.sqlite.prepare('SELECT COUNT(*) AS n FROM snapshots').get()).toEqual({ n: 0 });
   });
 
   it('0004 holds only CREATE TABLE, CREATE INDEX, ALTER TABLE … ADD and the data statements', () => {
@@ -513,6 +671,8 @@ describe('migrations', () => {
       // 0004 (stage-4.md §3.1): the price, balance, valuation and loan entries and the contribution
       // dates and History-derived contributions (no import run in the dump: the dates fall back).
       ...expectedStage4Conversion(seeded, null),
+      // 0005 (stage-5.md §3.1): the snapshot extras null, revision 0.
+      snapshots: seeded.snapshots!.map((row) => ({ ...row, ...STAGE5_SNAPSHOT_DEFAULTS })),
     };
     expect(upgraded).toEqual(expected);
     // The seed's latest snapshot holds the funds' total and the property loans' total, so those

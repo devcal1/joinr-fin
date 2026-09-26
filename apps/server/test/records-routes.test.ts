@@ -19,7 +19,7 @@ import {
   superSgOverrides,
   yearlyExpenses,
 } from '@joinr/schema/db';
-import { seedGenericData, type SeedResult } from '@joinr/schema/testing';
+import { seedGenericData, seedRecordedMonth, type SeedResult } from '@joinr/schema/testing';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
@@ -127,6 +127,8 @@ function seedWithOverlays(): SeedResult {
     .all()
     .filter((l) => l.propertyId !== null);
   database.db.insert(loanOffsetLinks).values({ accountId: offset!.id, loanId: mortgage!.id }).run();
+  // Stage 5 (stage-5.md §3.6): one month recorded in the app (its extras and one audit row).
+  seedRecordedMonth(database.db, { periodMonth: '2026-08', runDate: '2026-08-31' });
   return seeded;
 }
 
@@ -172,6 +174,9 @@ describe('GET /api/records', () => {
     expect(counts['other-asset-sales']).toBe(1);
     expect(counts['super-sg-overrides']).toBe(1);
     expect(counts['loan-offset-links']).toBe(1);
+    // Stage 5: three imported months and one recorded month with its audit row.
+    expect(counts.snapshots).toBe(4);
+    expect(counts['snapshot-audit']).toBe(1);
   });
 });
 

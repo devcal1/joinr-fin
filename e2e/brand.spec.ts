@@ -1,7 +1,9 @@
-// Brand (stage-0 plan §6.5): header lockup, Net Worth hero band, brand screens, not-found, gallery.
+// Brand (stage-0 plan §6.5): header lockup, Net Worth hero band (the real dashboard since Stage 5),
+// brand screens, not-found, gallery.
 // Runs on desktop (1440×900) and phone (375×812). Screenshots are the demo's key frames.
 import { expect, test } from '@playwright/test';
 import { SCREEN_VARIANTS } from '../apps/web/src/pages';
+import { NOT_READY_REASON, SYNTHETIC_IMPORT_READY, ensureImported } from './records-support';
 import { expectGalleryItems, expectNoHorizontalScroll, shot, trackConsoleErrors } from './support';
 
 const BRAND_GALLERY = [
@@ -33,16 +35,19 @@ test('the header shows the brand block: wordmark + FINANCE', async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
-test('Net Worth shows the hero band with four KPI tiles', async ({ page }, testInfo) => {
+// The Stage 0 sample hero moved onto the real dashboard in Stage 5 (stage-5.md §7.8 step 3): the
+// same region, four tiles, the node line above them and the 140–200 px compact band on desktop.
+test('Net Worth shows the hero band with four KPI tiles', async ({ page, request }, testInfo) => {
+  test.skip(!SYNTHETIC_IMPORT_READY, NOT_READY_REASON);
+  await ensureImported(request);
   const errors = trackConsoleErrors(page);
   await page.goto('/');
-  const hero = page.getByRole('region', { name: 'Net worth summary (sample figures)' });
+  const hero = page.getByRole('region', { name: 'Net worth summary', exact: true });
   await expect(hero).toBeVisible();
   await expect(hero.getByRole('group')).toHaveCount(4);
-  await expect(hero.getByRole('group', { name: 'Net worth' })).toContainText('$12,480');
-  await expect(
-    page.getByText('Sample figures. The live dashboard arrives in Stage 5.'),
-  ).toBeVisible();
+  await expect(hero.getByRole('group', { name: 'Net worth', exact: true })).toContainText('$');
+  // The sample page and its Stage 5 promise are gone.
+  await expect(page.getByText(/Sample figures/)).toHaveCount(0);
 
   // The node line and its four nodes stay visible above the tiles.
   const firstTile = await hero.getByRole('group').first().boundingBox();

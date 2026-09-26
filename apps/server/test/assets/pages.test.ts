@@ -1149,12 +1149,12 @@ describe('GET /api/property: the page builder', () => {
 // ─── The Cash page's Stage 4 fields (§3.2, §6.6) ────────────────────────────────────────────────
 
 describe('GET /api/cash: the Stage 4 additive fields', () => {
-  it("maps an offset account's linked loan, and staticUntilStage4 is always false", () => {
+  it("maps an offset account's linked loan (staticUntilStage4 dropped in Stage 5)", () => {
     const account = idOf.offsetAccount();
     const mortgage = idOf.loan('Example property mortgage');
     t.db.insert(loanOffsetLinks).values({ accountId: account, loanId: mortgage }).run();
     const page = buildCashPage(createFinanceContext(deps(fakeEngine())));
-    expect(page.staticUntilStage4).toBe(false);
+    expect('staticUntilStage4' in page).toBe(false);
     const byId = new Map(page.accounts.map((a) => [a.id, a]));
     expect(byId.get(account)!.linkedLoan).toEqual({
       id: mortgage,

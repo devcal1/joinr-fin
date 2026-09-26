@@ -3,7 +3,7 @@
 // only; every cash projection uses the adjusted average cash gain and starts from `currentCashCents`
 // (available cash, D59). Sums of periods add the per-period cents; averages and ratios use the
 // unrounded values and round once.
-import { addMonthsIso, JoinrDecimal, type IsoDate } from '@joinr/schema';
+import { addMonthsIso, JoinrDecimal, monthEndOf, type IsoDate } from '@joinr/schema';
 import {
   addDaysIso,
   ceilWhole,
@@ -123,7 +123,13 @@ export function cashKpis(input: CashKpisInput): CashKpisResult {
   const recorded = periods.filter((p) => p.status !== 'provisional');
   const closed = periods.filter((p) => p.status === 'closed');
   const anchor = recorded.length === 0 ? null : recorded[recorded.length - 1]!.runDate;
-  const year = yearWindow(anchor ?? input.asOf, input.yearBasis);
+  // stage-5.md §2.3, §11 fix 20 (D29): the year of the last recorded period's month, and a period
+  // counts in the year its month ends in (a June recorded on 1 July stays in June's year).
+  const lastRecorded = recorded[recorded.length - 1];
+  const year = yearWindow(
+    lastRecorded === undefined ? input.asOf : monthEndOf(lastRecorded.periodMonth),
+    input.yearBasis,
+  );
   const current = dollarsOf(input.currentCashCents, 'current cash');
 
   // C17, C18, C37: the last closed period (the sheet took its live row, §11 fix 14).
@@ -166,7 +172,7 @@ export function cashKpis(input: CashKpisInput): CashKpisResult {
   );
 
   // C21, C42, C43 and the weighted rate (C38, §11 fix 15) over the year's closed periods.
-  const inYearClosed = closed.filter((p) => inYear(p.runDate, year));
+  const inYearClosed = closed.filter((p) => inYear(monthEndOf(p.periodMonth), year));
   const trend = savingsTrend(periods);
   const trendPerMonth = trend.slopePerDay === null ? null : trend.slopePerDay.times(DAYS_PER_MONTH);
 

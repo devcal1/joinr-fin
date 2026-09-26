@@ -10,6 +10,11 @@ export type ValueFormatter = (v: number) => string;
 export interface Datum {
   label: string;
   value: number;
+  /**
+   * Stage 5 (additive): the slice's own colour, so an entity keeps its colour whatever else is
+   * drawn (a hex or rgb(a) colour; anything else falls back to the palette slot).
+   */
+  color?: string;
 }
 
 /** One named series over the chart's categories. `null` is a gap (missing value). */
@@ -32,8 +37,11 @@ export interface ChartStateProps {
 export interface ChartLegendItem {
   name: string;
   color: string;
-  /** 'line' = a short stroke (lines, areas); 'swatch' = a small square (bars, slices). */
-  key: 'line' | 'swatch';
+  /**
+   * 'line' = a short stroke (lines, areas); 'swatch' = a small square (bars, slices);
+   * 'dashed-line' = a dashed stroke (a reference line such as a trend; Stage 5, additive).
+   */
+  key: 'line' | 'swatch' | 'dashed-line';
 }
 
 export interface EChartProps extends ChartStateProps {
@@ -58,11 +66,29 @@ export interface DonutChartProps extends ChartStateProps {
   /** Target values: the thin inner ring, matched to `data` by label. */
   target?: Datum[];
   valueFormatter?: ValueFormatter;
+  /**
+   * The most slices drawn before the rest fold into "Other" (Stage 5, additive). Default
+   * DONUT_MAX_SEGMENTS (6); clamped to CHART_PALETTE.length (8).
+   */
+  maxSegments?: number;
   /** Small uppercase label in the hole, e.g. "Total". */
   centerLabel?: string;
   /** Figure in the hole, e.g. "$12,480". */
   centerValue?: string;
   height?: number;
+}
+
+/** A line drawn over a bar chart's bars (Stage 5, additive): a rate or a trend. */
+export interface BarOverlay {
+  name: string;
+  /** Aligned to the chart's categories; null is a gap. */
+  values: (number | null)[];
+  /** 'secondary' draws it against a right-hand axis (`secondaryAxisFormatter`). Default 'value'. */
+  axis?: 'value' | 'secondary';
+  /** A 2px dashed line (a reference line such as a trend); its legend key is dashed. */
+  dashed?: boolean;
+  /** A hex or rgb(a) colour; default the next palette slot after the bars. */
+  color?: string;
 }
 
 export interface BarChartProps extends ChartStateProps {
@@ -78,6 +104,15 @@ export interface BarChartProps extends ChartStateProps {
   /** Value-axis tick formatter. Defaults to `valueFormatter`. */
   axisFormatter?: ValueFormatter;
   height?: number;
+  /** Lines drawn over the bars (Stage 5, additive). */
+  overlays?: BarOverlay[];
+  /**
+   * The right-hand axis's formatter (its ticks and the overlay's tooltip value), used only when an
+   * overlay asks for the secondary axis (Stage 5, additive). Default: the value formatter.
+   */
+  secondaryAxisFormatter?: ValueFormatter;
+  /** The name of a stacked chart's total in the tooltip (Stage 5, additive). Default "Total". */
+  totalLabel?: string;
 }
 
 export interface LineChartProps extends ChartStateProps {
@@ -100,6 +135,8 @@ export interface GaugeChartProps extends ChartStateProps {
   value: number;
   /** Target ratio, drawn as a tick across the track. */
   target?: number;
+  /** The target's words under the figure (default "Target"), e.g. "Budget plan". */
+  targetLabel?: string;
   /** Uppercase caption under the figure, e.g. "Savings rate". */
   label?: string;
   /** Default: formatPercent (one decimal). */

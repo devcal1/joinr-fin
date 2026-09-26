@@ -28,15 +28,6 @@ const CASH_SETTING_KEYS: readonly EditableSettingKey[] = [
   'goals.houseDepositInvestmentShare',
 ];
 
-const CASH_SETTING_LABELS: Partial<Record<EditableSettingKey, string>> = {
-  'savings.yearBasis': 'Year basis',
-  'savings.includeMortgagePrincipal': 'Count mortgage principal as savings',
-  'property.offsetsIncludeEmergencyFund': 'Offsets count toward the emergency fund',
-  'goals.cashSavingsTargetCents': 'Cash savings target',
-  'goals.eoyCashGoalCents': 'End-of-year cash goal',
-  'goals.houseDepositInvestmentShare': 'Share of investments counted toward goals',
-};
-
 const CASH_SETTING_HINTS: Partial<Record<EditableSettingKey, string>> = {
   'savings.yearBasis':
     'The year of the cash figures. Only this app uses it: kept when you re-import.',
@@ -169,7 +160,6 @@ export function CashPage(): JSX.Element {
             title="Settings for this page"
             role="reference"
             keys={CASH_SETTING_KEYS}
-            labels={CASH_SETTING_LABELS}
             hints={CASH_SETTING_HINTS}
             unset={CASH_SETTING_UNSET}
             slice={page.settings}

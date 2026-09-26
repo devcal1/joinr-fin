@@ -1,7 +1,7 @@
 // GET /api/status (stage-1.md §3.3) and the start-up stale-run cleanup (§4.8, §7.5 step 3).
 import { join } from 'node:path';
 import type { AppStatus } from '@joinr/schema';
-import { importRuns, jobRuns } from '@joinr/schema/db';
+import { importRuns, jobRuns, settings } from '@joinr/schema/db';
 import { seedGenericData } from '@joinr/schema/testing';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import { closeDatabase, openDatabase, runMigrations, type AppDatabase } from '..
 import { markInterruptedRuns } from '../src/db/queries/domain';
 import { registerErrorHandler } from '../src/errors';
 import type { MarketDataService, MarketDataStatus } from '../src/market/types';
-import { statusRoutes } from '../src/routes/status';
+import { FEATURE_KEYS, statusRoutes } from '../src/routes/status';
 import { makeTempDir, removeDir, testConfig } from './helpers';
 
 const NOW = new Date('2026-09-24T04:00:00.000Z');
@@ -65,7 +65,38 @@ describe('GET /api/status', () => {
       prices: { mode: 'off', lastRefreshAt: null, running: false },
       snapshots: { count: 0, latestPeriod: null },
       import: { lastRunAt: null, lastStatus: null, hasImportedData: false },
+      // Stage 5 (stage-5.md §3.2, §4.5): every feature on by default; the recorder off.
+      features: Object.fromEntries(FEATURE_KEYS.map((k) => [k, true])),
+      history: { autoRecord: false, nextRecordAt: null },
     });
+  });
+
+  it('reports a feature switched off and the recorder status (Stage 5)', async () => {
+    expect(FEATURE_KEYS).toHaveLength(11);
+    database.db
+      .insert(settings)
+      .values([
+        { key: 'features.crypto', valueJson: 'false', updatedAt: NOW.toISOString(), origin: 'app' },
+        { key: 'features.fire', valueJson: 'null', updatedAt: NOW.toISOString(), origin: 'import' },
+      ])
+      .run();
+    app = await buildApp({ config, db: database });
+    app.recorder.status = () => ({
+      autoRecord: { enabled: true, source: 'env' },
+      since: '2026-09-01',
+      recordHour: 23,
+      nextRunAt: '2026-09-30T23:00:00+10:00',
+      running: false,
+      lastRun: null,
+      blocked: null,
+    });
+    const status = await getStatus(app);
+    expect(status.features).toMatchObject({
+      'features.crypto': false,
+      'features.fire': true,
+      'features.cash': true,
+    });
+    expect(status.history).toEqual({ autoRecord: true, nextRecordAt: '2026-09-30T23:00:00+10:00' });
   });
 
   it('reports snapshots, the latest import run and imported data', async () => {
@@ -112,6 +143,8 @@ describe('GET /api/status', () => {
       lastRefreshAt: '2026-09-24T03:59:00.000Z',
       running: true,
     });
+    // A bare status plugin (no recorder decorated) leaves the recorder field out.
+    expect(res.json<AppStatus>().history).toBeUndefined();
   });
 });
 

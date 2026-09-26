@@ -2,7 +2,7 @@
 // totals and the emergency-fund test, the savings periods (raw and adjusted), the KPIs, the savings
 // goals and the charts. Every figure comes from the engine; the server adds names, notes, origins
 // and counts. Stage 4 (stage-4.md §3.2, §6.6): each account's linked loan (D67), the offsets part
-// of added investments, and `staticUntilStage4` always false.
+// of added investments. Stage 5 dropped `staticUntilStage4` (stage-5.md §3.2).
 import type {
   CashKpisResult,
   CashTotalsResult,
@@ -453,8 +453,5 @@ export function buildCashPage(ctx: FinanceContext): CashPageResponse {
     goals: buildGoals(ctx),
     charts: { unit, count, points: points.map(cashChartPointDto) },
     settings: settingsSliceDto(s, data.settingOrigins, CASH_PAGE_SETTING_KEYS),
-    // Stage 4: the provisional period's parts come from the live engines (always false; the field
-    // stays in the contract until Stage 5 may drop it).
-    staticUntilStage4: false,
   };
 }

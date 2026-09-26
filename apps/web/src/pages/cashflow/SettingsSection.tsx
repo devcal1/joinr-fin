@@ -1,6 +1,9 @@
-// The settings a cash-flow page edits (stage-3.md §3.3, §6.3 item 6, §6.5 item 3): a
+// The settings a page edits in context (stage-3.md §3.3, §6.3 item 6, §6.5 item 3): a
 // KeyValueTable with an Edit form that PATCHes the changed keys only. Workbook settings show the
 // workbook callout (§6.8); an app-only key (the year basis) shows the import-safe note instead.
+// Stage 5 (stage-5.md §6.5 items 10–11, D86): every field is named by its registry label (one
+// label per key, the same words as the Settings page), and the section links to the Settings
+// groups of the keys it shows ("In Settings: Pay and tax · Budget").
 import {
   isWorkbookSetting,
   settingDef,
@@ -25,6 +28,7 @@ import { Pencil } from 'lucide-react';
 import { useState, type JSX, type ReactNode } from 'react';
 import { usePatchSettings } from '../../api/hooks';
 import { splitFormErrors } from '../investments/apiErrors';
+import { InSettingsLine } from '../settings/SettingsLinks';
 import { InlineForm, KeptCallout, WorkbookCallout } from './forms';
 import {
   ENUM_LABELS,
@@ -43,8 +47,6 @@ export interface SettingsSectionProps {
   title: string;
   role: SectionRole;
   keys: readonly EditableSettingKey[];
-  /** The page's words for each key (default: the registry label). */
-  labels?: Partial<Record<EditableSettingKey, string>>;
   /** Extra text after a value in the table (e.g. the 365-day side-income figure). */
   extras?: Partial<Record<EditableSettingKey, ReactNode>>;
   hints?: Partial<Record<EditableSettingKey, string>>;
@@ -63,11 +65,9 @@ export interface SettingsSectionProps {
   children?: ReactNode;
 }
 
-function labelOf(
-  key: EditableSettingKey,
-  labels: Partial<Record<EditableSettingKey, string>> | undefined,
-): string {
-  return labels?.[key] ?? settingDef(key).label;
+/** One label per key (D86): the registry's, on every page and on the Settings page. */
+function labelOf(key: EditableSettingKey): string {
+  return settingDef(key).label;
 }
 
 /** A stored value, its default when unset, or "Not set" (with what the app then uses). */
@@ -99,7 +99,6 @@ export function SettingsSection({
   title,
   role,
   keys,
-  labels,
   extras,
   hints,
   placeholders,
@@ -113,7 +112,7 @@ export function SettingsSection({
   children,
 }: SettingsSectionProps): JSX.Element {
   const items: KeyValueItem[] = keys.map((key) => ({
-    label: labelOf(key, labels),
+    label: labelOf(key),
     value: (
       <span className="jf-app-kv-stack">
         <ValueText keyName={key} slice={slice} unset={unset?.[key]} />
@@ -145,7 +144,6 @@ export function SettingsSection({
         <SettingsForm
           title={title}
           keys={keys}
-          labels={labels}
           hints={hints}
           placeholders={placeholders}
           slice={slice}
@@ -155,6 +153,7 @@ export function SettingsSection({
       ) : (
         <KeyValueTable caption={title} items={items} />
       )}
+      <InSettingsLine keys={keys} />
       {children}
     </section>
   );
@@ -163,7 +162,6 @@ export function SettingsSection({
 interface SettingsFormProps {
   title: string;
   keys: readonly EditableSettingKey[];
-  labels?: Partial<Record<EditableSettingKey, string>>;
   hints?: Partial<Record<EditableSettingKey, string>>;
   placeholders?: Partial<Record<EditableSettingKey, string>>;
   slice: SettingsSliceDto;
@@ -174,7 +172,6 @@ interface SettingsFormProps {
 function SettingsForm({
   title,
   keys,
-  labels,
   hints,
   placeholders,
   slice,
@@ -237,7 +234,7 @@ function SettingsForm({
           <GridItem key={key} span={4}>
             <SettingField
               keyName={key}
-              label={labelOf(key, labels)}
+              label={labelOf(key)}
               hint={hints?.[key]}
               placeholder={placeholders?.[key]}
               draft={drafts[key] ?? null}

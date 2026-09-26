@@ -530,18 +530,32 @@ describe('next buy (§6.3 item 5)', () => {
     const missing = within(c).getByRole('note', { name: 'Inputs missing' });
     for (const label of [
       'Net pay per pay',
-      'Emergency fund (months)',
+      'Emergency fund (months of spending)',
       'Budget items',
       'Monthly snapshots',
     ]) {
       expect(within(missing).getByText(label)).toBeVisible();
     }
+    // stage-5.md §6.7: one link per missing setting's group, then the Budget and History pages.
     expect(missing).toHaveTextContent(
-      'Pay and budget settings and budget items are set on the Budget page; everything else in the workbook, or on the Settings page in Stage 5.',
+      'Set them in Settings (Pay and tax, Budget). Budget items are set on the Budget page. Monthly snapshots are recorded on the History page.',
+    );
+    expect(missing).not.toHaveTextContent('Stage 5');
+    expect(within(missing).getByRole('link', { name: 'Pay and tax' })).toHaveAttribute(
+      'href',
+      '/settings#pay',
+    );
+    expect(within(missing).getByRole('link', { name: 'Budget' })).toHaveAttribute(
+      'href',
+      '/settings#budget',
     );
     expect(within(missing).getByRole('link', { name: 'Budget page' })).toHaveAttribute(
       'href',
       '/budget',
+    );
+    expect(within(missing).getByRole('link', { name: 'History page' })).toHaveAttribute(
+      'href',
+      '/history',
     );
   });
 

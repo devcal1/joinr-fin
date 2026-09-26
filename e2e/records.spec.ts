@@ -65,9 +65,11 @@ test.describe('records', () => {
   }
 
   test('every record table renders from the real API', async ({ page }) => {
-    // 27 record pages since Stage 4 (stage-3.md §7.8 step 6, stage-4.md §7.8 step 6).
+    // 28 record pages since Stage 5 added snapshot-audit (stage-3.md §7.8 step 6, stage-4.md §7.8
+    // step 6, stage-5.md §7.8 step 6).
     test.setTimeout(120_000);
-    expect(RECORD_ENTITY_IDS).toHaveLength(27);
+    expect(RECORD_ENTITY_IDS).toHaveLength(28);
+    expect(RECORD_ENTITY_IDS).toContain('snapshot-audit');
     const errors = trackConsoleErrors(page);
     for (const id of RECORD_ENTITY_IDS) {
       const { label } = RECORD_ENTITIES[id];

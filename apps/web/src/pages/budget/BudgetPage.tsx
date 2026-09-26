@@ -33,18 +33,6 @@ const BUDGET_SETTING_KEYS: readonly EditableSettingKey[] = [
   'budget.useForInvestAmount',
 ];
 
-const BUDGET_SETTING_LABELS: Partial<Record<EditableSettingKey, string>> = {
-  'pay.frequency': 'Pay frequency',
-  'pay.netPayCents': 'Net pay per pay',
-  'pay.dayOfMonth': 'Pay day (day of the month)',
-  'pay.jobStartDate': 'Job start date',
-  'budget.includeSideIncome': 'Include side income',
-  'budget.emergencyFundMonths': 'Emergency fund (months of spending)',
-  'budget.emergencyFundOverrideCents': 'Emergency fund override',
-  'budget.autoInvestSplit': 'Automatic investment split',
-  'budget.useForInvestAmount': 'Use the budget for the amount to invest',
-};
-
 const BUDGET_SETTING_HINTS: Partial<Record<EditableSettingKey, string>> = {
   'pay.dayOfMonth': 'From 1 to 28; 0 when not paid on a fixed day',
   'budget.includeSideIncome': 'Adds the 365-day side-income average to monthly income',
@@ -114,7 +102,6 @@ export function BudgetPage(): JSX.Element {
             title="Income and settings"
             role="supporting"
             keys={BUDGET_SETTING_KEYS}
-            labels={BUDGET_SETTING_LABELS}
             hints={BUDGET_SETTING_HINTS}
             unset={BUDGET_SETTING_UNSET}
             extras={{

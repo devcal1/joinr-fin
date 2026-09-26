@@ -1,6 +1,6 @@
 // Domain-data helpers for the import flow (stage-1.md §3.4, §4.8) and the D34 deletion marker
 // (stage-2.md §3.3).
-import { isSettingKey, isWorkbookSetting } from '@joinr/schema';
+import { isPreferenceSettingKey, isSettingKey, isWorkbookSetting } from '@joinr/schema';
 import {
   appMeta,
   DOMAIN_TABLES_DELETE_ORDER,
@@ -86,7 +86,10 @@ export function hasDomainData(db: Db): boolean {
  * (a workbook row was deleted in the app). A re-import would undo these, so the upload route
  * refuses it (D34). An app-only setting (`savings.yearBasis`), the overlays (savings adjustments
  * and goals) and the dividend-events cache never count: an import never touches them
- * (stage-3.md §3.3 rule 2, §3.4).
+ * (stage-3.md §3.3 rule 2, §3.4). Stage 5 (stage-5.md §3.4): a recorded month counts (it is an
+ * `origin app` row of `snapshots`); the snapshot audit log and the recorder's `app_meta` keys never
+ * do, nor does an app edit of a preference key (`charts.*`, `features.*`: a re-import keeps it,
+ * D95).
  */
 export function hasAppData(db: Db | Tx): boolean {
   if (readAppEditMarker(db) !== null) return true;
@@ -104,7 +107,9 @@ export function hasAppData(db: Db | Tx): boolean {
     .from(settings)
     .where(eq(settings.origin, 'app'))
     .all();
-  return appSettings.some((s) => isSettingKey(s.key) && isWorkbookSetting(s.key));
+  return appSettings.some(
+    (s) => isSettingKey(s.key) && isWorkbookSetting(s.key) && !isPreferenceSettingKey(s.key),
+  );
 }
 
 /**

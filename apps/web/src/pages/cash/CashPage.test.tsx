@@ -63,7 +63,7 @@ describe('Cash page: states (§6.10)', () => {
     );
     expect(screen.getByRole('link', { name: 'Import page' })).toHaveAttribute('href', '/import');
     expect(screen.getByRole('note', { name: 'No recorded months' })).toHaveTextContent(
-      'Savings start after the first recorded month. Import the workbook for past months; recording arrives in Stage 5.',
+      'Savings start after the first recorded month. Import the workbook for past months, or record a month on the History page.',
     );
     expect(screen.getByText('No goals yet. Add one to track saving toward it.')).toBeVisible();
     // Nothing to update yet: only Add account.
@@ -168,7 +168,7 @@ describe('Cash page: tiles (§6.3 item 2)', () => {
       'Per month over the 10 months left after the last recorded month',
     );
     expect(within(eoy).getByTestId('eoy-anchor-note')).toHaveTextContent(
-      'Projected from the last recorded month (Aug 2026); recording a month arrives in Stage 5.',
+      'Projected from the last recorded month (Aug 2026).',
     );
   });
 
@@ -670,7 +670,7 @@ describe('Cash page: savings (§6.3 item 4, D51)', () => {
     expect(screen.queryByRole('note', { name: 'Adjustment without a period' })).toBeNull();
   });
 
-  it('charts and foot notes: the live point, and no Stage 4 note (staticUntilStage4 false)', async () => {
+  it('charts and foot notes: the live point, and no Stage 4 note', async () => {
     const { user } = await openCash();
     for (const title of ['Cash value history', 'Savings history', 'Savings rate']) {
       expect(screen.getByRole('region', { name: title })).toBeVisible();
@@ -684,7 +684,7 @@ describe('Cash page: savings (§6.3 item 4, D51)', () => {
     const main = screen.getByRole('main');
     expect(main).toHaveTextContent('The first recorded month is the baseline.');
     expect(main).toHaveTextContent(
-      'Recording a month arrives in Stage 5; until then the current period stays provisional.',
+      'The current period stays provisional until the month is recorded (History).',
     );
     // Stage 4 (stage-4.md §6.6): the live engines feed the provisional period; the note is gone.
     expect(main).not.toHaveTextContent(

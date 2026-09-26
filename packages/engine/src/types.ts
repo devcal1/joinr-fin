@@ -1,5 +1,6 @@
-// The engine's public types (stage-2.md §2.2, stage-3.md §2.2 and stage-4.md §2.2, FROZEN). Names,
-// fields and signatures here do not change; the engine owner adds internal modules freely.
+// The engine's public types (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2 and stage-5.md §2.2,
+// FROZEN). Names, fields and signatures here do not change; the engine owner adds internal modules
+// freely.
 // Imports: the `@joinr/schema` root only.
 import type {
   AllocationAggressiveness,
@@ -21,12 +22,16 @@ import type {
   LoanEntryFlag,
   LoanFlag,
   Metal,
+  NetWorthClass,
+  NetWorthLiability,
   OtherAssetFlag,
   PayFrequency,
   PaymentFrequency,
   PriceStatus,
   SavingsPeriodStatus,
   SettingKey,
+  SnapshotCheckColumn,
+  SnapshotSource,
   SuperCapStatus,
   SuperContributionType,
   SuperFlag,
@@ -1041,6 +1046,19 @@ export interface EngineApi {
   computeProperty: ComputePropertyFn;
   amortise: AmortiseFn;
   assetsSnapshotColumns: AssetsSnapshotColumnsFn;
+  // Stage 5 (stage-5.md §2.2).
+  composeSnapshot: ComposeSnapshotFn;
+  deriveSnapshotColumns: DeriveSnapshotColumnsFn;
+  checkSnapshots: CheckSnapshotsFn;
+  netWorthOf: NetWorthOfFn;
+  netWorthDashboard: NetWorthDashboardFn;
+  rollingNetWorth: RollingNetWorthFn;
+  aggregateSnapshots: AggregateSnapshotsFn;
+  linearTrend: LinearTrendFn;
+  nextRecordMonth: NextRecordMonthFn;
+  recordableMonths: RecordableMonthsFn;
+  recordingsDue: RecordingsDueFn;
+  suggestMarginalRate: SuggestMarginalRateFn;
 }
 
 // ═══ Stage 4: other assets, super and property (stage-4.md §2.2, FROZEN) ════════════════════════
@@ -1217,7 +1235,13 @@ export interface EngineSuperContribution {
 export interface SuperInput {
   asOf: IsoDate;
   /** History Q. */
-  snapshots: readonly { periodMonth: IsoMonth; runDate: IsoDate; superValueCents: Cents | null }[];
+  snapshots: readonly {
+    periodMonth: IsoMonth;
+    runDate: IsoDate;
+    superValueCents: Cents | null;
+    /** Stage 5 (D88a): the month's measured balance date (null/absent → runDate). */
+    measuredThrough?: IsoDate | null;
+  }[];
   funds: readonly EngineSuperFund[];
   /** Member contributions (never SG). */
   contributions: readonly EngineSuperContribution[];
@@ -1402,6 +1426,11 @@ export interface SuperResult {
     superGainRatio: DecimalString | null;
   };
   flags: SuperFlag[];
+  /**
+   * Stage 5 (D88a): the provisional period's D79 cut-off (null: no provisional period, or no open
+   * fund has a balance by asOf).
+   */
+  measuredThrough?: IsoDate | null;
 }
 
 // ─── Property and loans (§2.6, §2.7) ────────────────────────────────────────────────────────────
@@ -1648,3 +1677,409 @@ export type AssetsSnapshotColumnsFn = (i: {
   super: SuperResult;
   property: PropertiesResult;
 }) => AssetsSnapshotColumns;
+
+// ═══ Stage 5: history, net worth and settings (stage-5.md §2.2, FROZEN) ═════════════════════════
+// Stage 3–4 types changed additively: SuperInput.snapshots[].measuredThrough and
+// SuperResult.measuredThrough (D88a, above). SavingsSnapshotInput.offsetCents keeps its type; the
+// server now passes stored figures (§4.5).
+
+// ─── Snapshot figures (§2.3): one History row plus the Stage 5 extras; camelCase of the table ───
+
+export interface SnapshotFigures {
+  /** B, C, D, E. */
+  stocksValueCents: Cents | null;
+  stocksGainCents: Cents | null;
+  stocksGainRatio: DecimalString | null;
+  stocksMovementsCents: Cents | null;
+  /** F, G, H, I. */
+  etfValueCents: Cents | null;
+  etfGainCents: Cents | null;
+  etfGainRatio: DecimalString | null;
+  etfMovementsCents: Cents | null;
+  /** J, K, L, M. */
+  cryptoValueCents: Cents | null;
+  cryptoGainCents: Cents | null;
+  cryptoGainRatio: DecimalString | null;
+  cryptoMovementsCents: Cents | null;
+  /** N, O, P. */
+  cashValueCents: Cents | null;
+  cashGainCents: Cents | null;
+  cashIncreaseRatio: DecimalString | null;
+  /** Q, R, S, T. */
+  superValueCents: Cents | null;
+  superContribCents: Cents | null;
+  superGainCents: Cents | null;
+  superGainRatio: DecimalString | null;
+  /** U, V (0 when recorded: D2). */
+  liabilitiesBalanceCents: Cents | null;
+  liabilitiesPaidCents: Cents | null;
+  /** W. */
+  salaryMonthlyCents: Cents | null;
+  /** X … AE. */
+  propertyValueCents: Cents | null;
+  propertyPurchaseCents: Cents | null;
+  propertyEquityCents: Cents | null;
+  propertyGainCents: Cents | null;
+  mortgageBalanceCents: Cents | null;
+  mortgageInterestFeesCents: Cents | null;
+  mortgagePrincipalPaidCents: Cents | null;
+  propertyGainRatio: DecimalString | null;
+  /** AF, AG, AH, AI. */
+  mfValueCents: Cents | null;
+  mfGainCents: Cents | null;
+  mfGainRatio: DecimalString | null;
+  mfMovementsCents: Cents | null;
+  /** AJ, AK. */
+  otherValueCents: Cents | null;
+  otherGainCents: Cents | null;
+  // Stage 5 extras (migration 0005; null on migrated rows, §3.1).
+  /** D88b: Σ every offset account at the run date (cashTotals.offsetCents). */
+  offsetCents: Cents | null;
+  /** The offsets linked to property loans (already inside propertyEquityCents). */
+  mortgageOffsetCents: Cents | null;
+  /** Σ non-offset accounts with a negative balance (≤ 0; already inside cashValueCents). */
+  cashDebtCents: Cents | null;
+  /** D88a: the D79 cut-off when the month was recorded. */
+  superMeasuredThrough: IsoDate | null;
+}
+
+export interface EngineSnapshot extends SnapshotFigures {
+  periodMonth: IsoMonth;
+  runDate: IsoDate;
+  /** 'migrated' | 'recorded' | 'lookback' | 'late'. */
+  source: SnapshotSource;
+}
+
+// ─── The composer (§2.4) ────────────────────────────────────────────────────────────────────────
+
+export interface ComposeSnapshotInput {
+  periodMonth: IsoMonth;
+  /** The date the results below were computed at (asOf). */
+  runDate: IsoDate;
+  /** The latest snapshot before this one (run-date order). */
+  previous: { runDate: IsoDate; cashValueCents: Cents | null } | null;
+  investments: Readonly<Record<InstrumentKind, InvestmentsResult>>;
+  /** Every trade of the kind (movements). */
+  trades: Readonly<Record<InstrumentKind, readonly EngineTrade[]>>;
+  cash: CashTotalsResult;
+  cashAccounts: readonly EngineCashAccount[];
+  /** monthlyPayCents(the current pay settings). */
+  salaryMonthlyCents: Cents | null;
+  /** The Stage 4 seam at runDate. */
+  assets: AssetsSnapshotColumns;
+  /** SuperResult.measuredThrough at runDate. */
+  superMeasuredThrough: IsoDate | null;
+}
+
+// ─── Checks (§2.5) ──────────────────────────────────────────────────────────────────────────────
+
+export interface DerivedSnapshotColumns {
+  stocksGainRatio: DecimalString;
+  etfGainRatio: DecimalString;
+  cryptoGainRatio: DecimalString;
+  cashGainCents: Cents | null;
+  cashIncreaseRatio: DecimalString;
+  superGainRatio: DecimalString;
+  propertyEquityCents: Cents | null;
+  propertyGainRatio: DecimalString;
+  mfGainRatio: DecimalString;
+}
+
+export interface SnapshotDifference {
+  /** §3.2: the 9 derived + the 4 movement columns. */
+  column: SnapshotCheckColumn;
+  kind: 'derived' | 'movement';
+  /** Money columns. */
+  storedCents: Cents | null;
+  recomputedCents: Cents | null;
+  /** Ratio columns. */
+  storedRatio: DecimalString | null;
+  recomputedRatio: DecimalString | null;
+}
+
+export interface SnapshotCheckResult {
+  /** Cells. */
+  checked: number;
+  matched: number;
+  /** Run-date order, every snapshot. */
+  rows: {
+    periodMonth: IsoMonth;
+    runDate: IsoDate;
+    source: SnapshotSource;
+    checked: number;
+    differences: SnapshotDifference[];
+  }[];
+}
+
+// ─── Net worth (§2.6) ───────────────────────────────────────────────────────────────────────────
+
+export interface NetWorthBreakdown {
+  /** Net Worth L / D16: B + F + J + N + AF + AJ (cash net of accounts in debit). */
+  liquidCents: Cents;
+  /** Q. */
+  superCents: Cents;
+  /** X (gross value). */
+  propertyCents: Cents;
+  /** −|U| − |AB| (≤ 0; the gross mortgage, as the sheet's N). */
+  liabilitiesCents: Cents;
+  /** offsetCents ?? 0: every offset account (§2.6: linked ones net the mortgage). */
+  offsetsCents: Cents;
+  /** liquid + super + property + liabilities + offsets (the sheet's P + offsets). */
+  netWorthCents: Cents;
+  /** The value columns that were null and counted 0. */
+  missing: (keyof SnapshotFigures)[];
+}
+
+/** gain % = gain ÷ (value − gain); null when undefined. */
+export interface NetWorthClassRow {
+  key: NetWorthClass;
+  valueCents: Cents;
+  gainCents: Cents | null;
+  gainRatio: DecimalString | null;
+}
+
+export interface NetWorthLiabilityRow {
+  key: NetWorthLiability;
+  /** ≥ 0, the amount owed. */
+  balanceCents: Cents;
+  /**
+   * Mortgages: gross |AB| and the linked offsets applied (§2.6 step 3); cash_debit and
+   * other_debts: offset 0.
+   */
+  grossCents: Cents;
+  offsetCents: Cents;
+}
+
+/** live − base; ratio = cents ÷ |base| (null when base is 0). */
+export interface NetWorthChange {
+  base: { periodMonth: IsoMonth; runDate: IsoDate; netWorthCents: Cents } | null;
+  cents: Cents | null;
+  ratio: DecimalString | null;
+}
+
+export interface DistributionSlice {
+  key: NetWorthClass;
+  valueCents: Cents;
+  ratio: DecimalString;
+}
+
+export interface NetWorthDashboardInput {
+  asOf: IsoDate;
+  /** composeSnapshot at asOf. */
+  live: SnapshotFigures;
+  /** The provisional period's month (nextRecordMonth). */
+  liveMonth: IsoMonth;
+  snapshots: readonly EngineSnapshot[];
+  /** Display only (the per-loan lines); every figure comes from `live` (§2.6). */
+  property: PropertiesResult;
+  cashAccounts: readonly EngineCashAccount[];
+  /** The year savings rate (D52 basis) and the averages. */
+  kpis: CashKpisResult;
+  /** BudgetResult.plannedSavingsRatio (the gauge's target tick). */
+  plannedSavingsRatio: DecimalString | null;
+  /** The liquid allocation (Net Worth B36:E45). */
+  considerNext: ConsiderNextResult;
+}
+
+export interface NetWorthDashboardResult {
+  /** Of `live`. */
+  breakdown: NetWorthBreakdown;
+  /** assets − liabilities = breakdown.netWorthCents. */
+  assetsCents: Cents;
+  liabilitiesCents: Cents;
+  /** NET_WORTH_CLASSES order, every class (0 kept). */
+  classes: NetWorthClassRow[];
+  /** NET_WORTH_LIABILITIES order, every kind (0 kept). */
+  liabilities: NetWorthLiabilityRow[];
+  /** C13 (assets − super). */
+  assetsExSuperCents: Cents;
+  /** Base: the latest snapshot with runDate < asOf (§2.6 step 4). */
+  sinceLastRecord: NetWorthChange;
+  /** Base: the latest snapshot whose periodMonth ends before year.start. */
+  thisYear: NetWorthChange & { year: YearWindow };
+  distribution: {
+    /**
+     * Every class's net value before the drop (NET_WORTH_STACK_ORDER, 0 and negatives kept; the
+     * table view).
+     */
+    values: { key: NetWorthClass; valueCents: Cents }[];
+    /** Every net value > 0 (up to 8, no fold; D93), in NET_WORTH_STACK_ORDER (§2.6 step 6). */
+    slices: DistributionSlice[];
+    /** Net values < 0 (not drawable). */
+    excluded: { key: NetWorthClass; valueCents: Cents }[];
+    /** Σ slices (the donut's centre, §5). */
+    drawnCents: Cents;
+  };
+  /** cashKpis.yearSavingsRatio (D83, D52, D61). */
+  savingsRate: {
+    ratio: DecimalString | null;
+    rawRatio: DecimalString | null;
+    year: YearWindow;
+    periods: number;
+    targetRatio: DecimalString | null;
+  };
+  /** I1 fixed (§11 fix 7). */
+  averageSavings: { monthCents: Cents | null; yearCents: Cents | null; periods: number };
+  /** Passed through (the web shows it with the targets). */
+  allocation: ConsiderNextResult;
+}
+
+export interface RollingNetWorthRow {
+  periodMonth: IsoMonth;
+  /** Projected rows: null. */
+  runDate: IsoDate | null;
+  status: 'recorded' | 'live' | 'projected';
+  /** Recorded rows only. */
+  source: SnapshotSource | null;
+  /** Projected rows: null. */
+  breakdown: NetWorthBreakdown | null;
+  /** Q, R (vs the previous row). */
+  growthCents: Cents | null;
+  liquidGrowthCents: Cents | null;
+  /** S: the savings period's adjusted / raw ratio. */
+  savingsRatio: DecimalString | null;
+  rawSavingsRatio: DecimalString | null;
+  /** T: liquid while data exists, then the projection. */
+  projectedLiquidCents: Cents | null;
+}
+
+export interface RollingNetWorthInput {
+  snapshots: readonly EngineSnapshot[];
+  live: { periodMonth: IsoMonth; runDate: IsoDate; figures: SnapshotFigures } | null;
+  /** computeSavings(...).periods (matched by periodMonth). */
+  savings: readonly SavingsPeriod[];
+  /** Avg monthly savings (adjusted) and the horizon. */
+  projection: { monthlyCents: Cents | null; months: number };
+}
+
+// ─── Aggregation (§2.7) ─────────────────────────────────────────────────────────────────────────
+
+export interface SnapshotSeriesRow {
+  periodMonth: IsoMonth;
+  runDate: IsoDate;
+  live: boolean;
+  figures: SnapshotFigures;
+}
+
+export interface SnapshotGroup {
+  label: string;
+  period: IsoMonth;
+  date: IsoDate;
+  live: boolean;
+  rows: number;
+  /** Per SNAPSHOT_COLUMN_MODES; ratios recomputed from the group's cents. */
+  figures: SnapshotFigures;
+  /** Of `figures` (the group's last row). */
+  netWorth: NetWorthBreakdown;
+  /** Σ over the group's rows (vs each row's previous row). */
+  growthCents: Cents | null;
+  liquidGrowthCents: Cents | null;
+}
+
+// ─── Trend (§2.8) ───────────────────────────────────────────────────────────────────────────────
+
+export interface TrendResult {
+  /** One per input point (null where the input is null). */
+  fittedCents: (Cents | null)[];
+  /** Slope per day × 365.25 ÷ 12. */
+  slopePerMonthCents: Cents | null;
+  /** Non-null points used. */
+  points: number;
+}
+
+// ─── Recording rules (§2.9) ─────────────────────────────────────────────────────────────────────
+
+export interface RecordingDue {
+  periodMonth: IsoMonth;
+  source: 'recorded' | 'late';
+}
+
+export interface RecordingPlan {
+  /** Ascending. */
+  due: RecordingDue[];
+  /**
+   * The current month is due by the clock but an earlier recordable month is missing and not due
+   * (§2.9; D94).
+   */
+  blocked: { periodMonth: IsoMonth; missing: IsoMonth[] } | null;
+}
+
+// ─── Tax suggestion (§2.10) ─────────────────────────────────────────────────────────────────────
+
+export interface MarginalRateSuggestion {
+  /** asOf's FY (start year). */
+  financialYear: number;
+  /** The table used (the nearest earlier one past the end). */
+  tableFinancialYear: number;
+  /** False when asOf's FY is after the last table. */
+  tableCurrent: boolean;
+  incomeCents: Cents;
+  /**
+   * The band holding the income: thresholdCents < income ≤ toCents (display adds $1 to the
+   * threshold).
+   */
+  bracket: { thresholdCents: Cents; toCents: Cents | null; ratio: DecimalString };
+  bracketRatio: DecimalString;
+  /** The marginal levy rate: 0, 0.1 (shade-in) or 0.02. */
+  medicare: {
+    thresholdCents: Cents;
+    thresholdFinancialYear: number;
+    ratio: DecimalString;
+    band: 'none' | 'shade_in' | 'full';
+  };
+  /** bracket + medicare.ratio: the "suggested" rate (D90; the bracket alone is offered too). */
+  suggestedRatio: DecimalString;
+  /** On incomeCents, for the hint. */
+  incomeTaxCents: Cents;
+  medicareLevyCents: Cents;
+  /**
+   * LITO_PHASE_OUT_FROM < income ≤ LITO_PHASE_OUT_TO: the hint says the offset (not built) would
+   * add to the true marginal rate.
+   */
+  litoPhaseOut: boolean;
+}
+
+// ─── Stage 5 function signatures (FROZEN) ───────────────────────────────────────────────────────
+
+export type ComposeSnapshotFn = (input: ComposeSnapshotInput) => SnapshotFigures;
+/** previousCashValueCents undefined: no previous snapshot. */
+export type DeriveSnapshotColumnsFn = (i: {
+  figures: SnapshotFigures;
+  previousCashValueCents: Cents | null | undefined;
+}) => DerivedSnapshotColumns;
+export type CheckSnapshotsFn = (i: {
+  snapshots: readonly EngineSnapshot[];
+  trades: Readonly<Record<InstrumentKind, readonly EngineTrade[]>>;
+}) => SnapshotCheckResult;
+export type NetWorthOfFn = (figures: SnapshotFigures) => NetWorthBreakdown;
+export type NetWorthDashboardFn = (input: NetWorthDashboardInput) => NetWorthDashboardResult;
+export type RollingNetWorthFn = (input: RollingNetWorthInput) => RollingNetWorthRow[];
+export type AggregateSnapshotsFn = (i: {
+  rows: readonly SnapshotSeriesRow[];
+  unit: ChartDateUnit;
+  count: number | null;
+  yearBasis: YearBasis;
+}) => SnapshotGroup[];
+export type LinearTrendFn = (
+  points: readonly { date: IsoDate; valueCents: Cents | null }[],
+) => TrendResult;
+export type NextRecordMonthFn = (
+  snapshots: readonly { periodMonth: IsoMonth }[],
+  today: IsoDate,
+) => IsoMonth;
+export type RecordableMonthsFn = (
+  snapshots: readonly { periodMonth: IsoMonth }[],
+  today: IsoDate,
+) => IsoMonth[];
+/** autoRecordSince null → { due: [], blocked: null } (auto-record off). */
+export type RecordingsDueFn = (i: {
+  snapshots: readonly { periodMonth: IsoMonth }[];
+  today: IsoDate;
+  /** The server's clock says the record hour has passed (§4.6). */
+  recordTimeReached: boolean;
+  autoRecordSince: IsoDate | null;
+}) => RecordingPlan;
+export type SuggestMarginalRateFn = (i: {
+  incomeCents: Cents | null;
+  asOf: IsoDate;
+}) => MarginalRateSuggestion | null;

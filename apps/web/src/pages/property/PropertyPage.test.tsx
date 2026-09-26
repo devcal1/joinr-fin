@@ -67,8 +67,7 @@ describe('Property page: states (§6.9)', () => {
     expect(screen.queryByRole('button', { name: 'Update balances' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Update values' })).toBeNull();
     expect(
-      screen.getAllByText('History starts after the first recorded month (Stage 5 records months).')
-        .length,
+      screen.getAllByText('History starts after the first recorded month.').length,
     ).toBeGreaterThan(0);
   });
 

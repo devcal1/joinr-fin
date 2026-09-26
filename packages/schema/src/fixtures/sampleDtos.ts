@@ -44,6 +44,16 @@ const snapshotValues = (step: number): Cells =>
     ]),
   );
 
+/** Stage 5: a migrated month has no extras, no corrections and no note (stage-5.md §3.1). */
+const MIGRATED_EXTRAS: Cells = {
+  offset: null,
+  linkedOffsets: null,
+  cashInDebit: null,
+  superMeasuredTo: null,
+  revision: 0,
+  note: null,
+};
+
 /** Rows per entity (cells cover every registry column; some nulls on purpose). */
 // prettier-ignore
 const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
@@ -91,9 +101,10 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
     { id: '2', cells: { period: '2026-06', kind: 'super_option', note: 'Switched to the balanced option' } },
   ],
   snapshots: [
-    { id: '3', cells: { runDate: '2026-07-31', period: '2026-07', source: 'migrated', ...snapshotValues(2) } },
-    { id: '2', cells: { runDate: '2026-06-30', period: '2026-06', source: 'migrated', ...snapshotValues(1) } },
-    { id: '1', cells: { runDate: '2026-05-31', period: '2026-05', source: 'migrated', ...snapshotValues(0) } },
+    { id: '4', cells: { runDate: '2026-08-31', period: '2026-08', source: 'recorded', ...snapshotValues(3), offset: 1000000, linkedOffsets: 500000, cashInDebit: -20000, superMeasuredTo: '2026-08-27', revision: 1, note: 'Recorded at month end' } },
+    { id: '3', cells: { runDate: '2026-07-31', period: '2026-07', source: 'migrated', ...snapshotValues(2), ...MIGRATED_EXTRAS } },
+    { id: '2', cells: { runDate: '2026-06-30', period: '2026-06', source: 'migrated', ...snapshotValues(1), ...MIGRATED_EXTRAS } },
+    { id: '1', cells: { runDate: '2026-05-31', period: '2026-05', source: 'migrated', ...snapshotValues(0), ...MIGRATED_EXTRAS } },
   ],
   'other-assets': [
     { id: '1', cells: { description: 'Example watch', url: null, purchaseDate: '2023-04-01', units: '1', soldUnits: '0', currency: 'AUD', unitCost: '1500', unitPrice: '1800', priceSource: 'manual', metal: null, unitOfMeasure: 'each', value: 180000, purchaseFxRate: null, purchaseFxSource: null } },
@@ -118,8 +129,8 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
   settings: [
     { id: 'allocation.etf', valueType: 'ratio', cells: { key: 'allocation.etf', label: 'Target allocation: ETFs', category: 'allocation', value: '0.6', updatedAt: FIXTURE_NOW } },
     { id: 'crypto.feeRate', valueType: 'ratio', cells: { key: 'crypto.feeRate', label: 'Crypto fee', category: 'crypto', value: '0.005', updatedAt: FIXTURE_NOW } },
-    { id: 'features.cash', valueType: 'boolean', cells: { key: 'features.cash', label: 'Feature: cash', category: 'features', value: true, updatedAt: FIXTURE_NOW } },
-    { id: 'pay.dayOfMonth', valueType: 'integer', cells: { key: 'pay.dayOfMonth', label: 'Day of month paid', category: 'pay', value: 15, updatedAt: FIXTURE_NOW } },
+    { id: 'features.cash', valueType: 'boolean', cells: { key: 'features.cash', label: 'Show the Cash page', category: 'features', value: true, updatedAt: FIXTURE_NOW } },
+    { id: 'pay.dayOfMonth', valueType: 'integer', cells: { key: 'pay.dayOfMonth', label: 'Pay day (day of the month)', category: 'pay', value: 15, updatedAt: FIXTURE_NOW } },
     { id: 'pay.frequency', valueType: 'enum', cells: { key: 'pay.frequency', label: 'Pay frequency', category: 'pay', value: 'fortnightly', updatedAt: FIXTURE_NOW } },
     { id: 'pay.jobStartDate', valueType: 'date', cells: { key: 'pay.jobStartDate', label: 'Job start date', category: 'pay', value: '2020-01-06', updatedAt: FIXTURE_NOW } },
     { id: 'pay.netPayCents', valueType: 'money', cells: { key: 'pay.netPayCents', label: 'Net pay per pay', category: 'pay', value: 300000, updatedAt: FIXTURE_NOW } },
@@ -168,6 +179,11 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
   ],
   'loan-offset-links': [
     { id: '5', cells: { account: 'Offset account', loan: 'Example property mortgage' } },
+  ],
+  // Stage 5 (stage-5.md §3.2).
+  'snapshot-audit': [
+    { id: '2', cells: { at: '2026-09-02T01:15:00.000Z', period: '2026-08', action: 'correct', trigger: 'manual', note: 'Cash balance was entered twice' } },
+    { id: '1', cells: { at: '2026-08-31T13:00:05.000Z', period: '2026-08', action: 'record', trigger: 'schedule', note: null } },
   ],
 };
 
@@ -608,4 +624,10 @@ export const apiErrors = {
   propertyHasLoan: { error: { code: 'PROPERTY_HAS_LOAN', message: 'This property has 1 loans; delete them first' } },
   saleOversell: { error: { code: 'SALE_OVERSELL', message: 'Only 2 units are left to sell' } },
   assetsValidation: { error: { code: 'VALIDATION_ERROR', message: 'currency: bullion is priced in AUD; entries: an asset appears twice' } },
+  // Stage 5 (stage-5.md §4.1, §4.3)
+  snapshotExists: { error: { code: 'SNAPSHOT_EXISTS', message: 'Mar 2027 is already recorded (31/03/2027). Correct it instead.' } },
+  snapshotNotLatest: { error: { code: 'SNAPSHOT_NOT_LATEST', message: 'Only the latest recorded month can be deleted' } },
+  snapshotNotDeletable: { error: { code: 'SNAPSHOT_NOT_DELETABLE', message: 'Imported months can be corrected but not deleted' } },
+  recordInProgress: { error: { code: 'RECORD_IN_PROGRESS', message: 'A month is being recorded; try again in a moment' } },
+  historyValidation: { error: { code: 'VALIDATION_ERROR', message: 'values.mortgageBalanceCents: must not be positive; note: say why' } },
 } satisfies Record<string, ApiErrorBody>;

@@ -25,6 +25,8 @@ import { LoadError, Loading } from '../../components/QueryStates';
 import { SettingsSection } from '../cashflow/SettingsSection';
 import { actionSelector, useEditor, type EditorState } from '../cashflow/formState';
 import { NO_HISTORY_NOTE, PROVISIONAL_NOTE, formatRate } from '../assets/display';
+import { HistoryLinkText } from '../history/HistoryLinkText';
+import { TaxSuggestionLine } from '../settings/TaxSuggestionLine';
 import { CapSection } from './CapSection';
 import { ContributionForm } from './ContributionForm';
 import { ContributionsTable } from './ContributionsTable';
@@ -53,16 +55,6 @@ import {
   sgActionKey,
   type SuperEditor,
 } from './superText';
-
-const SETTING_LABELS: Partial<Record<EditableSettingKey, string>> = {
-  'pay.grossAnnualSalaryCents': 'Gross annual salary',
-  'tax.marginalRate': 'Marginal tax rate',
-  'pay.jobStartDate': 'Job start date',
-  'super.sgRate': 'Your employer’s SG rate',
-  'super.contributionsTaxRate': 'Contributions tax',
-  'super.concessionalCapCents': 'Concessional cap override (this financial year only)',
-  'super.importedContributionType': 'Imported contributions are',
-};
 
 const APP_ONLY_HINT = 'Only this app uses it: kept when you re-import.';
 
@@ -400,7 +392,9 @@ function SuperContent({
         <div className="jf-app-footnotes">
           <p className="jf-app-meta">{GAINS_FOOTNOTE}</p>
           <p className="jf-app-meta">{RETURN_FOOTNOTE}</p>
-          <p className="jf-app-meta">{PROVISIONAL_NOTE}</p>
+          <p className="jf-app-meta">
+            <HistoryLinkText text={PROVISIONAL_NOTE} />
+          </p>
         </div>
         <SuperCharts points={page.charts.points} />
         <OptionNotes
@@ -423,7 +417,6 @@ function SuperContent({
         title="Settings for this page"
         role="reference"
         keys={SUPER_SETTING_KEYS}
-        labels={SETTING_LABELS}
         hints={SETTING_HINTS}
         placeholders={placeholders}
         unset={{
@@ -435,13 +428,15 @@ function SuperContent({
           'tax.marginalRate': 'take-home costs are not shown',
           'pay.grossAnnualSalaryCents': 'no SG estimate',
         }}
-        extras={
-          capOverride
+        extras={{
+          // Stage 5 (stage-5.md §6.5 item 10): the tax suggestion from the Settings page.
+          'tax.marginalRate': <TaxSuggestionLine />,
+          ...(capOverride
             ? {
                 'super.concessionalCapCents': `Set for ${formatFinancialYear(capOverride.financialYear)}`,
               }
-            : undefined
-        }
+            : {}),
+        }}
         slice={page.settings}
         editing={open?.form === 'settings'}
         actionKey={EDIT_SETTINGS}

@@ -85,7 +85,11 @@ describe('Budget page: tiles (§6.5 item 2)', () => {
       'Set the pay settings in Income and settings below',
     );
     const missing = screen.getByRole('note', { name: 'Inputs missing' });
-    for (const label of ['Net pay per pay', 'Pay frequency', 'Emergency fund (months)']) {
+    for (const label of [
+      'Net pay per pay',
+      'Pay frequency',
+      'Emergency fund (months of spending)',
+    ]) {
       expect(within(missing).getByText(label)).toBeVisible();
     }
     expect(screen.getByRole('heading', { level: 2, name: 'Payday transfers' })).toBeVisible();

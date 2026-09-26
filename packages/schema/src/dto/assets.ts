@@ -35,6 +35,9 @@ import {
   withinDecimalInputLimits,
 } from '../trading';
 import { CASHFLOW_MONEY_MAX, type PeriodNoteDto, type SettingsSliceDto } from './cashflow';
+// `optionalText` and `signedCents` (−ASSETS_MONEY_MAX … ASSETS_MONEY_MAX: net rent may be negative,
+// §11 fix 9) are shared with dto/history.ts (stage-5.md §3.2).
+import { optionalText, signedCents } from './fields';
 import type { MarketQuoteStatus } from './prices';
 import { makeEntryDateSchema, ratioInputSchema, tradeDecimalSchema } from './investments';
 
@@ -51,27 +54,11 @@ const name = (max: number) =>
     .min(1, { error: 'is required' })
     .max(max, { error: `must be at most ${max} characters` });
 
-/** Trimmed text; `''` → null (so a blank field never fails or flips `origin`). */
-const optionalText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max, { error: `must be at most ${max} characters` })
-    .transform((v) => (v === '' ? null : v))
-    .nullable();
-
 /** Integer cents, 0 … ASSETS_MONEY_MAX. */
 const cents0 = z
   .number()
   .int({ error: 'must be whole cents' })
   .min(0, { error: 'must not be negative' })
-  .max(ASSETS_MONEY_MAX, { error: 'is too large' });
-
-/** Integer cents, −ASSETS_MONEY_MAX … ASSETS_MONEY_MAX (net rent may be negative, §11 fix 9). */
-const signedCents = z
-  .number()
-  .int({ error: 'must be whole cents' })
-  .min(-ASSETS_MONEY_MAX, { error: 'is too large' })
   .max(ASSETS_MONEY_MAX, { error: 'is too large' });
 
 const posInt = z.number().int().positive();

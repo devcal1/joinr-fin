@@ -34,3 +34,10 @@ export const IMPORTER_STAGE3_IMPLEMENTED: boolean = true;
  * synthetic-workbook integration tests; never fake it.
  */
 export const IMPORTER_STAGE4_IMPLEMENTED: boolean = true;
+
+/**
+ * True once the importer's Stage 5 suite passes (D87 settings reset, the preference keys kept on
+ * re-import, the migration equivalence with 0005; stage-5.md §3.5 item 5). It gates the server's
+ * Stage 5 golden; never fake it.
+ */
+export const IMPORTER_STAGE5_IMPLEMENTED: boolean = true;

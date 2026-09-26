@@ -1,12 +1,15 @@
-// `@joinr/engine`: the pure investment, cash-flow and assets engine (stage-2.md §2, stage-3.md §2,
-// stage-4.md §2). No I/O, no clock: every "today" is an `asOf` input. The public API is frozen
-// (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2); the implementation lives in internal
-// modules: lots.ts (FIFO, the D36 seam), realised.ts (the FY table), xirr.ts (the solver),
-// investments.ts (holdings, summary, allocation, dividends), history.ts, timing.ts, and for Stage 3
-// periods.ts (windows and years), cash.ts, savings.ts, kpis.ts, goals.ts, sideIncome.ts,
-// budget.ts, dividends.ts, suggestions.ts and charts.ts, and for Stage 4 otherAssets.ts, super.ts,
-// property.ts, amortise.ts and assetsSnapshot.ts (shared helpers in assetsCommon.ts).
+// `@joinr/engine`: the pure investment, cash-flow, assets and history engine (stage-2.md §2,
+// stage-3.md §2, stage-4.md §2, stage-5.md §2). No I/O, no clock: every "today" is an `asOf`
+// input. The public API is frozen (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2, stage-5.md
+// §2.2); the implementation lives in internal modules: lots.ts (FIFO, the D36 seam), realised.ts
+// (the FY table), xirr.ts (the solver), investments.ts (holdings, summary, allocation, dividends),
+// history.ts, timing.ts, and for Stage 3 periods.ts (windows and years), cash.ts, savings.ts,
+// kpis.ts, goals.ts, sideIncome.ts, budget.ts, dividends.ts, suggestions.ts and charts.ts, and for
+// Stage 4 otherAssets.ts, super.ts, property.ts, amortise.ts and assetsSnapshot.ts (shared helpers
+// in assetsCommon.ts), and for Stage 5 snapshot.ts (the composer and checks), netWorth.ts,
+// aggregate.ts, trend.ts, recording.ts and tax.ts.
 import type { IsoDate } from '@joinr/schema';
+import { aggregateSnapshots } from './aggregate';
 import { amortise } from './amortise';
 import { assetsSnapshotColumns } from './assetsSnapshot';
 import { budgetInvestInputOf, budgetInvestment, computeBudget } from './budget';
@@ -16,15 +19,19 @@ import { computeDividends } from './dividends';
 import { savingsGoals } from './goals';
 import { contributionsAt, compressSeries, netPurchases, purchaseWindows } from './history';
 import { computeInvestments } from './investments';
+import { netWorthDashboard, netWorthOf, rollingNetWorth } from './netWorth';
 import { cashKpis } from './kpis';
 import { computeOtherAssets, otherAssetsCostHeldAt } from './otherAssets';
 import { yearWindow } from './periods';
 import { computeProperty } from './property';
 import { realisedByFinancialYear } from './realised';
+import { nextRecordMonth, recordableMonths, recordingsDue } from './recording';
 import { computeSavings } from './savings';
 import { computeSideIncome } from './sideIncome';
+import { checkSnapshots, composeSnapshot, deriveSnapshotColumns } from './snapshot';
 import { dividendSuggestions } from './suggestions';
 import { computeSuper } from './super';
+import { suggestMarginalRate } from './tax';
 import {
   assetClassOfKind,
   cashDeficitMonths,
@@ -35,11 +42,13 @@ import {
   sheetDate,
 } from './timing';
 import type { EngineApi, MatchingStrategy } from './types';
+import { linearTrend } from './trend';
 import { xirrRate } from './xirr';
 
 export type * from './types';
 
 export {
+  aggregateSnapshots,
   amortise,
   assetClassOfKind,
   assetsSnapshotColumns,
@@ -48,6 +57,8 @@ export {
   cashDeficitMonths,
   cashKpis,
   cashTotals,
+  checkSnapshots,
+  composeSnapshot,
   compressCashflow,
   compressSeries,
   computeBudget,
@@ -60,17 +71,26 @@ export {
   computeSuper,
   considerNext,
   contributionsAt,
+  deriveSnapshotColumns,
   dividendSuggestions,
   investCountdown,
+  linearTrend,
   monthlyPayCents,
   netPurchases,
+  netWorthDashboard,
+  netWorthOf,
   nextBuyHint,
+  nextRecordMonth,
   otherAssetsCostHeldAt,
   parcelOptimiser,
   purchaseWindows,
   realisedByFinancialYear,
+  recordableMonths,
+  recordingsDue,
+  rollingNetWorth,
   savingsGoals,
   sheetDate,
+  suggestMarginalRate,
   yearWindow,
 };
 
@@ -95,6 +115,13 @@ export const CASHFLOW_ENGINE_IMPLEMENTED: boolean = true;
  * real-engine server suites (§7.4); never fake it.
  */
 export const ASSETS_ENGINE_IMPLEMENTED: boolean = true;
+
+/**
+ * True once the engine's full Stage 5 unit suite (goldens included) passes (stage-5.md §7.3 step
+ * 10). It gates the server's Stage 5 integration, route and golden tests and the Stage 2–4
+ * real-engine server suites (§7.4 step 8); never fake it.
+ */
+export const HISTORY_ENGINE_IMPLEMENTED: boolean = true;
 
 /** Amounts in dollars; null when there is no root (§2.7). */
 export function xirr(flows: readonly { amount: number; date: IsoDate }[]): number | null {
@@ -136,4 +163,17 @@ export const engine = {
   computeProperty,
   amortise,
   assetsSnapshotColumns,
+  // Stage 5.
+  composeSnapshot,
+  deriveSnapshotColumns,
+  checkSnapshots,
+  netWorthOf,
+  netWorthDashboard,
+  rollingNetWorth,
+  aggregateSnapshots,
+  linearTrend,
+  nextRecordMonth,
+  recordableMonths,
+  recordingsDue,
+  suggestMarginalRate,
 } satisfies EngineApi;
