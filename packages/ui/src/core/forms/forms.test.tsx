@@ -109,6 +109,24 @@ describe('TextField', () => {
     render(<TextField id="acct" label="Account" value="" onChange={() => undefined} />);
     expect(screen.getByLabelText('Account')).toHaveAttribute('id', 'acct');
   });
+
+  it('links a datalist of suggestions through `list` (Stage 3)', () => {
+    render(
+      <>
+        <TextField label="Category" value="" onChange={() => undefined} list="categories" />
+        <datalist id="categories">
+          <option value="Housing" />
+        </datalist>
+      </>,
+    );
+    const input = screen.getByRole('combobox', { name: 'Category' });
+    expect(input).toHaveAttribute('list', 'categories');
+  });
+
+  it('has no list attribute by default', () => {
+    render(<TextField label="Name" value="" onChange={() => undefined} />);
+    expect(screen.getByRole('textbox', { name: 'Name' })).not.toHaveAttribute('list');
+  });
 });
 
 /** A controlled wrapper so the fields behave as they do in a form. */
@@ -235,6 +253,29 @@ describe('MoneyField', () => {
   it('an external error wins over the internal one', () => {
     render(<MoneyField label="Amount" value={null} onChange={() => undefined} error="Required" />);
     expect(screen.getByRole('textbox')).toHaveAccessibleDescription('Required');
+  });
+
+  it('labelHidden hides the label visually but keeps it as the accessible name (Stage 3)', () => {
+    const { container } = render(
+      <MoneyField
+        label="Balance, Everyday account"
+        value={100}
+        onChange={() => undefined}
+        labelHidden
+        allowNegative
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: 'Balance, Everyday account' });
+    expect(input).toBeInTheDocument();
+    const label = container.querySelector('label');
+    expect(label).toHaveClass('jf-field__label', 'jf-visually-hidden');
+  });
+
+  it('shows the label by default', () => {
+    const { container } = render(
+      <MoneyField label="Amount" value={null} onChange={() => undefined} />,
+    );
+    expect(container.querySelector('label')).not.toHaveClass('jf-visually-hidden');
   });
 });
 

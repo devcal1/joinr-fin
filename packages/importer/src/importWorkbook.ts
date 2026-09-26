@@ -33,7 +33,6 @@ import type { WorkbookModel } from './model';
 import {
   applyCorrections,
   buildInstruments,
-  dedupeSideIncome,
   flagSuspects,
   linkBudgetAccounts,
   mergeNotes,
@@ -88,7 +87,7 @@ export function extractWorkbook(r: SheetReader, now: Date): WorkbookModel {
     budgetItems: budget.items,
     yearlyExpenses: budget.yearly,
     streams: side.streams,
-    sideIncome: dedupeSideIncome(side.entries, ctx.checks),
+    sideIncome: side.deposits,
     otherAssets: extractOtherAssets(ctx),
     superFunds: sup.funds,
     superEntries: sup.entries,

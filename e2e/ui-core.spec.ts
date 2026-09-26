@@ -162,8 +162,9 @@ test.describe('app shell', () => {
   test('desktop: a short page fits the viewport, footer included', async ({ page }) => {
     test.skip(test.info().project.name !== 'desktop', 'desktop layout');
     // Short pages = routes that still render PlaceholderPage. /stocks left this list when Stage 2
-    // built it; swap in another placeholder when a later stage builds one of these.
-    for (const path of ['/fire', '/budget']) {
+    // built it and /budget when Stage 3 did; swap in another placeholder when a later stage builds
+    // one of these.
+    for (const path of ['/fire', '/super']) {
       await page.goto(path);
       // Measure only once the placeholder has rendered, and fail plainly if the page is built now.
       await expect(page.getByRole('main').getByRole('note'), path).toContainText(

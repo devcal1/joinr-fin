@@ -65,7 +65,8 @@ test.describe('records', () => {
   }
 
   test('every record table renders from the real API', async ({ page }) => {
-    test.setTimeout(60_000);
+    // 20 record pages since Stage 3 (stage-3.md §7.8 step 6).
+    test.setTimeout(90_000);
     const errors = trackConsoleErrors(page);
     for (const id of RECORD_ENTITY_IDS) {
       const { label } = RECORD_ENTITIES[id];

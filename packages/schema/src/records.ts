@@ -18,6 +18,11 @@ export const RECORD_ENTITY_IDS = [
   'properties',
   'loans',
   'settings',
+  // Stage 3 (stage-3.md §3.2).
+  'cash-balance-entries',
+  'savings-adjustments',
+  'savings-goals',
+  'dividend-events',
 ] as const;
 export type RecordEntityId = (typeof RECORD_ENTITY_IDS)[number];
 
@@ -68,7 +73,7 @@ export const RECORD_ENTITY_TABLES: Readonly<Record<RecordEntityId, string>> = {
   'budget-items': 'budget_items',
   'yearly-expenses': 'yearly_expenses',
   'income-streams': 'income_streams',
-  'side-income': 'side_income_entries',
+  'side-income': 'side_income_deposits',
   'period-notes': 'period_notes',
   snapshots: 'snapshots',
   'other-assets': 'other_assets',
@@ -77,6 +82,10 @@ export const RECORD_ENTITY_TABLES: Readonly<Record<RecordEntityId, string>> = {
   properties: 'properties',
   loans: 'loans',
   settings: 'settings',
+  'cash-balance-entries': 'cash_balance_entries',
+  'savings-adjustments': 'savings_adjustments',
+  'savings-goals': 'savings_goals',
+  'dividend-events': 'dividend_events',
 };
 
 const col = (id: string, label: string, type: RecordColumnType): RecordColumn => ({
@@ -253,17 +262,18 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
     defaultSort: { columnId: 'name' },
     columns: [col('name', 'Name', 'text'), col('archived', 'Archived', 'boolean')],
   },
+  // Stage 3: dated deposits (D57); the Stage 1 period entries are no longer listed.
   'side-income': {
     id: 'side-income',
     label: 'Side income',
     group: 'cashflow',
-    defaultSort: { columnId: 'period', desc: true },
+    defaultSort: { columnId: 'date', desc: true },
     columns: [
-      col('period', 'Period', 'month'),
+      col('date', 'Date', 'date'),
       col('stream', 'Stream', 'text'),
-      col('start', 'Start', 'date'),
-      col('end', 'End', 'date'),
       col('amount', 'Amount', 'money'),
+      col('note', 'Note', 'text'),
+      col('sheetRef', 'Sheet ref', 'text'),
     ],
   },
   'period-notes': {
@@ -375,6 +385,61 @@ export const RECORD_ENTITIES: Readonly<Record<RecordEntityId, RecordEntityMeta>>
       col('category', 'Category', 'text'),
       col('value', 'Value', 'setting'),
       col('updatedAt', 'Updated', 'timestamp'),
+    ],
+  },
+  // ─── Stage 3 (stage-3.md §3.2) ───
+  'cash-balance-entries': {
+    id: 'cash-balance-entries',
+    label: 'Cash balance history',
+    group: 'cashflow',
+    defaultSort: { columnId: 'asOf', desc: true },
+    columns: [
+      col('account', 'Account', 'text'),
+      col('asOf', 'As of', 'date'),
+      col('balance', 'Balance', 'money'),
+      col('note', 'Note', 'text'),
+      col('sheetRef', 'Sheet ref', 'text'),
+    ],
+  },
+  'savings-adjustments': {
+    id: 'savings-adjustments',
+    label: 'Savings adjustments',
+    group: 'history',
+    defaultSort: { columnId: 'period', desc: true },
+    columns: [
+      col('period', 'Period', 'month'),
+      col('amount', 'Amount', 'money'),
+      col('note', 'Note', 'text'),
+    ],
+  },
+  'savings-goals': {
+    id: 'savings-goals',
+    label: 'Savings goals',
+    group: 'cashflow',
+    defaultSort: { columnId: 'sortOrder' },
+    columns: [
+      col('name', 'Name', 'text'),
+      col('target', 'Target', 'money'),
+      col('targetDate', 'Target date', 'date'),
+      col('sortOrder', 'Order', 'integer'),
+      col('note', 'Note', 'text'),
+    ],
+  },
+  'dividend-events': {
+    id: 'dividend-events',
+    label: 'Dividend events (Yahoo)',
+    group: 'investments',
+    defaultSort: { columnId: 'exDate', desc: true },
+    columns: [
+      col('symbol', 'Symbol', 'text'),
+      col('exDate', 'Ex date', 'date'),
+      col('amountPerUnit', 'Per unit', 'price'),
+      col('currency', 'Currency', 'text'),
+      col('closeBeforeEx', 'Close before ex date', 'price'),
+      col('closeDate', 'Close date', 'date'),
+      col('source', 'Source', 'text'),
+      col('fetchedAt', 'Fetched', 'timestamp'),
+      col('dismissed', 'Dismissed', 'boolean'),
     ],
   },
 };

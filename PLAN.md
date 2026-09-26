@@ -22,8 +22,8 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 0 | Foundations & design system | ✅ done 2026-09-24 |
 | 1 | Data model, importer & market data | ✅ done 2026-09-24 |
 | 2 | Investments: Stocks, ETFs, Managed Funds, Crypto | ✅ done 2026-09-25 |
-| 3 | Cash flow & income: Cash, Side Income, Dividends, Budget | ⏳ next |
-| 4 | Other Assets, Super & Property | — |
+| 3 | Cash flow & income: Cash, Side Income, Dividends, Budget | ✅ done 2026-09-26 |
+| 4 | Other Assets, Super & Property | ⏳ next |
 | 5 | History, Net Worth dashboard & Settings | — |
 | 6 | FIRE planner & polish | — |
 | 7 | Umbrel deployment & cutover | — |

@@ -1,11 +1,16 @@
-// Replace-all writes inside the import transaction (stage-1.md §4.8). Every row is validated with
-// its Zod insert schema first; instruments are upserted by (kind, symbol) so their ids (and the
-// price data hanging off them) survive re-imports.
+// Replace-all writes inside the import transaction (stage-1.md §4.8, stage-3.md §3.5). Every row
+// is validated with its Zod insert schema first; instruments are upserted by (kind, symbol) so
+// their ids (and the price data hanging off them) survive re-imports; cash account kinds are
+// carried over by name or sheet ref (D49); the overlay tables (savings adjustments and goals, the
+// dividend-events cache) are never touched.
 import {
   decimalFromNumber,
   derivePriceSource,
+  isSettingKey,
+  isWorkbookSetting,
   newBudgetItemSchema,
   newCashAccountSchema,
+  newCashBalanceEntrySchema,
   newDividendSchema,
   newIncomeStreamSchema,
   newInstrumentSchema,
@@ -16,7 +21,7 @@ import {
   newPriceSourceSchema,
   newPropertySchema,
   newSettingSchema,
-  newSideIncomeEntrySchema,
+  newSideIncomeDepositSchema,
   newSnapshotSchema,
   newSuperEntrySchema,
   newSuperFundSchema,
@@ -27,6 +32,7 @@ import {
 import {
   budgetItems,
   cashAccounts,
+  cashBalanceEntries,
   DOMAIN_TABLES_DELETE_ORDER,
   dividends,
   incomeStreams,
@@ -38,7 +44,7 @@ import {
   prices,
   properties,
   settings,
-  sideIncomeEntries,
+  sideIncomeDeposits,
   snapshots,
   superEntries,
   superFunds,
@@ -46,11 +52,11 @@ import {
   yearlyExpenses,
   type JoinrDb,
 } from '@joinr/schema/db';
-import { eq, notInArray } from 'drizzle-orm';
+import { asc, eq, notInArray } from 'drizzle-orm';
 import type { z } from 'zod';
 import { WorkbookFormatError } from './errors';
 import type { InstrumentDraft, WorkbookModel } from './model';
-import { instrumentKey } from './process';
+import { carryAccountKinds, instrumentKey } from './process';
 
 export type Tx = Parameters<Parameters<JoinrDb['transaction']>[0]>[0];
 
@@ -67,6 +73,8 @@ export interface WriteResult {
   priceTreatment: Map<string, PriceTreatment>;
   /** Setting keys the workbook provided (written or already equal). */
   settingKeys: string[];
+  /** Names of the stored non-bank accounts whose kind no imported account took (D49). */
+  kindsNotCarried: string[];
 }
 
 function valid<S extends z.ZodType>(schema: S, row: unknown, ref: string): z.output<S> {
@@ -284,11 +292,30 @@ function writeSettings(tx: Tx, model: WorkbookModel, runStart: string): string[]
       tx.update(settings).set(row).where(eq(settings.key, plan.key)).run();
     keys.push(plan.key);
   }
+  // The D34 settings gap (stage-3.md §3.3 rule 3): an app-entered value of a workbook key that
+  // this workbook does not provide (e.g. an emergency-fund override while the sheet holds the
+  // default formula) is removed, so the database matches the workbook and stops counting as app
+  // data. App-only keys (no workbook source) and imported rows are left alone.
+  const provided = new Set(keys);
+  for (const row of tx.select().from(settings).where(eq(settings.origin, 'app')).all()) {
+    if (provided.has(row.key) || !isSettingKey(row.key) || !isWorkbookSetting(row.key)) continue;
+    tx.delete(settings).where(eq(settings.key, row.key)).run();
+  }
   return keys;
+}
+
+/** The stored accounts' kinds, read before the replace-all delete (D49). */
+function storedAccountKinds(tx: Tx) {
+  return tx
+    .select({ name: cashAccounts.name, sheetRef: cashAccounts.sheetRef, kind: cashAccounts.kind })
+    .from(cashAccounts)
+    .orderBy(asc(cashAccounts.sortOrder), asc(cashAccounts.id))
+    .all();
 }
 
 /** Replaces the imported data (inside `tx`). */
 export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): WriteResult {
+  const carried = carryAccountKinds(storedAccountKinds(tx), model.cashAccounts);
   for (const table of DOMAIN_TABLES_DELETE_ORDER) tx.delete(table).run();
   const ids = upsertInstruments(tx, model);
   const priceTreatment = writePricing(tx, model, ids, runStart);
@@ -303,7 +330,7 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
             newCashAccountSchema,
             {
               name: a.name,
-              kind: 'bank',
+              kind: carried.kinds[i] ?? 'bank',
               currency: a.currency,
               balanceCents: a.balanceCents,
               balanceAsOf: model.meta.asOf,
@@ -320,6 +347,26 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
         .run(),
     ),
   );
+
+  // D58: one balance entry per account, at the workbook as-of.
+  model.cashAccounts.forEach((a, i) => {
+    tx.insert(cashBalanceEntries)
+      .values(
+        valid(
+          newCashBalanceEntrySchema,
+          {
+            accountId: cashIds[i]!,
+            asOf: model.meta.asOf,
+            balanceCents: a.balanceCents,
+            note: null,
+            ...imported,
+            sheetRef: a.sheetRef,
+          },
+          a.sheetRef,
+        ),
+      )
+      .run();
+  });
 
   model.budgetItems.forEach((b, i) => {
     tx.insert(budgetItems)
@@ -378,21 +425,21 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
     ),
   );
 
-  for (const e of model.sideIncome) {
-    tx.insert(sideIncomeEntries)
+  // D57: dated deposits (`side_income_entries` is no longer written).
+  for (const d of model.sideIncome) {
+    tx.insert(sideIncomeDeposits)
       .values(
         valid(
-          newSideIncomeEntrySchema,
+          newSideIncomeDepositSchema,
           {
-            streamId: streamIds[e.streamIndex]!,
-            periodMonth: e.periodMonth,
-            periodStart: e.periodStart,
-            periodEnd: e.periodEnd,
-            amountCents: e.amountCents,
+            streamId: streamIds[d.streamIndex]!,
+            depositDate: d.depositDate,
+            amountCents: d.amountCents,
+            note: null,
             ...imported,
-            sheetRef: e.sheetRef,
+            sheetRef: d.sheetRef,
           },
-          e.sheetRef,
+          d.sheetRef,
         ),
       )
       .run();
@@ -626,5 +673,10 @@ export function writeModel(tx: Tx, model: WorkbookModel, runStart: string): Writ
   });
 
   const settingKeys = writeSettings(tx, model, runStart);
-  return { instrumentIds: ids, priceTreatment, settingKeys };
+  return {
+    instrumentIds: ids,
+    priceTreatment,
+    settingKeys,
+    kindsNotCarried: carried.notCarried,
+  };
 }

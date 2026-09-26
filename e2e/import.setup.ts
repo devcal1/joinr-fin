@@ -2,6 +2,7 @@
 // the desktop and phone projects run, so their read-only views start from a known data state.
 // Skipped until the importer reports both flags.
 import { expect, test as setup } from '@playwright/test';
+import { cleanupCashflowRows } from './cashflow-support';
 import { cleanupE2eRows } from './investments-support';
 import {
   NOT_READY_REASON,
@@ -14,7 +15,9 @@ setup('import the synthetic workbook', async ({ request }) => {
   setup.skip(!SYNTHETIC_IMPORT_READY, NOT_READY_REASON);
   setup.setTimeout(120_000);
   // A crashed earlier run may have left e2e app rows behind; they would make the import answer
-  // 409 (D34). Remove them first (stage-2.md §7.6 step 3).
+  // 409 (D34). Remove them first: the cash-flow rows, then the trades and instruments
+  // (stage-2.md §7.6 step 3, stage-3.md §7.8 step 2).
+  await cleanupCashflowRows(request);
   await cleanupE2eRows(request);
   const run = await importSyntheticWorkbook(request);
   expect(run.status).toBe('succeeded');

@@ -459,7 +459,11 @@ export function HoldingDetailPage({
               role="supporting"
             />
             <DividendsTable kind={kind} dividends={detail.dividends} />
-            <p className="jf-app-meta">Dividends are edited on the Dividends page (Stage 3).</p>
+            <p className="jf-app-meta">
+              <Link to="/dividends" search={{ holding: detail.instrument.id }}>
+                Edit on the Dividends page
+              </Link>
+            </p>
           </section>
           <section className="jf-app-block" id={SETTINGS_ID} aria-label="Holding settings">
             <HoldingForm

@@ -358,6 +358,12 @@
     overflow-wrap: anywhere;
   }
 
+  /* A word or two beside a figure ("Expected about", a price's source): the body face, kept whole. */
+  .jf-app-text-value--whole {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
   /* Reconciliation report: every section table shares one fixed column grid on wide screens, so
      Status, Expected, … sit at the same x down the page. Figures keep fixed widths (they never
      wrap); Check and Reason share the rest. Phones keep the auto layout with sideways scroll. */
@@ -612,6 +618,211 @@
     .jf-app-report-section .jf-section-bar__actions {
       flex-basis: 100%;
       justify-content: space-between;
+    }
+  }
+
+  /* ── Cash flow (Stage 3: cash, side income, budget, dividends) ── */
+
+  .jf-app-small {
+    font-size: 12px;
+  }
+
+  /* A figure and its words stacked, right-aligned like the money column it sits in. */
+  .jf-app-align-end {
+    align-items: flex-end;
+  }
+
+  /* A first cell with extra words or badges (account, item, holding): they wrap under the name. */
+  .jf-app-account-cell,
+  .jf-app-item-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    min-width: 0;
+  }
+
+  .jf-app-account-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  /* A name with a long status badge ("Account not found: choose one"): the badge wraps under it. */
+  .jf-app-item-cell {
+    max-width: 16rem;
+  }
+
+  /* A period label with its Provisional / Baseline badge (it stays in the cell on a phone). */
+  .jf-app-period-cell {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  /* A savings rate and its "Check" badge. */
+  .jf-app-rate-cell {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  /* Free-text notes in a table wrap instead of widening it. */
+  .jf-app-note-cell {
+    display: inline-block;
+    max-width: 28ch;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .jf-app-note-action {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .jf-app-footnotes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  /* Account groups: on wider screens every group table shares one column grid, so Balance, As of,
+     Source and Actions line up down the page (§6.3 item 3). Phones keep the auto layout with
+     sideways scroll and the status-first order. */
+  @media (min-width: 768px) {
+    .jf-app-account-group .jf-table__table {
+      table-layout: fixed;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(2) {
+      width: 12rem;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(3) {
+      width: 8rem;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(4) {
+      width: 7rem;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(5) {
+      width: 13rem;
+    }
+
+    .jf-app-account-group .jf-table__cell:first-child {
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+  }
+
+  /* 768–1199 px (a tablet, or a desktop window beside the sidebar): a compact grid, so the Account
+     column keeps room for whole words instead of breaking names mid-word. Balance still fits the
+     Update balances field; the two row actions stack. */
+  @media (min-width: 768px) and (max-width: 1199.98px) {
+    .jf-app-account-group .jf-table__th:nth-child(2) {
+      width: 10.5rem;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(3) {
+      width: 7rem;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(4) {
+      width: 6rem;
+    }
+
+    .jf-app-account-group .jf-table__th:nth-child(5) {
+      width: 8rem;
+    }
+
+    .jf-app-account-group .jf-app-row-actions {
+      flex-wrap: wrap;
+    }
+  }
+
+  /* Update balances: the money field fills the Balance cell; the older-than note wraps under it. */
+  .jf-app-balance-edit {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+    min-width: 9rem;
+  }
+
+  .jf-app-older-note {
+    white-space: normal;
+    text-align: left;
+    font-family: var(--font-sans);
+  }
+
+  /* A Select in a chart card's actions (the balance history's account). */
+  .jf-app-card-select {
+    width: min(100%, 16rem);
+  }
+
+  /* Savings goals: cards in waterfall order, one column. */
+  .jf-app-goals {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jf-app-goal {
+    min-width: 0;
+  }
+
+  .jf-app-goal__status {
+    align-items: center;
+  }
+
+  .jf-app-row-actions--wrap {
+    flex-wrap: wrap;
+  }
+
+  /* Three or four row actions (savings: Details · Adjust / Note; budget: Edit · Delete / Move up ·
+     Move down) sit as explicit pairs, one pair per line at 768 px and wider, so the wide tables fit
+     the content area at 1440 px and the column is exactly as wide as its widest pair. On a phone
+     the pairs stay on one line and scroll with the table. */
+  .jf-app-row-actions__pair {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  @media (min-width: 768px) {
+    .jf-app-row-actions--pairs {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0;
+    }
+  }
+
+  /* A tile whose value is a link (Side Income's "In the budget"): body size, still bright. */
+  .jf-app-tile-link {
+    color: var(--text-bright);
+    font-size: var(--fs-body);
+    text-decoration: underline;
+    text-decoration-color: var(--teal);
+    text-underline-offset: 3px;
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-app-card-select {
+      width: 100%;
+    }
+
+    .jf-app-note-cell {
+      max-width: 20ch;
     }
   }
 }

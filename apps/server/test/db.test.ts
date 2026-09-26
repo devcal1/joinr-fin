@@ -214,16 +214,24 @@ describe('domain helpers', () => {
       expect(hasAppData(db)).toBe(true);
     });
 
-    it('counts an app-entered setting, but not an imported one', () => {
+    it('counts an app-entered workbook setting, but not an imported one (stage-3.md §3.3 rule 2)', () => {
       const { db } = migrated();
       const row = { valueJson: '1', updatedAt: '2026-09-24T00:00:00.000Z' };
       db.insert(settings)
-        .values({ ...row, key: 'example.imported', origin: 'import' })
+        .values({ ...row, key: 'pay.dayOfMonth', origin: 'import' })
         .run();
       expect(hasAppData(db)).toBe(false);
       expect(hasDomainData(db)).toBe(false);
+      // An app-only key (no workbook source) or an unknown key never blocks a re-import.
+      db.insert(settings)
+        .values({ ...row, valueJson: '"calendar"', key: 'savings.yearBasis', origin: 'app' })
+        .run();
       db.insert(settings)
         .values({ ...row, key: 'example.app', origin: 'app' })
+        .run();
+      expect(hasAppData(db)).toBe(false);
+      db.insert(settings)
+        .values({ ...row, key: 'pay.netPayCents', origin: 'app' })
         .run();
       expect(hasAppData(db)).toBe(true);
     });

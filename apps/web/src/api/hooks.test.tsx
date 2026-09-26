@@ -1,5 +1,8 @@
 import {
   appStatusEmpty,
+  budgetPages,
+  cashPages,
+  dividendsPages,
   holdingDetails,
   importRunDryRun,
   investmentPages,
@@ -8,6 +11,8 @@ import {
   pricesLive,
   recordsIndex,
   refreshResponse,
+  settingsPatchResponse,
+  sideIncomePages,
   tradeInputExamples,
   tradeMutationResponse,
 } from '@joinr/schema/fixtures';
@@ -22,6 +27,8 @@ import {
   useCreateTrade,
   useDeleteInstrument,
   useImportWorkbook,
+  usePatchSettings,
+  useRefreshDividendEvents,
   useRefreshPrices,
   useSetManualPrice,
 } from './hooks';
@@ -187,6 +194,90 @@ describe('api hooks', () => {
     expect(invalidated(queryKeys.importRuns)).toBe(true);
     expect(invalidated(queryKeys.holdingDetail(13))).toBe(true);
     expect(api.calls('GET /api/instruments/13')).toHaveLength(0);
+  });
+
+  it('uses the planned cash-flow query keys (stage-3 §6.2)', () => {
+    expect(queryKeys.cash).toEqual(['cash']);
+    expect(queryKeys.sideIncome).toEqual(['side-income']);
+    expect(queryKeys.budget).toEqual(['budget']);
+    expect(queryKeys.dividends).toEqual(['dividends']);
+  });
+
+  it('a cash-flow mutation invalidates the four pages, investments, instruments, records, import and status', async () => {
+    const api = mockApi({ 'PATCH /api/settings': { body: settingsPatchResponse } });
+    const { wrapper, invalidated, queryClient } = setup();
+    const pages = {
+      cash: cashPages.populated,
+      sideIncome: sideIncomePages.populated,
+      budget: budgetPages.autoSplit,
+      dividends: dividendsPages.populated,
+    } as const;
+    for (const [key, page] of Object.entries(pages)) {
+      queryClient.setQueryData(queryKeys[key as keyof typeof pages], page);
+    }
+    queryClient.setQueryData(queryKeys.investmentPage('etf'), investmentPages.etf);
+    queryClient.setQueryData(queryKeys.holdingDetail(4), holdingDetails[4]);
+    const { result } = renderHook(() => usePatchSettings(), { wrapper });
+    await act(() => result.current.mutateAsync({ values: { 'savings.yearBasis': 'calendar' } }));
+    expect(api.calls('PATCH /api/settings')[0]?.body).toEqual({
+      values: { 'savings.yearBasis': 'calendar' },
+    });
+    await waitFor(() => expect(invalidated(queryKeys.cash)).toBe(true));
+    for (const key of [
+      queryKeys.sideIncome,
+      queryKeys.budget,
+      queryKeys.dividends,
+      queryKeys.investmentPage('etf'),
+      queryKeys.holdingDetail(4),
+      queryKeys.records,
+      queryKeys.importRuns,
+      queryKeys.status,
+    ]) {
+      expect(invalidated(key)).toBe(true);
+    }
+    // Prices are not moved by a cash-flow change.
+    expect(invalidated(queryKeys.prices)).toBe(false);
+  });
+
+  it('a trade change and an import also refresh the four cash-flow pages', async () => {
+    mockApi({
+      'POST /api/trades': { status: 201, body: tradeMutationResponse },
+      'POST /api/import': { body: importRunDryRun },
+    });
+    const { wrapper, invalidated, queryClient } = setup();
+    queryClient.setQueryData(queryKeys.cash, cashPages.populated);
+    queryClient.setQueryData(queryKeys.dividends, dividendsPages.populated);
+    const trade = renderHook(() => useCreateTrade(), { wrapper });
+    await act(() => trade.result.current.mutateAsync(tradeInputExamples.amount));
+    await waitFor(() => expect(invalidated(queryKeys.dividends)).toBe(true));
+    expect(invalidated(queryKeys.cash)).toBe(true);
+    queryClient.setQueryData(queryKeys.budget, budgetPages.autoSplit);
+    const upload = renderHook(() => useImportWorkbook(), { wrapper });
+    await act(() =>
+      upload.result.current.mutateAsync({
+        file: new File(['x'], 'w.xlsx'),
+        dryRun: true,
+        confirmReplace: false,
+      }),
+    );
+    await waitFor(() => expect(invalidated(queryKeys.budget)).toBe(true));
+  });
+
+  it('the suggestion refresh posts an empty body and refreshes the pages even when it fails', async () => {
+    const api = mockApi({
+      'POST /api/dividends/suggestions/refresh': {
+        status: 503,
+        body: { error: { code: 'MARKET_DATA_DISABLED', message: 'Market data is switched off' } },
+      },
+    });
+    const { wrapper, invalidated, queryClient } = setup();
+    queryClient.setQueryData(queryKeys.dividends, dividendsPages.populated);
+    const { result } = renderHook(() => useRefreshDividendEvents(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync().catch(() => undefined);
+    });
+    expect(api.calls('POST /api/dividends/suggestions/refresh')[0]?.body).toBeUndefined();
+    await waitFor(() => expect(invalidated(queryKeys.dividends)).toBe(true));
   });
 
   it('a refresh stores the returned prices', async () => {

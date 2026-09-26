@@ -171,6 +171,10 @@ export interface BudgetItemRow {
   sheetRef: string;
   name: string;
   kind: BudgetItemKind;
+  /**
+   * `item`: C in cents (blank → 0). `auto_invest`: C when it is typed (no formula), else null
+   * (D54; the template's formula stays null). The other `auto_*` rows: null (derived).
+   */
   monthlyCents: number | null;
   category: string | null;
   accountName: string | null;
@@ -191,11 +195,20 @@ export interface IncomeStreamRow {
   sheetRef: string;
 }
 
-export interface SideIncomeRow {
+/**
+ * One dated side-income deposit (D57; stage-3.md §3.5 item 1): a non-zero numeric Side Income
+ * G/H cell of a row with a date in F.
+ */
+export interface SideIncomeDepositRow {
   streamIndex: number;
-  periodMonth: IsoMonth;
-  periodStart: IsoDate | null;
-  periodEnd: IsoDate | null;
+  /** The row's period end (Side Income F). */
+  periodEnd: IsoDate;
+  /**
+   * min(F, the workbook as-of): the live row's F is its month end, after the as-of, so its
+   * deposits land in the provisional period.
+   */
+  depositDate: IsoDate;
+  /** Never 0 (a zero cell carries no information in the deposit model). */
   amountCents: number;
   sheetRef: string;
 }
@@ -300,7 +313,7 @@ export interface WorkbookModel {
   budgetItems: BudgetItemRow[];
   yearlyExpenses: YearlyExpenseRow[];
   streams: IncomeStreamRow[];
-  sideIncome: SideIncomeRow[];
+  sideIncome: SideIncomeDepositRow[];
   otherAssets: OtherAssetRow[];
   superFunds: SuperFundRow[];
   superEntries: SuperEntryRow[];

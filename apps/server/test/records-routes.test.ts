@@ -7,8 +7,14 @@ import {
   type RecordsIndexResponse,
   type RecordsPageResponse,
 } from '@joinr/schema';
-import { cashAccounts, yearlyExpenses } from '@joinr/schema/db';
-import { seedGenericData } from '@joinr/schema/testing';
+import {
+  cashAccounts,
+  dividendEvents,
+  savingsAdjustments,
+  savingsGoals,
+  yearlyExpenses,
+} from '@joinr/schema/db';
+import { seedGenericData, type SeedResult } from '@joinr/schema/testing';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
@@ -44,6 +50,50 @@ async function getPage(entity: string): Promise<RecordsPageResponse> {
 
 const DECIMAL_RE = /^-?(?:0|[1-9]\d*)(?:\.\d*[1-9])?$/;
 
+/**
+ * The seed writes no Stage 3 overlays or dividend events (stage-3.md §3.6); these tests add one
+ * of each (generic values) so every record page has rows.
+ */
+function seedWithOverlays(): SeedResult {
+  const seeded = seedGenericData(database.db, { now: NOW });
+  database.db
+    .insert(savingsAdjustments)
+    .values({ periodMonth: '2026-07', amountCents: -100000, note: 'Car sold', origin: 'app' })
+    .run();
+  database.db
+    .insert(savingsGoals)
+    .values([
+      { name: 'Holiday', targetCents: 500000, targetDate: '2027-06-30', sortOrder: 2 },
+      { name: 'Emergency buffer', targetCents: 1000000, sortOrder: 1, note: 'First' },
+    ])
+    .run();
+  database.db
+    .insert(dividendEvents)
+    .values([
+      {
+        instrumentId: seeded.instrumentIds['ASX:XYZ']!,
+        exDate: '2026-06-30',
+        amountPerUnit: '1.2',
+        currency: 'AUD',
+        closeBeforeEx: '104.5',
+        closeDate: '2026-06-29',
+        source: 'fake',
+        fetchedAt: NOW.toISOString(),
+        dismissedAt: NOW.toISOString(),
+      },
+      {
+        instrumentId: seeded.instrumentIds['ASX:DEF']!,
+        exDate: '2026-09-01',
+        amountPerUnit: '0.45',
+        currency: 'AUD',
+        source: 'fake',
+        fetchedAt: NOW.toISOString(),
+      },
+    ])
+    .run();
+  return seeded;
+}
+
 describe('GET /api/records', () => {
   it('lists every entity in registry order with zero counts on an empty database', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/records' });
@@ -62,7 +112,7 @@ describe('GET /api/records', () => {
   });
 
   it('counts the seeded rows of every entity', async () => {
-    seedGenericData(database.db, { now: NOW });
+    seedWithOverlays();
     const body = (
       await app.inject({ method: 'GET', url: '/api/records' })
     ).json<RecordsIndexResponse>();
@@ -71,13 +121,18 @@ describe('GET /api/records', () => {
     expect(counts.instruments).toBe(8);
     expect(counts.trades).toBe(9);
     expect(counts.dividends).toBe(2);
-    expect(counts['cash-accounts']).toBe(3);
+    expect(counts['cash-accounts']).toBe(4);
+    // Stage 3: one balance entry per account plus an earlier one; side income as deposits.
+    expect(counts['cash-balance-entries']).toBe(5);
+    expect(counts['side-income']).toBe(3);
+    expect(counts['savings-goals']).toBe(2);
+    expect(counts['dividend-events']).toBe(2);
   });
 });
 
 describe('GET /api/records/:entity', () => {
   beforeEach(() => {
-    seedGenericData(database.db, { now: NOW });
+    seedWithOverlays();
   });
 
   it.each(RECORD_ENTITY_IDS)(
@@ -181,6 +236,30 @@ describe('GET /api/records/:entity', () => {
     expect(stale?.cells).toMatchObject({ linkedAccount: null, flags: ['unmatched_account'] });
     const rent = budget.rows.find((r) => r.cells.name === 'Rent');
     expect(rent?.cells.linkedAccount).toBe('Example Bank – Everyday');
+  });
+
+  it('lists the Stage 3 entities: deposits, balance entries, overlays and events', async () => {
+    const deposits = await getPage('side-income');
+    expect(deposits.rows.map((r) => r.cells.date)).toEqual([
+      '2026-08-20',
+      '2026-07-31',
+      '2026-06-30',
+    ]);
+    expect(deposits.rows[0]!.cells).toMatchObject({ stream: 'Side income 2', amount: 20000 });
+
+    const entries = await getPage('cash-balance-entries');
+    const everyday = entries.rows.filter((r) => r.cells.account === 'Example Bank – Everyday');
+    expect(everyday.map((r) => r.cells.asOf)).toEqual(['2026-08-31', '2026-07-31']);
+
+    const goals = await getPage('savings-goals');
+    expect(goals.rows.map((r) => r.cells.name)).toEqual(['Emergency buffer', 'Holiday']);
+
+    const events = await getPage('dividend-events');
+    expect(events.rows.map((r) => [r.cells.symbol, r.cells.dismissed])).toEqual([
+      ['ASX:DEF', false],
+      ['ASX:XYZ', true],
+    ]);
+    expect(events.rows[1]!.id).toMatch(/^\d+:2026-06-30$/);
   });
 
   it('maps every History value column of the snapshots', async () => {

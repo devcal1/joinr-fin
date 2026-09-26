@@ -10,9 +10,13 @@
 // pro-rated in the app (δ = fee × sold / units is added back, `partial_lot_fee`).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ENGINE_IMPLEMENTED } from '@joinr/engine';
+import { CASHFLOW_ENGINE_IMPLEMENTED, ENGINE_IMPLEMENTED } from '@joinr/engine';
 import { importWorkbook, readWorkbook, type WorkbookReader } from '@joinr/importer';
-import { describeWithLocalWorkbook, IMPORTER_IMPLEMENTED } from '@joinr/importer/testing';
+import {
+  describeWithLocalWorkbook,
+  IMPORTER_IMPLEMENTED,
+  IMPORTER_STAGE3_IMPLEMENTED,
+} from '@joinr/importer/testing';
 import {
   centsFromNumber,
   INSTRUMENT_KINDS,
@@ -27,7 +31,11 @@ import { buildApp } from '../../src/app';
 import { openDatabase, runMigrations, type AppDatabase } from '../../src/db/database';
 import { makeTempDir, removeDir, testConfig } from '../helpers';
 
-const GATED = ENGINE_IMPLEMENTED && IMPORTER_IMPLEMENTED;
+// Stage 3 (stage-3.md §4.5): the investment pages' timing chain reads the live cash, budget and
+// savings, so the pages need the Stage 3 engine; the H2 check also needs the dated side-income
+// deposits the Stage 3 importer writes.
+const GATED = ENGINE_IMPLEMENTED && CASHFLOW_ENGINE_IMPLEMENTED && IMPORTER_IMPLEMENTED;
+const TIMING_GATED = GATED && IMPORTER_STAGE3_IMPLEMENTED;
 
 // ─── Template layout (cell references only) ────────────────────────────────────────────────────
 
@@ -494,31 +502,35 @@ describeWithLocalWorkbook('investments server golden (import → DB → API)', (
       }
     });
 
-    it('timing.monthlyInvestCents = the recomputed SheetOptions!H2 (§9.3 rule 6)', () => {
-      const timing = pages.etf.timing;
-      const lastBuy = r.date('SheetOptions', 'H20');
-      // A boolean, so a failure never prints the date (§7.0).
-      expect(timing.lastPurchaseDate === lastBuy, 'SheetOptions!H20 matches').toBe(true);
-      compared('SheetOptions');
-      if (timing.budget.useBudget !== true) {
-        skipped('SheetOptions', 'budget_switch_off');
-        return;
-      }
-      const c28 = r.number('Budget', 'C28') ?? 0;
-      const share = r.number('SheetOptions', 'H41') ?? 0;
-      const tax = r.number('SheetOptions', 'H31') ?? 0;
-      const amounts: number[] = [];
-      for (let row = 2; row <= 799; row++) {
-        const end = r.date('Side Income', `F${row}`);
-        if (end === null) continue;
-        const filled = !r.isBlank('Side Income', `G${row}`) || !r.isBlank('Side Income', `H${row}`);
-        if (!filled || lastBuy === null || end <= lastBuy) continue;
-        amounts.push(r.number('Side Income', `I${row}`) ?? 0);
-      }
-      const mean = amounts.length === 0 ? 0 : amounts.reduce((a, b) => a + b, 0) / amounts.length;
-      if (amounts.length > 0) adjusted('SheetOptions', 'recomputed');
-      expectCents(timing.monthlyInvestCents, c28 + share * (1 - tax) * mean, 'SheetOptions!H2');
-      compared('SheetOptions');
-    });
+    it.skipIf(!TIMING_GATED)(
+      'timing.monthlyInvestCents = the recomputed SheetOptions!H2 (§9.3 rule 6)',
+      () => {
+        const timing = pages.etf.timing;
+        const lastBuy = r.date('SheetOptions', 'H20');
+        // A boolean, so a failure never prints the date (§7.0).
+        expect(timing.lastPurchaseDate === lastBuy, 'SheetOptions!H20 matches').toBe(true);
+        compared('SheetOptions');
+        if (timing.budget.useBudget !== true) {
+          skipped('SheetOptions', 'budget_switch_off');
+          return;
+        }
+        const c28 = r.number('Budget', 'C28') ?? 0;
+        const share = r.number('SheetOptions', 'H41') ?? 0;
+        const tax = r.number('SheetOptions', 'H31') ?? 0;
+        const amounts: number[] = [];
+        for (let row = 2; row <= 799; row++) {
+          const end = r.date('Side Income', `F${row}`);
+          if (end === null) continue;
+          const filled =
+            !r.isBlank('Side Income', `G${row}`) || !r.isBlank('Side Income', `H${row}`);
+          if (!filled || lastBuy === null || end <= lastBuy) continue;
+          amounts.push(r.number('Side Income', `I${row}`) ?? 0);
+        }
+        const mean = amounts.length === 0 ? 0 : amounts.reduce((a, b) => a + b, 0) / amounts.length;
+        if (amounts.length > 0) adjusted('SheetOptions', 'recomputed');
+        expectCents(timing.monthlyInvestCents, c28 + share * (1 - tax) * mean, 'SheetOptions!H2');
+        compared('SheetOptions');
+      },
+    );
   });
 });

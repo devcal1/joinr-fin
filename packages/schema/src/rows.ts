@@ -414,6 +414,59 @@ export const newJobRunSchema = z.strictObject({
   error: nullable(text),
 });
 
+// ─── Stage 3 (migration 0003; stage-3.md §3.2) ──────────────────────────────────────────────────
+
+/** Non-zero integer cents (deposits and adjustments). */
+const nonZeroCents = CentsSchema.refine((v) => v !== 0, { error: 'must not be zero' });
+
+export const newCashBalanceEntrySchema = z.strictObject({
+  id: idSchema,
+  accountId: z.number().int().positive(),
+  asOf: IsoDateSchema,
+  balanceCents: CentsSchema,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newSideIncomeDepositSchema = z.strictObject({
+  id: idSchema,
+  streamId: z.number().int().positive(),
+  depositDate: IsoDateSchema,
+  amountCents: nonZeroCents,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newSavingsAdjustmentSchema = z.strictObject({
+  id: idSchema,
+  periodMonth: IsoMonthSchema,
+  amountCents: nonZeroCents,
+  note: nonEmpty,
+  ...provenance,
+});
+
+export const newSavingsGoalSchema = z.strictObject({
+  id: idSchema,
+  name: nonEmpty,
+  targetCents: CentsSchema.min(1),
+  targetDate: nullable(IsoDateSchema),
+  sortOrder,
+  note: nullable(text),
+  ...provenance,
+});
+
+export const newDividendEventSchema = z.strictObject({
+  instrumentId: z.number().int().positive(),
+  exDate: IsoDateSchema,
+  amountPerUnit: DecimalStringSchema,
+  currency: nonEmpty,
+  closeBeforeEx: nullable(DecimalStringSchema),
+  closeDate: nullable(IsoDateSchema),
+  source: z.enum(PRICE_SOURCES),
+  fetchedAt: IsoTimestampSchema,
+  dismissedAt: nullable(IsoTimestampSchema),
+});
+
 export type NewInstrument = z.output<typeof newInstrumentSchema>;
 export type NewTrade = z.output<typeof newTradeSchema>;
 export type NewDividend = z.output<typeof newDividendSchema>;

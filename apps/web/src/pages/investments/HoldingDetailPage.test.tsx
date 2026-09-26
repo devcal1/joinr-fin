@@ -137,7 +137,10 @@ describe('HoldingDetailPage (§6.5)', () => {
     expect(cell(dividends, paid, 'Net')).toBe('$15.00');
     expect(cell(dividends, paid, 'Units at ex-date')).toBe('1');
     expect(cell(dividends, paid, 'Yield')).toBe('0.4%');
-    expect(screen.getByText('Dividends are edited on the Dividends page (Stage 3).')).toBeVisible();
+    // Stage 3 (§6.7): a link to the Dividends page, filtered to this holding.
+    const edit = screen.getByRole('link', { name: 'Edit on the Dividends page' });
+    expect(edit).toBeVisible();
+    expect(edit).toHaveAttribute('href', '/dividends?holding=8');
   });
 
   it('managed fund units show 6 dp', async () => {

@@ -82,8 +82,8 @@ export type JobStatus = (typeof JOB_STATUSES)[number];
 export const JOB_TRIGGERS = ['schedule', 'startup', 'manual', 'import'] as const;
 export type JobTrigger = (typeof JOB_TRIGGERS)[number];
 
-/** Stage 5 adds 'snapshot', Stage 7 'backup'. */
-export const JOB_NAMES = ['prices'] as const;
+/** Stage 3 adds 'dividends' (the dividend-events job); Stage 5 adds 'snapshot', Stage 7 'backup'. */
+export const JOB_NAMES = ['prices', 'dividends'] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
 export const CHECK_STATUSES = ['match', 'explained', 'unexplained', 'suspect', 'info'] as const;
@@ -213,3 +213,40 @@ export type CountdownState = (typeof COUNTDOWN_STATES)[number];
 /** Timing inputs Stage 2 does not have yet (the cash-deficit wait needs the Stage 3 savings engine). */
 export const DEFERRED_TIMING_INPUTS = ['cash_deficit_period'] as const;
 export type DeferredTimingInput = (typeof DEFERRED_TIMING_INPUTS)[number];
+
+// ─── Stage 3: cash flow and income (stage-3.md §3.2) ────────────────────────────────────────────
+
+/** D52: the Cash year figures use the Australian FY by default, or the calendar year. */
+export const YEAR_BASES = ['fy', 'calendar'] as const;
+export type YearBasis = (typeof YEAR_BASES)[number];
+
+/** The first snapshot is the baseline; the current period stays provisional until recorded. */
+export const SAVINGS_PERIOD_STATUSES = ['first', 'closed', 'provisional'] as const;
+export type SavingsPeriodStatus = (typeof SAVINGS_PERIOD_STATUSES)[number];
+
+/** The 3-month savings-rate trend (Cash C40). */
+export const KPI_TRENDS = ['increasing', 'decreasing', 'flat'] as const;
+export type KpiTrend = (typeof KPI_TRENDS)[number];
+
+/** A Yahoo dividend suggestion (D50). */
+export const DIVIDEND_SUGGESTION_STATUSES = ['due', 'upcoming', 'dismissed'] as const;
+export type DividendSuggestionStatus = (typeof DIVIDEND_SUGGESTION_STATUSES)[number];
+
+/** The DRP advice of the per-holding FY table (Dividends R). */
+export const DRP_ADVICE = ['switch_on', 'switch_off', 'keep'] as const;
+export type DrpAdvice = (typeof DRP_ADVICE)[number];
+
+/** The budget's automatic rows: a subset of BUDGET_ITEM_KINDS. */
+export const BUDGET_AUTO_KINDS = [
+  'auto_yearly',
+  'auto_invest',
+  'auto_cash',
+] as const satisfies readonly BudgetItemKind[];
+export type BudgetAutoKind = (typeof BUDGET_AUTO_KINDS)[number];
+
+/** The period notes the app edits (`PUT /api/period-notes/:kind/:periodMonth`). */
+export const EDITABLE_NOTE_KINDS = [
+  'spend',
+  'side_income',
+] as const satisfies readonly PeriodNoteKind[];
+export type EditableNoteKind = (typeof EDITABLE_NOTE_KINDS)[number];

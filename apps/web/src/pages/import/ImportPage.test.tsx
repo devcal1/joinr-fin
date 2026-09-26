@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { apiError, mockApi, pending } from '../../../test/mockApi';
 import { findMain, renderApp } from '../../../test/renderApp';
 import {
+  APP_DATA_KEPT,
   APP_DATA_MESSAGE,
   APP_DATA_OVERRIDE,
   APP_DATA_TITLE,
@@ -264,6 +265,11 @@ describe('ImportPage', () => {
     expect(callout).toHaveClass('jf-callout--do-not');
     expect(callout).toHaveTextContent(APP_DATA_MESSAGE);
     expect(within(callout).getByText(APP_DATA_OVERRIDE, { selector: 'code' })).toBeInTheDocument();
+    // Stage 3 (§6.7): the overlays a re-import keeps.
+    expect(callout).toHaveTextContent(APP_DATA_KEPT);
+    expect(APP_DATA_KEPT).toBe(
+      'Savings goals, one-off adjustments and dismissed suggestions are kept by a re-import.',
+    );
     // No replace confirmation: Import is off whatever is ticked.
     expect(screen.queryByRole('checkbox', { name: REPLACE_LABEL })).not.toBeInTheDocument();
     const importButton = screen.getByRole('button', { name: 'Import' });

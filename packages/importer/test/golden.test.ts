@@ -95,6 +95,39 @@ describeWithLocalWorkbook('golden: the local workbook', (path) => {
       ).toBe(true);
     });
 
+    it('writes one balance entry per account and dated deposits, never after the as-of (Stage 3)', () => {
+      for (const id of [
+        'counts.cash-accounts',
+        'counts.cash-balance-entries',
+        'counts.side-income',
+        'income.stream.1',
+        'income.stream.2',
+        'income.total',
+      ]) {
+        expect(report.checks.find((c) => c.id === id)?.status).toBe('match');
+      }
+      expect(report.counts['cash-balance-entries']).toBe(report.counts['cash-accounts']);
+      const asOf = report.workbook.asOf;
+      const entries = firstDump.cash_balance_entries ?? [];
+      expect(entries.length).toBe(report.counts['cash-accounts']);
+      expect(entries.every((e) => e.as_of === asOf && e.origin === 'import')).toBe(true);
+      const deposits = firstDump.side_income_deposits ?? [];
+      expect(deposits.length).toBe(report.counts['side-income']);
+      expect(
+        deposits.every(
+          (d) =>
+            typeof d.deposit_date === 'string' &&
+            asOf !== null &&
+            d.deposit_date <= asOf &&
+            d.amount_cents !== 0 &&
+            d.origin === 'import',
+        ),
+      ).toBe(true);
+      expect(firstDump.side_income_entries).toEqual([]);
+      // Kinds as imported: every account is a bank account until the owner sets them.
+      expect((firstDump.cash_accounts ?? []).every((a) => a.kind === 'bank')).toBe(true);
+    });
+
     it('matches every held watch row’s units', () => {
       const units = report.checks.filter((c) => c.id.startsWith('holdings.units.'));
       expect(units.length).toBeGreaterThan(0);

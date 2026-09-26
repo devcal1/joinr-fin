@@ -111,6 +111,11 @@ describe('pnpm import:workbook', { timeout: 30_000 }, () => {
     expect(first.code).toBe(EXIT.ok);
     expect(first.out).toContain('Imported synthetic.xlsx (as of 20/03/2026)');
     expect(first.out).toContain('Corrections: none');
+    // Every count has a readable label (Stage 3: balance entries, side-income deposits).
+    const rowsLine = first.out.split('\n').find((l) => l.startsWith('Rows: ')) ?? '';
+    expect(rowsLine).toContain('cash balance entries ');
+    expect(rowsLine).toContain('side income deposits ');
+    expect(rowsLine).not.toContain('cash-balance-entries');
     expect(first.out).toMatch(
       /Checks: \d+ match · \d+ explained · 0 unexplained · 1 suspect · \d+ info/,
     );

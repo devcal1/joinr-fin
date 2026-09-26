@@ -22,3 +22,4 @@ export * from './dto/report';
 export * from './dto/prices';
 export * from './dto/status';
 export * from './dto/investments';
+export * from './dto/cashflow';

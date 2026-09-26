@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  API_ERROR_CODES,
+  BUDGET_AUTO_KINDS,
+  BUDGET_ITEM_KINDS,
   derivePriceSource,
+  EDITABLE_NOTE_KINDS,
+  EDITABLE_SETTING_KEYS,
+  isEditableSettingKey,
   isRecordEntityId,
   isSettingKey,
+  isWorkbookSetting,
+  JOB_NAMES,
+  PERIOD_NOTE_KINDS,
+  settingDef,
   looksLikeYahooSymbol,
   MARKET_SERIES,
   normaliseSheetLabel,
@@ -82,6 +92,54 @@ describe('settings registry', () => {
   });
 });
 
+describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
+  it('adds the app-only year basis, default FY', () => {
+    expect(settingDef('savings.yearBasis')).toMatchObject({
+      label: 'Year for the cash figures',
+      category: 'savings',
+      type: 'enum',
+      enumValues: ['fy', 'calendar'],
+      source: null,
+      defaultValue: 'fy',
+    });
+    expect(settingValueSchema('savings.yearBasis').safeParse('calendar').success).toBe(true);
+    expect(settingValueSchema('savings.yearBasis').safeParse('month').success).toBe(false);
+    expect(settingDef('goals.houseDepositInvestmentShare').label).toBe(
+      'Savings goals: share of investments counted',
+    );
+  });
+
+  it('lists the editable keys: registry keys, the nine Budget ones first', () => {
+    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(15);
+    for (const key of EDITABLE_SETTING_KEYS) expect(isSettingKey(key), key).toBe(true);
+    expect(EDITABLE_SETTING_KEYS.slice(0, 9).every((k) => /^(pay|budget)./.test(k))).toBe(true);
+    expect(isEditableSettingKey('savings.yearBasis')).toBe(true);
+    expect(isEditableSettingKey('allocation.etf')).toBe(false);
+    expect(isEditableSettingKey(42)).toBe(false);
+  });
+
+  it('tells workbook keys from app-only keys', () => {
+    expect(isWorkbookSetting('savings.yearBasis')).toBe(false);
+    for (const key of EDITABLE_SETTING_KEYS.filter((k) => k !== 'savings.yearBasis')) {
+      expect(isWorkbookSetting(key), key).toBe(true);
+    }
+    expect(SETTINGS.filter((s) => s.source === null).map((s) => s.key)).toEqual([
+      'savings.yearBasis',
+    ]);
+  });
+
+  it('appends the Stage 3 enums and codes as subsets where they must be', () => {
+    for (const k of BUDGET_AUTO_KINDS) expect(BUDGET_ITEM_KINDS).toContain(k);
+    for (const k of EDITABLE_NOTE_KINDS) expect(PERIOD_NOTE_KINDS).toContain(k);
+    expect(JOB_NAMES).toEqual(['prices', 'dividends']);
+    expect(API_ERROR_CODES.slice(-3)).toEqual([
+      'ACCOUNT_IN_USE',
+      'STREAM_IN_USE',
+      'LAST_BALANCE_ENTRY',
+    ]);
+  });
+});
+
 describe('normaliseSheetLabel', () => {
   it('handles an internal newline and a parenthesised suffix', () => {
     expect(normaliseSheetLabel('Net Regular Income\n(What hits your bank)')).toBe(
@@ -128,6 +186,29 @@ describe('record registry', () => {
     }
     expect(isRecordEntityId('trades')).toBe(true);
     expect(isRecordEntityId('users')).toBe(false);
+  });
+
+  it('lists the Stage 3 entities and the side-income deposits (stage-3.md §3.2)', () => {
+    expect(RECORD_ENTITY_IDS.slice(-4)).toEqual([
+      'cash-balance-entries',
+      'savings-adjustments',
+      'savings-goals',
+      'dividend-events',
+    ]);
+    expect(RECORD_ENTITY_TABLES['side-income']).toBe('side_income_deposits');
+    expect(RECORD_ENTITIES['side-income'].columns.map((c) => c.id)).toEqual([
+      'date',
+      'stream',
+      'amount',
+      'note',
+      'sheetRef',
+    ]);
+    expect(RECORD_ENTITIES['savings-adjustments'].group).toBe('history');
+    expect(RECORD_ENTITIES['dividend-events'].group).toBe('investments');
+    expect(RECORD_ENTITIES['cash-balance-entries'].defaultSort).toEqual({
+      columnId: 'asOf',
+      desc: true,
+    });
   });
 
   it('lists the 36 History value columns B…AK', () => {

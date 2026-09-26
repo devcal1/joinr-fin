@@ -1,6 +1,7 @@
 // Deterministic offline provider (MARKET_DATA_MODE=fake; e2e and demos without network, §5.2).
 // AUD price = 1 + (fnv1a(symbol) % 99900) / 100; SI=F / GC=F in USD; AUDUSD=X = 0.65;
 // `<CCY>AUD=X` in AUD; search returns the symbol in lower case; asOf = the clock's now.
+// Stage 3 adds deterministic quarterly dividend events (`fakeDividendEvents`, stage-3.md §4.6).
 import { BULLION_FEEDS, JoinrDecimal, normaliseDecimal } from '@joinr/schema';
 import type {
   CoinIdResolver,
@@ -25,6 +26,67 @@ export function fnv1a(text: string): number {
 
 export function fakePrice(symbol: string): string {
   return normaliseDecimal(new JoinrDecimal(fnv1a(symbol) % 99900).div(100).plus(1));
+}
+
+/** Stage 3 fake dividend events (stage-3.md §4.6): quarters start in these months. */
+export const FAKE_DIVIDEND_MONTHS = [1, 4, 7, 10] as const;
+
+export interface FakeDividendEvent {
+  exDate: string;
+  amountPerUnit: string;
+  currency: string;
+  closeBeforeEx: string;
+  closeDate: string;
+}
+
+/** AUD per unit: 0.1 + (fnv1a(symbol) % 50) / 100. */
+export function fakeDividendAmount(symbol: string): string {
+  return normaliseDecimal(new JoinrDecimal(fnv1a(symbol) % 50).div(100).plus('0.1'));
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+function utcIso(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getUTCFullYear()).padStart(4, '0')}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+function isWeekendUtc(ms: number): boolean {
+  const day = new Date(ms).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * Deterministic quarterly events (MARKET_DATA_MODE=fake): an ex-date on the first weekday of
+ * January, April, July and October, from two years before `now` to `now` (UTC calendar dates),
+ * `fakeDividendAmount(symbol)` AUD per unit, and `fakePrice(symbol)` as the close on the weekday
+ * before the ex-date.
+ */
+export function fakeDividendEvents(symbol: string, now: Date): FakeDividendEvent[] {
+  const today = utcIso(now.getTime());
+  const year = now.getUTCFullYear();
+  const from = `${String(year - 2).padStart(4, '0')}${today.slice(4)}`;
+  const amountPerUnit = fakeDividendAmount(symbol);
+  const closeBeforeEx = fakePrice(symbol);
+  const out: FakeDividendEvent[] = [];
+  for (let y = year - 2; y <= year; y += 1) {
+    for (const month of FAKE_DIVIDEND_MONTHS) {
+      let ms = Date.UTC(y, month - 1, 1);
+      while (isWeekendUtc(ms)) ms += 86_400_000;
+      const exDate = utcIso(ms);
+      if (exDate < from || exDate > today) continue;
+      let closeMs = ms - 86_400_000;
+      while (isWeekendUtc(closeMs)) closeMs -= 86_400_000;
+      out.push({
+        exDate,
+        amountPerUnit,
+        currency: 'AUD',
+        closeBeforeEx,
+        closeDate: utcIso(closeMs),
+      });
+    }
+  }
+  return out;
 }
 
 function fakeCurrency(symbol: string): string {

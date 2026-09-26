@@ -48,10 +48,12 @@ describe('importWorkbook: clean synthetic workbook', () => {
       trades: 17,
       dividends: 4,
       'cash-accounts': 4,
+      'cash-balance-entries': 4,
       'budget-items': 8,
       'yearly-expenses': 3,
       'income-streams': 2,
-      'side-income': 9,
+      // Deposits (D57): the 7 non-zero of the 9 numeric Side Income G/H cells.
+      'side-income': 7,
       'period-notes': 7,
       snapshots: 5,
       'other-assets': 6,

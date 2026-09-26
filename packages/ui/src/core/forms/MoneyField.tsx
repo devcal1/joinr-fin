@@ -9,6 +9,11 @@ export interface MoneyFieldProps extends FieldBaseProps {
   onChange: (cents: number | null) => void;
   allowNegative?: boolean;
   placeholder?: string;
+  /**
+   * Visually hide the label; it still names the input (an inline cell editor whose column header
+   * already says what it is). Stage 3, additive.
+   */
+  labelHidden?: boolean;
 }
 
 export const MONEY_INVALID_MESSAGE = 'Enter an amount like 1,234.56';
@@ -37,6 +42,7 @@ export function MoneyField({
   onChange,
   allowNegative = false,
   placeholder,
+  labelHidden,
 }: MoneyFieldProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const draft = useDraftInput<number | null>({
@@ -64,6 +70,7 @@ export function MoneyField({
       required={required}
       disabled={disabled}
       className={className}
+      labelHidden={labelHidden}
     >
       <div className="jf-input jf-input--numeric">
         <span className="jf-input__adorn jf-input__adorn--start" aria-hidden="true">

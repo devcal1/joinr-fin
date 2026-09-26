@@ -13,6 +13,9 @@ import { isRecordEntityId, type InstrumentKind } from '@joinr/schema';
 import type { JSX } from 'react';
 import { RootLayout } from './layout/RootLayout';
 import { PAGES, STYLEGUIDE_PAGE, isScreenVariant, type PageDef } from './pages';
+import { BudgetPage } from './pages/budget/BudgetPage';
+import { CashPage } from './pages/cash/CashPage';
+import { DividendsPage } from './pages/dividends/DividendsPage';
 import { ErrorPage } from './pages/ErrorPage';
 import { ImportPage } from './pages/import/ImportPage';
 import { ImportRunPage } from './pages/import/ImportRunPage';
@@ -25,11 +28,15 @@ import { PricesPage } from './pages/prices/PricesPage';
 import { RecordsEntityPage } from './pages/records/RecordsEntityPage';
 import { RecordsIndexPage } from './pages/records/RecordsIndexPage';
 import { ScreenPreviewPage } from './pages/ScreenPreviewPage';
+import { SideIncomePage } from './pages/sideIncome/SideIncomePage';
 import { StyleguidePage } from './pages/styleguide/StyleguidePage';
 
 export interface RouterContext {
   queryClient: QueryClient;
 }
+
+/** A positive integer path segment or search value (`7`; not `07`, `0` or `-1`). */
+const POSITIVE_INT_RE = /^[1-9]\d{0,15}$/;
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: Outlet,
@@ -103,6 +110,45 @@ const cryptoRoute = createRoute({
   component: investmentPageFor('crypto'),
 });
 
+// Stage 3: the four cash-flow pages (stage-3.md §6.1).
+const cashRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cash',
+  component: CashPage,
+});
+
+const sideIncomeRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/side-income',
+  component: SideIncomePage,
+});
+
+const budgetRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/budget',
+  component: BudgetPage,
+});
+
+/** `/dividends?holding=<id>`: a positive-int holding filter; anything else is dropped. */
+function validateDividendsSearch(search: Record<string, unknown>): { holding?: number } {
+  const raw = search.holding;
+  const text = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : '';
+  return POSITIVE_INT_RE.test(text) ? { holding: Number(text) } : {};
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+function DividendsRoute(): JSX.Element {
+  const { holding } = dividendsRoute.useSearch();
+  return holding === undefined ? <DividendsPage /> : <DividendsPage holding={holding} />;
+}
+
+const dividendsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/dividends',
+  validateSearch: validateDividendsSearch,
+  component: DividendsRoute,
+});
+
 const BUILT_PAGE_ROUTES = [
   recordsRoute,
   importRoute,
@@ -111,6 +157,10 @@ const BUILT_PAGE_ROUTES = [
   etfsRoute,
   managedFundsRoute,
   cryptoRoute,
+  cashRoute,
+  sideIncomeRoute,
+  budgetRoute,
+  dividendsRoute,
 ];
 const BUILT_PATHS: ReadonlySet<string> = new Set([
   '/records',
@@ -120,6 +170,10 @@ const BUILT_PATHS: ReadonlySet<string> = new Set([
   '/etfs',
   '/managed-funds',
   '/crypto',
+  '/cash',
+  '/side-income',
+  '/budget',
+  '/dividends',
 ]);
 
 // Every other page renders its placeholder until its stage lands.
@@ -130,9 +184,6 @@ const pageRoutes = PAGES.filter((page) => !BUILT_PATHS.has(page.path)).map((page
     component: page.id === 'net-worth' ? NetWorthPage : placeholderFor(page),
   }),
 );
-
-/** A positive integer path segment (`7`; not `07`, `0` or `-1`). */
-const POSITIVE_INT_RE = /^[1-9]\d{0,15}$/;
 
 // eslint-disable-next-line react-refresh/only-export-components
 function RecordsEntityRoute(): JSX.Element {

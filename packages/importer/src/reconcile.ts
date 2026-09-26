@@ -25,6 +25,7 @@ import {
 import {
   budgetItems,
   cashAccounts,
+  cashBalanceEntries,
   dividends,
   incomeStreams,
   instruments,
@@ -35,7 +36,7 @@ import {
   prices,
   properties,
   settings,
-  sideIncomeEntries,
+  sideIncomeDeposits,
   snapshots,
   superEntries,
   superFunds,
@@ -134,10 +135,12 @@ interface Db {
   })[];
   dividends: (typeof dividends.$inferSelect)[];
   cashAccounts: (typeof cashAccounts.$inferSelect)[];
+  cashBalanceEntries: (typeof cashBalanceEntries.$inferSelect)[];
   budgetItems: (typeof budgetItems.$inferSelect)[];
   yearlyExpenses: (typeof yearlyExpenses.$inferSelect)[];
   incomeStreams: (typeof incomeStreams.$inferSelect)[];
-  sideIncome: (typeof sideIncomeEntries.$inferSelect)[];
+  /** Side-income deposits (D57). */
+  sideIncome: (typeof sideIncomeDeposits.$inferSelect)[];
   periodNotes: (typeof periodNotes.$inferSelect)[];
   snapshots: (typeof snapshots.$inferSelect)[];
   otherAssets: (typeof otherAssets.$inferSelect)[];
@@ -165,10 +168,11 @@ function readBack(tx: Tx): Db {
       }),
     dividends: tx.select().from(dividends).all(),
     cashAccounts: tx.select().from(cashAccounts).all(),
+    cashBalanceEntries: tx.select().from(cashBalanceEntries).all(),
     budgetItems: tx.select().from(budgetItems).all(),
     yearlyExpenses: tx.select().from(yearlyExpenses).all(),
     incomeStreams: tx.select().from(incomeStreams).all(),
-    sideIncome: tx.select().from(sideIncomeEntries).all(),
+    sideIncome: tx.select().from(sideIncomeDeposits).all(),
     periodNotes: tx.select().from(periodNotes).all(),
     snapshots: tx.select().from(snapshots).all(),
     otherAssets: tx.select().from(otherAssets).all(),
@@ -226,6 +230,7 @@ export function reconcile(input: ReconcileInput): ReconcileOutput {
     trades: db.trades.length,
     dividends: db.dividends.length,
     'cash-accounts': db.cashAccounts.length,
+    'cash-balance-entries': db.cashBalanceEntries.length,
     'budget-items': db.budgetItems.length,
     'yearly-expenses': db.yearlyExpenses.length,
     'income-streams': db.incomeStreams.length,
@@ -485,6 +490,15 @@ function countChecks({ r, model, db, outcomes }: Ctx): Check[] {
     for (let row = CASH.firstRow; row < end; row++)
       if (!r.isBlank(CASH.sheet, `A${row}`)) expected++;
     out.push(countCheck('cash-accounts', 'Cash accounts', expected, db.cashAccounts.length));
+    // D58: one balance entry per account.
+    out.push(
+      countCheck(
+        'cash-balance-entries',
+        'Cash balance entries',
+        expected,
+        db.cashBalanceEntries.length,
+      ),
+    );
   }
   {
     const end = budgetEnd(r);
@@ -501,13 +515,16 @@ function countChecks({ r, model, db, outcomes }: Ctx): Check[] {
   }
   out.push(countCheck('income-streams', 'Income streams', 2, db.incomeStreams.length));
   {
+    // D57: one deposit per non-zero numeric G/H cell of a row dated in F.
     let expected = 0;
     for (let row = SIDE_INCOME.firstRow; row <= SIDE_INCOME.lastRow; row++) {
       if (r.date(SIDE_INCOME.sheet, `F${row}`) === null) continue;
-      for (const col of ['G', 'H'])
-        if (r.number(SIDE_INCOME.sheet, `${col}${row}`) !== null) expected++;
+      for (const col of ['G', 'H']) {
+        const n = r.number(SIDE_INCOME.sheet, `${col}${row}`);
+        if (n !== null && centsFromNumber(n) !== 0) expected++;
+      }
     }
-    out.push(countCheck('side-income', 'Side income entries', expected, db.sideIncome.length));
+    out.push(countCheck('side-income', 'Side income deposits', expected, db.sideIncome.length));
   }
   for (const kind of ['spend', 'super_option', 'side_income'] as const) {
     out.push(
@@ -1141,7 +1158,7 @@ function yearlyFundCents(annualCents: readonly number[]): number {
   return units.times(500).toNumber();
 }
 
-function cashflowChecks({ r, model, db }: Ctx): Check[] {
+function cashflowChecks({ r, model, db, written }: Ctx): Check[] {
   const out: Check[] = [];
   const end = cashEnd(r);
   const nonOffset = db.cashAccounts.filter((a) => !a.isOffset);
@@ -1158,7 +1175,40 @@ function cashflowChecks({ r, model, db }: Ctx): Check[] {
       Math.max(1, nonOffset.length),
     ),
   );
+  // D49: account kinds set in the app that no imported account could take over.
+  const lost = written.kindsNotCarried;
+  if (lost.length > 0) {
+    const n = lost.length;
+    out.push(
+      info(
+        'cash.kindsNotCarried',
+        'cash',
+        'Account kinds not carried over',
+        null,
+        `${n} account ${n === 1 ? 'kind' : 'kinds'} could not be carried over; set ${n === 1 ? 'it' : 'them'} again on the Cash page (${lost.join(', ')})`,
+        { unit: 'count', expected: n, actual: 0, diff: -n, refs: { entity: 'cash-accounts' } },
+      ),
+    );
+  }
   // Side income.
+  const atAsOf = model.sideIncome.filter((d) => d.depositDate !== d.periodEnd).length;
+  if (atAsOf > 0) {
+    out.push(
+      info(
+        'income.datedAtAsOf',
+        'income',
+        'Side income dated at the workbook date',
+        null,
+        `${atAsOf} ${atAsOf === 1 ? 'deposit' : 'deposits'} of the current period ${atAsOf === 1 ? 'is' : 'are'} dated at the workbook's as-of date instead of the period end, which is later`,
+        {
+          sheetRef: sheetRef(NET_WORTH.sheet, NET_WORTH.asOf),
+          unit: 'count',
+          actual: atAsOf,
+          refs: { entity: 'side-income' },
+        },
+      ),
+    );
+  }
   const streamIds = [...db.incomeStreams]
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((s) => s.id);

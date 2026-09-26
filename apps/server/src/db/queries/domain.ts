@@ -1,5 +1,6 @@
 // Domain-data helpers for the import flow (stage-1.md §3.4, §4.8) and the D34 deletion marker
 // (stage-2.md §3.3).
+import { isSettingKey, isWorkbookSetting } from '@joinr/schema';
 import {
   appMeta,
   DOMAIN_TABLES_DELETE_ORDER,
@@ -79,13 +80,17 @@ export function hasDomainData(db: Db): boolean {
 }
 
 /**
- * True when any app-entered row (`origin = 'app'`) exists in the domain tables, instruments or
- * settings, or when the deletion marker exists (a workbook row was deleted in the app). A
- * re-import would undo these, so the upload route refuses it (D34).
+ * True when any app-entered row (`origin = 'app'`) exists in the import-owned tables
+ * (`DOMAIN_TABLES_DELETE_ORDER`, so the Stage 3 balance entries and deposits count automatically)
+ * or instruments, when a WORKBOOK setting was edited in the app, or when the deletion marker exists
+ * (a workbook row was deleted in the app). A re-import would undo these, so the upload route
+ * refuses it (D34). An app-only setting (`savings.yearBasis`), the overlays (savings adjustments
+ * and goals) and the dividend-events cache never count: an import never touches them
+ * (stage-3.md §3.3 rule 2, §3.4).
  */
 export function hasAppData(db: Db | Tx): boolean {
   if (readAppEditMarker(db) !== null) return true;
-  for (const table of [instruments, settings, ...DOMAIN_TABLES_DELETE_ORDER]) {
+  for (const table of [instruments, ...DOMAIN_TABLES_DELETE_ORDER]) {
     const row = db
       .select({ origin: table.origin })
       .from(table)
@@ -94,7 +99,12 @@ export function hasAppData(db: Db | Tx): boolean {
       .get();
     if (row) return true;
   }
-  return false;
+  const appSettings = db
+    .select({ key: settings.key })
+    .from(settings)
+    .where(eq(settings.origin, 'app'))
+    .all();
+  return appSettings.some((s) => isSettingKey(s.key) && isWorkbookSetting(s.key));
 }
 
 /**

@@ -28,9 +28,24 @@ describe('router', () => {
   });
 
   it('renders a placeholder page with its name', async () => {
-    renderAt('/budget');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Budget' })).toBeInTheDocument();
+    renderAt('/super');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Super' })).toBeInTheDocument();
   });
+
+  it.each([
+    ['/cash', 'Cash', 'Could not load the cash page'],
+    ['/side-income', 'Side Income', 'Could not load the side income page'],
+    ['/budget', 'Budget', 'Could not load the budget'],
+    ['/dividends', 'Dividends', 'Could not load the dividends'],
+    ['/dividends?holding=4', 'Dividends', 'Could not load the dividends'],
+  ])(
+    'renders the Stage 3 page %s with its h1 even when the API is down',
+    async (path, title, error) => {
+      renderAt(path);
+      expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument();
+      expect(await screen.findByRole('note', { name: error })).toHaveClass('jf-callout--do-not');
+    },
+  );
 
   it.each([
     ['/stocks', 'Stocks'],

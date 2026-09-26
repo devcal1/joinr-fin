@@ -300,10 +300,12 @@ export function hintText(timing: InvestmentTimingDto, kind: InstrumentKind): str
   // automatic split off (D46) waiting for cash would never end, so the plain suggestion shows.
   const cashFirst = timing.countdown.state === 'cash_first';
   switch (considerNext.reason) {
+    // The test compares the cash that counts toward the fund (available cash, D59), not Total
+    // cash, which can sit above the fund while loans you've made are left out.
     case 'below_emergency_fund':
       return budget.emergencyFundCents === null
-        ? 'Top up cash first: cash is below the emergency fund'
-        : `Top up cash first: cash is below the emergency fund (${formatMoney(budget.emergencyFundCents)})`;
+        ? "Top up cash first: the cash that counts toward the emergency fund (not loans you've made) is below it"
+        : `Top up cash first: the cash that counts toward the emergency fund (not loans you've made) is below it (${formatMoney(budget.emergencyFundCents)})`;
     case 'no_targets':
       return 'Set allocation targets to get a suggestion';
     default: {
@@ -326,10 +328,12 @@ export function hintText(timing: InvestmentTimingDto, kind: InstrumentKind): str
   }
 }
 
-/** D46: the status line when the budget's automatic investment split is off, and why. */
-export const SPLIT_OFF_STATUS = 'Automatic investment split is off';
-export const SPLIT_OFF_NOTE =
-  'The budget sends the whole leftover to cash, so there is no monthly amount to invest.';
+/**
+ * D46, D54: the status line when the budget's automatic investment split is off and no amount is
+ * set on its investment row, and where to set one (a link to the Budget page).
+ */
+export const SPLIT_OFF_STATUS = 'Automatic investment split is off and the investment amount is $0';
+export const SPLIT_OFF_LINK = 'Set an amount on the Budget page';
 
 /** The countdown line (ETFs page). */
 export function countdownText(
@@ -384,11 +388,25 @@ export function monthlyAmountText(
   return { totalCents: total, breakdown };
 }
 
-/** "Every 3 months · $4,860.00 (estimate; optimal $3,943.60)"; null without a plan. */
-export function parcelText(plan: InvestmentTimingDto['plan']): string | null {
+function everyMonths(months: number): string {
+  return months === 1 ? 'Every month' : `Every ${months} months`;
+}
+
+/**
+ * "Every 3 months · $4,860.00"; while cash tops up to its target (the cash-deficit wait, §2.12,
+ * longer than the plan) "Every 5 months while cash tops up to its target (normally every 3
+ * months) · $4,860.00" (the countdown uses the longer of the two). Null without a plan.
+ */
+export function parcelText(
+  plan: InvestmentTimingDto['plan'],
+  cashDeficitMonths: number | null = null,
+): string | null {
   if (plan === null) return null;
-  const every = plan.months === 1 ? 'Every month' : `Every ${plan.months} months`;
-  return `${every} · ${formatMoney(plan.parcelCents)} (estimate; optimal ${formatMoney(plan.optimalParcelCents)})`;
+  const amount = formatMoney(plan.parcelCents);
+  if (cashDeficitMonths !== null && cashDeficitMonths > plan.months) {
+    return `${everyMonths(cashDeficitMonths)} while cash tops up to its target (normally ${everyMonths(plan.months).toLowerCase()}) · ${amount}`;
+  }
+  return `${everyMonths(plan.months)} · ${amount}`;
 }
 
 /** The suggested class, current vs target: "ETFs: 10.4% now vs 60.0% target"; null without one. */
@@ -415,11 +433,13 @@ export function missingInputLabel(key: string): string {
   return isSettingKey(key) ? settingDef(key).label : key;
 }
 
+/** The missing-inputs footer in words (the card links "Budget page"). */
 export const MISSING_INPUTS_FOOTER =
-  'Set these in the workbook and re-import (only while no app edits exist), or on the Settings page in Stage 5.';
-export const DEFERRED_CASH_NOTE =
-  'Cash is below its target; the cash-first wait is added in Stage 3.';
-export const IMPORTED_BUDGET_NOTE = 'From the imported budget; the live budget arrives in Stage 3.';
+  'Pay and budget settings and budget items are set on the Budget page; everything else in the workbook, or on the Settings page in Stage 5.';
+/** The card's foot line (a link to /budget) when the timing reads the live budget. */
+export const LIVE_BUDGET_LINK = 'From your budget';
+/** The foot line while a server still sends the Stage 2 imported budget. */
+export const IMPORTED_BUDGET_TEXT = 'From the imported budget';
 
 // ─── Kind words ─────────────────────────────────────────────────────────────────────────────────
 

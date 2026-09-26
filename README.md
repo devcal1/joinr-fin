@@ -128,6 +128,23 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `GET /api/instruments/:id` | One holding: the instrument, its row, parcels (lots), disposals, trades and dividends. |
 | `POST /api/instruments`, `PUT`/`DELETE /api/instruments/:id` | Add, edit or delete a holding (see below). |
 | `POST /api/trades`, `PUT`/`DELETE /api/trades/:id` | Add, edit or delete a trade (see below). |
+| `GET /api/cash` | The Cash page: accounts by kind with their balance history, Total Cash, available cash and the emergency-fund test, the savings periods (raw and adjusted), the KPIs, savings goals, charts and the page's settings. |
+| `POST /api/cash/accounts`, `PUT`/`DELETE /api/cash/accounts/:id` | Add, edit or delete a cash account (see below). |
+| `PUT /api/cash/balances`, `DELETE /api/cash/balance-entries/:id` | Record balances at a date for one or more accounts; delete one balance from an account's history. |
+| `PUT`/`DELETE /api/cash/adjustments/:periodMonth` | A one-off adjustment taken out of a recorded month's savings. |
+| `PUT /api/period-notes/:kind/:periodMonth` | A spend or side-income note on a recorded month (`kind` = `spend` or `side_income`; empty text deletes it). |
+| `POST /api/savings-goals`, `PUT`/`DELETE /api/savings-goals/:id`, `POST /api/savings-goals/reorder` | Savings goals, filled in list order. |
+| `GET /api/side-income` | The Side Income page: streams, dated deposits, deposits bucketed into the recorded months, FY and 365-day averages, chart data. |
+| `POST /api/side-income/deposits`, `PUT`/`DELETE …/deposits/:id`; `POST /api/side-income/streams`, `PUT`/`DELETE …/streams/:id` | Side-income deposits and streams. |
+| `GET /api/budget` | The live Budget: income, items, the yearly fund, the emergency fund, the investment/cash split, payday transfers, breakdowns and the actual spend. |
+| `POST /api/budget/items`, `PUT`/`DELETE /api/budget/items/:id`, `POST /api/budget/items/reorder` | Budget items (the automatic rows are edited through the next route). |
+| `PUT /api/budget/auto/:kind` | An automatic row (`auto_yearly`, `auto_invest`, `auto_cash`): category and account, and a typed investment amount for `auto_invest`. |
+| `POST /api/budget/yearly-expenses`, `PUT`/`DELETE …/yearly-expenses/:id` | Yearly expenses. |
+| `GET /api/dividends` | The Dividends page: the ledger, FY and last-12-months summaries, the per-holding FY table with DRP advice, Yahoo suggestions and their status. |
+| `POST /api/dividends`, `PUT`/`DELETE /api/dividends/:id` | Add, edit or delete a dividend. |
+| `POST /api/dividends/suggestions/refresh` | Checks Yahoo for dividend events now (`503 MARKET_DATA_DISABLED` in mode `off`). |
+| `POST /api/dividends/suggestions/dismiss`, `…/restore` | Hide or show one suggestion (`{ "instrumentId": …, "exDate": "YYYY-MM-DD" }`). |
+| `PATCH /api/settings` | Changes the settings the Cash and Budget pages edit (`{ "values": { "savings.yearBasis": "calendar" } }`). |
 
 ```http
 GET /api/health
@@ -139,7 +156,7 @@ GET /api/health
   "version": "0.1.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
-  "db": { "ok": true, "journalMode": "wal", "migrations": 3 }
+  "db": { "ok": true, "journalMode": "wal", "migrations": 4 }
 }
 ```
 
@@ -178,6 +195,23 @@ Every figure on the investment pages comes from the pure engine (`@joinr/engine`
 - a deleted row that came from the workbook (the app records the deletion in `app_meta`).
 
 Setting only a holding's default fee, or deleting a row that was created in the app, does not count. The command line can still replace everything: `pnpm import:workbook --yes --replace-app-data`, which also clears the deletion record. Every trade and holding change answers `409 IMPORT_IN_PROGRESS` while an upload import runs.
+
+### Cash flow and income
+
+Every figure on the Cash, Side Income, Budget and Dividends pages comes from the engine too; the server loads every row the pages need in one read transaction and computes each engine result once per request. The investment pages' next-buy timing reads the same live data: the live budget, the live cash balances and the months cash needs to reach its target share.
+
+- **Cash accounts** have a kind: bank account, credit card, loan you've made or other; an offset account is never in Total Cash. Loans you've made count in Total Cash, net worth and the savings figures, but not in *available cash*, which the emergency-fund test, the savings goals, the cash savings target and the end-of-year cash goal use.
+- **Balances** are a history: `PUT /api/cash/balances` takes `{ "asOf": "2026-09-20", "entries": [{ "accountId": 1, "balanceCents": 520000, "note": "optional" }] }` and writes or replaces each account's balance at that date; the account shows its latest one. An account keeps at least one balance (`409 LAST_BALANCE_ENTRY`), and an account used by budget rows cannot be deleted (`409 ACCOUNT_IN_USE`).
+- **Savings periods** run between recorded months; the current month is provisional until it is recorded. An adjustment (a one-off inflow such as an asset sale) or a note can only be saved on a recorded month (`400 periodMonth: not a recorded period`).
+- **Side income** is a list of dated deposits (negative for a reversal); a stream with deposits cannot be deleted (`409 STREAM_IN_USE`).
+- **Dividends:** an omitted price at the ex-date is filled from the cached Yahoo close before that date; a typed price is kept as typed. Suggestions from Yahoo are only suggestions: confirming one is a normal `POST /api/dividends`.
+- Every change answers `409 IMPORT_IN_PROGRESS` while an upload import runs (the suggestion check excepted).
+
+**Dividend events job.** In mode `live` or `fake` a `dividends` job fetches dividend events (ex-date and amount per unit) and the close before each ex-date for the stocks, ETFs and managed funds with trades, once a day when `PRICE_REFRESH_MINUTES` is above 0 (it shares Yahoo's rate-limit pause with the price job). `POST /api/dividends/suggestions/refresh` runs it at any time. Crypto is never fetched.
+
+**What else blocks a re-import (D34).** Creating or editing cash accounts, balances, deposits, streams, notes, budget rows, yearly expenses and dividends counts as app data, as does changing a setting that comes from the workbook. These never count, and a re-import keeps them: changing only an account's kind, savings adjustments, savings goals, dismissed suggestions and the year basis for the cash figures.
+
+### Upload import
 
 **`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`, or a deleted workbook row; see [Investments](#investments)); a dry run is still allowed, and only the CLI can override (see below).
 

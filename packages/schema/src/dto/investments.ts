@@ -109,6 +109,20 @@ function localTomorrow(now: Date): IsoDate {
   return localIsoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
 }
 
+/**
+ * The date of an entry the owner records (a trade, a balance, a deposit, a dividend payment): a
+ * real date written YYYY-MM-DD, ≥ 01/01/1900 and ≤ tomorrow (the local calendar date at parse
+ * time). One rule for every entry date, so the trade and cash-flow dates cannot drift apart. The
+ * return type stays inferred, so a schema that embeds it keeps `string` as its input type.
+ */
+export function makeEntryDateSchema(now: () => Date = () => new Date()) {
+  return z
+    .string()
+    .refine(isIsoDateString, { error: 'must be a date written YYYY-MM-DD', abort: true })
+    .refine((d) => d >= MIN_TRADE_DATE, { error: 'must be on or after 01/01/1900', abort: true })
+    .refine((d) => d <= localTomorrow(now()), { error: 'must not be after tomorrow' });
+}
+
 // ─── Trades ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -120,14 +134,7 @@ export function makeTradeInputSchema(now: () => Date = () => new Date()) {
     .strictObject({
       instrumentId: z.number().int().positive(),
       side: z.enum(TRADE_SIDES),
-      tradeDate: z
-        .string()
-        .refine(isIsoDateString, { error: 'must be a date written YYYY-MM-DD', abort: true })
-        .refine((d) => d >= MIN_TRADE_DATE, {
-          error: 'must be on or after 01/01/1900',
-          abort: true,
-        })
-        .refine((d) => d <= localTomorrow(now()), { error: 'must not be after tomorrow' }),
+      tradeDate: makeEntryDateSchema(now),
       quantity: z.discriminatedUnion('mode', [
         z.strictObject({ mode: z.literal('units'), units: tradeDecimalSchema(1e12) }),
         // D38: units = amount ÷ price, rounded down per kind (unitsFromAmount); the fee is on top.
@@ -538,7 +545,8 @@ export interface InvestmentTimingDto {
     investmentRowCents: number | null;
     sideIncomeInvestCents: number;
     useBudget: boolean | null;
-    source: 'imported_budget';
+    /** Stage 3 (stage-3.md §3.2, widened): the server now sends `live_budget`. */
+    source: 'imported_budget' | 'live_budget';
   };
   plan: { months: number; parcelCents: number; optimalParcelCents: number } | null;
   lastPurchaseDate: IsoDate | null;
@@ -556,7 +564,14 @@ export interface InvestmentTimingDto {
   };
   /** TimingInput values (the engine's); the web shows `settingDef(key).label` for setting keys. */
   missing: string[];
+  /** Always `[]` from Stage 3 (the cash-deficit wait is live: `cashDeficitMonths`). */
   deferred: DeferredTimingInput[];
+  /**
+   * Stage 3 (stage-3.md §2.12, SheetOptions H12): the months until cash tops up to its target
+   * allocation; null when cash is at or above it (or an input is missing). The countdown uses
+   * max(plan months, this).
+   */
+  cashDeficitMonths: number | null;
 }
 
 export interface InvestmentChartPointDto {

@@ -10,7 +10,8 @@ import type { InvestmentTimingDto } from '@joinr/schema';
 import { describe, expect, it } from 'vitest';
 import {
   HOLDING_FLAG_BADGES,
-  SPLIT_OFF_NOTE,
+  MISSING_INPUTS_FOOTER,
+  SPLIT_OFF_LINK,
   assetClassText,
   chartCategory,
   countdownText,
@@ -273,7 +274,7 @@ describe('next buy', () => {
     expect(hintText(t.cash_first.timing, 'stock')).toBe('Next: ETFs, once cash allows');
     expect(hintText(investmentPages.stock.timing, 'stock')).toBe('Consider ETFs');
     expect(hintText(t.below_emergency_fund.timing, 'etf')).toBe(
-      'Top up cash first: cash is below the emergency fund ($21,000.00)',
+      "Top up cash first: the cash that counts toward the emergency fund (not loans you've made) is below it ($21,000.00)",
     );
     expect(hintText(t.no_targets.timing, 'etf')).toBe('Set allocation targets to get a suggestion');
   });
@@ -333,14 +334,12 @@ describe('next buy', () => {
     });
   });
 
-  it('says the automatic investment split is off instead of cash first (D46)', () => {
+  it('says the automatic investment split is off instead of cash first (D46, D54)', () => {
     const off = t.split_off.timing;
     expect(countdownText(off.countdown, '2026-08-18', AS_OF)).toBe(
-      'Automatic investment split is off',
+      'Automatic investment split is off and the investment amount is $0',
     );
-    expect(SPLIT_OFF_NOTE).toBe(
-      'The budget sends the whole leftover to cash, so there is no monthly amount to invest.',
-    );
+    expect(SPLIT_OFF_LINK).toBe('Set an amount on the Budget page');
     expect(monthlyAmountText(off)).toEqual({
       totalCents: 0,
       breakdown: "the budget's automatic investment split is off",
@@ -352,14 +351,20 @@ describe('next buy', () => {
     expect(hintText(t.cash_first.timing, 'etf')).toBe('Next: ASX:DEF, once cash allows');
   });
 
-  it('writes the parcel as an estimate, and the suggested class', () => {
-    expect(parcelText(t.wait.timing.plan)).toBe(
-      'Every 3 months · $4,860.00 (estimate; optimal $3,943.60)',
-    );
-    expect(parcelText(t.invest.timing.plan)).toBe(
-      'Every month · $10,000.00 (estimate; optimal $9,797.96)',
-    );
+  it('writes the parcel, the cash-deficit wait (Stage 3 §6.7) and the suggested class', () => {
+    expect(parcelText(t.wait.timing.plan)).toBe('Every 3 months · $4,860.00');
+    expect(parcelText(t.invest.timing.plan)).toBe('Every month · $10,000.00');
     expect(parcelText(null)).toBeNull();
+    const deficit = t.cash_deficit.timing;
+    expect(parcelText(deficit.plan, deficit.cashDeficitMonths)).toBe(
+      'Every 5 months while cash tops up to its target (normally every 3 months) · $4,860.00',
+    );
+    // A wait no longer than the plan leaves the parcel line as it is.
+    expect(parcelText(deficit.plan, 3)).toBe('Every 3 months · $4,860.00');
+    expect(parcelText(deficit.plan, 2)).toBe('Every 3 months · $4,860.00');
+    expect(MISSING_INPUTS_FOOTER).toBe(
+      'Pay and budget settings and budget items are set on the Budget page; everything else in the workbook, or on the Settings page in Stage 5.',
+    );
     expect(assetClassText(t.wait.timing)).toBe('ETFs: 10.4% now vs 60.0% target');
     expect(assetClassText(t.no_targets.timing)).toBeNull();
     const noTarget: InvestmentTimingDto = {

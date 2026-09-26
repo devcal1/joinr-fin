@@ -637,7 +637,7 @@ const BUDGET = {
   investmentRowCents: 150000,
   sideIncomeInvestCents: 12000,
   useBudget: true,
-  source: 'imported_budget',
+  source: 'live_budget',
 } satisfies InvestmentTimingDto['budget'];
 
 /**
@@ -656,6 +656,7 @@ const TIMING = {
   hint: { assetClass: 'etf', instrumentId: 4, symbol: 'ASX:DEF', parcelCents: 486000 },
   missing: [],
   deferred: [],
+  cashDeficitMonths: null,
 } satisfies InvestmentTimingDto;
 
 /** The same timing on another kind's page: the suggested class is not this kind, so no holding. */
@@ -762,8 +763,8 @@ const TIMING_UNAVAILABLE = {
 
 /**
  * `below_emergency_fund`: cash ($8,000) is below the emergency fund ($21,000). The budget then puts
- * everything in cash (invest share 0), so there is nothing to invest (`cash_first`), and the
- * cash-deficit wait is deferred to Stage 3.
+ * everything in cash (invest share 0), so there is nothing to invest (`cash_first`). Nothing is
+ * deferred from Stage 3 (the cash-deficit wait is live: `cash_deficit`).
  */
 const TIMING_BELOW_EMERGENCY_FUND = {
   ...TIMING,
@@ -777,7 +778,29 @@ const TIMING_BELOW_EMERGENCY_FUND = {
     rows: CLASS_ROWS_BELOW_EMERGENCY_FUND,
   },
   hint: { assetClass: 'cash', instrumentId: null, symbol: null, parcelCents: null },
-  deferred: ['cash_deficit_period'],
+} satisfies InvestmentTimingDto;
+
+// prettier-ignore
+const CLASS_ROWS_CASH_DEFICIT = [
+  { assetClass: 'etf', valueCents: 528400, currentRatio: '0.0265815493663', targetRatio: '0.6', deltaRatio: '-0.573418450634' },
+  { assetClass: 'stock', valueCents: 227500, currentRatio: '0.0114445542786', targetRatio: '0.1', deltaRatio: '-0.0885554457214' },
+  { assetClass: 'crypto', valueCents: 1397531, currentRatio: '0.070303821475', targetRatio: '0.1', deltaRatio: '-0.029696178525' },
+  { assetClass: 'cash', valueCents: 2500000, currentRatio: '0.125764332732', targetRatio: '0.15', deltaRatio: '-0.0242356672678' },
+  { assetClass: 'managed_fund', valueCents: 225019, currentRatio: '0.0113197457548', targetRatio: '0.05', deltaRatio: '-0.0386802542452' },
+  { assetClass: 'other_assets', valueCents: 15000000, currentRatio: '0.754585996393', targetRatio: null, deltaRatio: null },
+] satisfies ConsiderNextRowDto[];
+
+/**
+ * `cash_deficit` (Stage 3, SheetOptions H12): cash ($25,000) is 12.6 % of the liquid total
+ * ($198,784.50, mostly other assets), below its 15 % target. Topping it up needs $4,817.675; at an
+ * average saving of $1,000 a month that is floor(4.8) + 1 = 5 months, more than the plan's 3, so
+ * the countdown waits 30 × 5 = 150 days: 17/08/2026 + 150 = Thu 14/01/2027, 112 days away.
+ */
+const TIMING_CASH_DEFICIT = {
+  ...TIMING,
+  countdown: { state: 'wait', days: 112, nextPurchaseDate: '2027-01-14', periodDays: 150 },
+  considerNext: { assetClass: 'etf', reason: 'most_underweight', rows: CLASS_ROWS_CASH_DEFICIT },
+  cashDeficitMonths: 5,
 } satisfies InvestmentTimingDto;
 
 /** `no_targets`: no class targets are set, so there is no suggestion and no invest amount. */
@@ -811,7 +834,7 @@ const TIMING_EMPTY = {
     investmentRowCents: null,
     sideIncomeInvestCents: 0,
     useBudget: null,
-    source: 'imported_budget',
+    source: 'live_budget',
   },
   plan: null,
   lastPurchaseDate: null,
@@ -842,6 +865,7 @@ const TIMING_EMPTY = {
     'investments.lastPurchaseDate',
   ],
   deferred: [],
+  cashDeficitMonths: null,
 } satisfies InvestmentTimingDto;
 
 // ─── Pages ──────────────────────────────────────────────────────────────────────────────────────
@@ -988,7 +1012,10 @@ export const investmentPageNulls = page('managed_fund', {
   charts: FUND_NULLS_CHARTS,
 });
 
-/** The next-buy states (ETFs page): one per countdown state and per consider-next reason. */
+/**
+ * The next-buy states (ETFs page): one per countdown state and per consider-next reason, plus the
+ * Stage 3 cash-deficit wait. Every state has the live budget (`live_budget`).
+ */
 export const investmentPageTiming = {
   wait: investmentPages.etf,
   invest: { ...investmentPages.etf, timing: TIMING_INVEST },
@@ -997,6 +1024,7 @@ export const investmentPageTiming = {
   below_emergency_fund: { ...investmentPages.etf, timing: TIMING_BELOW_EMERGENCY_FUND },
   no_targets: { ...investmentPages.etf, timing: TIMING_NO_TARGETS },
   split_off: { ...investmentPages.etf, timing: TIMING_SPLIT_OFF },
+  cash_deficit: { ...investmentPages.etf, timing: TIMING_CASH_DEFICIT },
 } satisfies Record<string, InvestmentPageResponse>;
 
 /** Every page fixture (coverage and consistency tests). */

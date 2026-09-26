@@ -1,0 +1,76 @@
+/* Meter (stage-3.md §6.1): a teal fill on a 16 % teal track (the gauge's colours, STYLE_GUIDE §6.2).
+   The fill is clamped at 100 %; the figures and the status word carry the true value. */
+@layer core {
+  .jf-meter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .jf-meter__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .jf-meter__label {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .jf-meter__status {
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .jf-meter[data-status='reached'] .jf-meter__status,
+  .jf-meter[data-status='over'] .jf-meter__status {
+    color: var(--text-bright);
+  }
+
+  .jf-meter__track {
+    position: relative;
+    height: 10px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--teal) 16%, transparent);
+  }
+
+  .jf-meter__fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: var(--radius-pill);
+    background: var(--teal);
+  }
+
+  .jf-meter__figures {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--fs-dense);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jf-meter__value {
+    color: var(--text-bright);
+    font-weight: 700;
+  }
+
+  .jf-meter__of {
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+  }
+
+  .jf-meter__hint {
+    color: var(--text-secondary);
+    font-size: var(--fs-dense);
+  }
+}

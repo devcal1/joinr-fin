@@ -1,5 +1,6 @@
-// Instruments and their pricing: instruments, price_sources, prices, market_quotes (§2.4).
-import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+// Instruments and their pricing: instruments, price_sources, prices, market_quotes (§2.4), and the
+// Stage 3 dividend-events cache (stage-3.md §3.1, §4.6).
+import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 import {
   FETCH_STATUSES,
   INSTRUMENT_KINDS,
@@ -104,3 +105,26 @@ export const marketQuotes = sqliteTable('market_quotes', {
   lastError: text('last_error'),
   consecutiveFailures: integer('consecutive_failures').notNull().default(0),
 });
+
+/**
+ * D50: the Yahoo dividend events cache (ex-date + per-unit amount, and the close before the
+ * ex-date). A refresh upserts by `(instrument_id, ex_date)` and never touches `dismissed_at`. No
+ * provenance: the import never writes it and it never counts as app data.
+ */
+export const dividendEvents = sqliteTable(
+  'dividend_events',
+  {
+    instrumentId: integer('instrument_id')
+      .notNull()
+      .references(() => instruments.id, { onDelete: 'cascade' }),
+    exDate: text('ex_date').notNull(),
+    amountPerUnit: text('amount_per_unit').notNull(),
+    currency: text('currency').notNull(),
+    closeBeforeEx: text('close_before_ex'),
+    closeDate: text('close_date'),
+    source: text('source', { enum: PRICE_SOURCES }).notNull(),
+    fetchedAt: text('fetched_at').notNull(),
+    dismissedAt: text('dismissed_at'),
+  },
+  (t) => [primaryKey({ columns: [t.instrumentId, t.exDate] })],
+);

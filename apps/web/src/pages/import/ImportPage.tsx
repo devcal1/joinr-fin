@@ -41,6 +41,9 @@ export const APP_DATA_TITLE = 'Import is blocked';
 export const APP_DATA_MESSAGE =
   'This app holds data entered in the app, and an import would replace it, so importing from this page is switched off. Preview still works.';
 export const APP_DATA_OVERRIDE = 'pnpm import:workbook --yes --replace-app-data';
+/** What a re-import keeps (the Stage 3 overlays, stage-3.md §3.4, §6.7). */
+export const APP_DATA_KEPT =
+  'Savings goals, one-off adjustments and dismissed suggestions are kept by a re-import.';
 /** The upload route's answer when app-entered data exists (D34). */
 export const APP_DATA_ERROR_CODE = 'IMPORT_APP_DATA_EXISTS';
 
@@ -57,6 +60,7 @@ function AppDataCallout(): JSX.Element {
         To replace it anyway, import from the command line with <code>{APP_DATA_OVERRIDE}</code>. A
         backup is taken first.
       </p>
+      <p>{APP_DATA_KEPT}</p>
     </Callout>
   );
 }

@@ -1,13 +1,20 @@
 // What the fixtures cover, so a schema test can assert that every state the pages render appears
 // somewhere (stage-1.md §7.6, stage-2.md §3.4).
 import type {
+  CashAccountKind,
   ConsiderReason,
   CountdownState,
+  DividendSuggestionStatus,
+  DrpAdvice,
   HoldingFlag,
   HoldingStatus,
+  KpiTrend,
   PriceStatus,
   RunStatus,
+  SavingsPeriodStatus,
+  YearBasis,
 } from '../enums';
+import { cashPages, dividendsPages } from './cashflow';
 import { allInvestmentPageFixtures } from './investments';
 import { importRunDetails, priceItems } from './sampleDtos';
 
@@ -15,7 +22,9 @@ const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
 
 /**
  * Every PriceStatus appears in `priceItems`; every RunStatus in `importRunDetails`; every
- * HoldingStatus, HoldingFlag, countdown state and ConsiderReason in the investment page fixtures.
+ * HoldingStatus, HoldingFlag, countdown state and ConsiderReason in the investment page fixtures;
+ * every cash account kind, savings period status, year basis and KPI trend in the Cash page
+ * fixtures; every suggestion status and DRP advice in the Dividends page fixtures (stage-3.md §3.6).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -24,6 +33,12 @@ export const FIXTURE_COVERAGE: {
   holdingFlags: HoldingFlag[];
   countdownStates: CountdownState[];
   considerReasons: ConsiderReason[];
+  cashAccountKinds: CashAccountKind[];
+  savingsPeriodStatuses: SavingsPeriodStatus[];
+  yearBases: YearBasis[];
+  kpiTrends: KpiTrend[];
+  suggestionStatuses: DividendSuggestionStatus[];
+  drpAdvice: DrpAdvice[];
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -35,4 +50,20 @@ export const FIXTURE_COVERAGE: {
   ),
   countdownStates: unique(allInvestmentPageFixtures.map((p) => p.timing.countdown.state)),
   considerReasons: unique(allInvestmentPageFixtures.map((p) => p.timing.considerNext.reason)),
+  cashAccountKinds: unique(Object.values(cashPages).flatMap((p) => p.accounts.map((a) => a.kind))),
+  savingsPeriodStatuses: unique(
+    Object.values(cashPages).flatMap((p) => p.periods.map((x) => x.status)),
+  ),
+  yearBases: unique(Object.values(cashPages).map((p) => p.kpis.year.basis)),
+  kpiTrends: unique(
+    Object.values(cashPages).flatMap((p) => (p.kpis.trend === null ? [] : [p.kpis.trend])),
+  ),
+  suggestionStatuses: unique(
+    Object.values(dividendsPages).flatMap((p) => p.suggestions.map((x) => x.status)),
+  ),
+  drpAdvice: unique(
+    Object.values(dividendsPages).flatMap((p) =>
+      p.holdingsThisFy.flatMap((h) => (h.advice === null ? [] : [h.advice])),
+    ),
+  ),
 };

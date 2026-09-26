@@ -27,6 +27,17 @@ export function yahooChartUrl(symbol: string): string {
   return `${YAHOO_CHART_BASE}${encodeURIComponent(symbol)}?range=5d&interval=1d`;
 }
 
+/**
+ * Stage 3 (stage-3.md §4.6): the chart request for dividend events and daily closes between two
+ * unix times (seconds), on the same fixed host as prices.
+ */
+export function yahooDividendsUrl(symbol: string, period1: number, period2: number): string {
+  if (!Number.isSafeInteger(period1) || !Number.isSafeInteger(period2)) {
+    throw new RangeError('yahooDividendsUrl: periods must be whole unix seconds');
+  }
+  return `${YAHOO_CHART_BASE}${encodeURIComponent(symbol)}?period1=${period1}&period2=${period2}&interval=1d&events=div`;
+}
+
 export interface YahooOptions {
   fetchImpl: typeof fetch;
   sleep: Sleep;
@@ -46,10 +57,29 @@ export const YAHOO_SUFFIX_CURRENCIES: Readonly<Record<string, string>> = {
   '.TO': 'CAD',
 };
 
-function currencyFromSymbol(symbol: unknown): string | null {
+/**
+ * Stage 3 (stage-3.md §4.6): the exchange time zone implied by a Yahoo suffix. The dividend-events
+ * parser uses it only when `meta` has neither `exchangeTimezoneName` nor `gmtoffset`.
+ */
+export const YAHOO_SUFFIX_TIME_ZONES: Readonly<Record<string, string>> = {
+  '.AX': 'Australia/Sydney',
+  '.NZ': 'Pacific/Auckland',
+  '.TO': 'America/Toronto',
+};
+
+function suffixOf(symbol: unknown): string | null {
   if (typeof symbol !== 'string') return null;
-  const suffix = /\.[A-Z]{1,3}$/.exec(symbol.toUpperCase())?.[0];
-  return suffix === undefined ? null : (YAHOO_SUFFIX_CURRENCIES[suffix] ?? null);
+  return /\.[A-Z]{1,3}$/.exec(symbol.toUpperCase())?.[0] ?? null;
+}
+
+export function currencyFromSymbol(symbol: unknown): string | null {
+  const suffix = suffixOf(symbol);
+  return suffix === null ? null : (YAHOO_SUFFIX_CURRENCIES[suffix] ?? null);
+}
+
+export function timeZoneFromSymbol(symbol: unknown): string | null {
+  const suffix = suffixOf(symbol);
+  return suffix === null ? null : (YAHOO_SUFFIX_TIME_ZONES[suffix] ?? null);
 }
 
 /**

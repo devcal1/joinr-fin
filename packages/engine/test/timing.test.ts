@@ -1,8 +1,10 @@
-// Investment timing (stage-2.md §2.12; §7.3 step 8). Generic, hand-worked figures.
+// Investment timing (stage-2.md §2.12; §7.3 step 8) and the cash-deficit wait (stage-3.md §2.12;
+// §7.3 step 9). Generic, hand-worked figures.
 import type { AssetClass } from '@joinr/schema';
 import { describe, expect, it } from 'vitest';
 import {
   budgetInvestment,
+  cashDeficitMonths,
   considerNext,
   investCountdown,
   nextBuyHint,
@@ -148,9 +150,19 @@ describe('budgetInvestment (§2.12)', () => {
     expect(budget({ useBudgetForInvest: false }).monthlyInvestCents).toBe(419_421);
   });
 
-  it('puts the whole leftover in the cash row when the auto split is off', () => {
-    const r = budget({ autoInvestSplit: false });
-    expect(r).toMatchObject({
+  it('with the auto split off, invests the typed amount and puts the rest in the cash row (D54)', () => {
+    // stage-3.md §2.9 step 9: the auto_invest row's typed 999.99 is the investment row; the cash
+    // row is ROUNDDOWN((1895.24 − 999.99) / 10) × 10 = 890; D40 adds the side income: 1283.49.
+    expect(budget({ autoInvestSplit: false })).toMatchObject({
+      investmentRowCents: 99_999,
+      cashRowCents: 89_000,
+      monthlyInvestCents: 128_349,
+    });
+    // No typed amount (the template's formula row imports as null): the whole leftover is cash.
+    const untyped = base.items.map((i) =>
+      i.kind === 'auto_invest' ? { ...i, monthlyCents: null } : i,
+    );
+    expect(budget({ autoInvestSplit: false, items: untyped })).toMatchObject({
       investmentRowCents: 0,
       cashRowCents: 189_000,
       monthlyInvestCents: 28_350,
@@ -396,9 +408,13 @@ describe('investCountdown (§2.12)', () => {
   });
 
   it('chains the budget into the countdown with the automatic split off (D46)', () => {
+    // No typed investment amount (D54: a typed one would be invested; see budgetInvestment).
+    const items = base.items.map((i) =>
+      i.kind === 'auto_invest' ? { ...i, monthlyCents: null } : i,
+    );
     const off = { useBudgetForInvest: true, autoInvestSplit: false } as const;
     // No side income since the last buy: the investment row is $0 and the leftover goes to cash.
-    const none = budget({ ...off, lastPurchaseDate: '2026-08-31' });
+    const none = budget({ ...off, items, lastPurchaseDate: '2026-08-31' });
     expect(none).toMatchObject({
       investmentRowCents: 0,
       cashRowCents: 189_000,
@@ -416,11 +432,71 @@ describe('investCountdown (§2.12)', () => {
       state: 'split_off',
     });
     // After-tax side income is still invested (as before D46), so the countdown runs.
-    const side = budget(off);
+    const side = budget({ ...off, items });
     expect(side.monthlyInvestCents).toBe(28_350);
     expect(count({ monthlyInvestCents: side.monthlyInvestCents, ...off })).toMatchObject({
       state: 'wait',
     });
+  });
+});
+
+describe('cashDeficitMonths (SheetOptions H12, §2.12)', () => {
+  const wait = (over: Partial<Parameters<typeof cashDeficitMonths>[0]> = {}) =>
+    cashDeficitMonths({
+      cashCents: 150_000,
+      liquidTotalCents: 1_000_000,
+      targetRatio: '0.2',
+      avgMonthlySavingsCents: 12_000,
+      ...over,
+    });
+
+  it('sizes the shortfall on the liquid total: floor((0.2 × 10,000 − 1,500) / 120) + 1', () => {
+    // The sheet multiplied the 0.05 share gap by the cash (75 → 1 month; §11 fix 16).
+    expect(wait()).toBe(5);
+    // A shortfall of exactly 4 months of savings still waits the extra month (ROUNDDOWN + 1).
+    expect(wait({ avgMonthlySavingsCents: 12_500 })).toBe(5);
+    expect(wait({ avgMonthlySavingsCents: 100_000 })).toBe(1);
+  });
+
+  it('is null at or above the target, without a target or without positive savings', () => {
+    expect(wait({ cashCents: 200_000 })).toBeNull();
+    expect(wait({ cashCents: 300_000 })).toBeNull();
+    expect(wait({ targetRatio: null })).toBeNull();
+    expect(wait({ avgMonthlySavingsCents: null })).toBeNull();
+    expect(wait({ avgMonthlySavingsCents: 0 })).toBeNull();
+    expect(wait({ avgMonthlySavingsCents: -5_000 })).toBeNull();
+    expect(wait({ liquidTotalCents: 0 })).toBeNull();
+    expect(wait({ liquidTotalCents: -1_000 })).toBeNull();
+  });
+});
+
+describe('investCountdown with the cash-deficit wait (H14 = MAX(H12:H13))', () => {
+  const plan = { months: 1, parcelCents: 60_000, optimalParcelCents: 60_000 };
+  const count = (over: Partial<Parameters<typeof investCountdown>[0]> = {}) =>
+    investCountdown({
+      asOf: '2026-09-24',
+      monthlyInvestCents: 60_000,
+      plan,
+      lastPurchaseDate: '2026-09-11',
+      payDayOfMonth: 1,
+      growthRatio: '0.07',
+      ...over,
+    });
+
+  it('waits the longer of the parcel plan and the cash-deficit months', () => {
+    const deficit = count({ cashDeficitMonths: 5 });
+    expect(deficit).toMatchObject({ state: 'wait', periodDays: 150 });
+    expect(deficit).toEqual(count({ plan: { ...plan, months: 5 } }));
+    expect(count({ plan: { ...plan, months: 4 }, cashDeficitMonths: 2 })).toMatchObject({
+      periodDays: 120,
+    });
+  });
+
+  it('keeps the plan without a deficit and rejects a malformed one', () => {
+    expect(count({ cashDeficitMonths: null })).toEqual(count());
+    expect(count({ cashDeficitMonths: 0 })).toEqual(count());
+    expect(() => count({ cashDeficitMonths: 1.5 })).toThrow(RangeError);
+    expect(() => count({ cashDeficitMonths: -1 })).toThrow(RangeError);
   });
 });
 

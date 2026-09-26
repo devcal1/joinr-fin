@@ -450,10 +450,25 @@ describe('next buy (§6.3 item 5)', () => {
     expect(details).toHaveTextContent(
       "$1,620.00$1,500.00 from the budget's investment row + $120.00 side income",
     );
-    expect(details).toHaveTextContent('Every 3 months · $4,860.00 (estimate; optimal $3,943.60)');
+    expect(within(c).getByTestId('next-buy-parcel').textContent).toBe('Every 3 months · $4,860.00');
     expect(details).toHaveTextContent('18/08/2026');
     expect(details).toHaveTextContent('ETFs: 10.4% now vs 60.0% target');
-    expect(c).toHaveTextContent('From the imported budget; the live budget arrives in Stage 3.');
+    // Stage 3 (§6.7): the live budget, linked; the Stage 2 notes are gone.
+    expect(within(c).getByRole('link', { name: 'From your budget' })).toHaveAttribute(
+      'href',
+      '/budget',
+    );
+    expect(c).not.toHaveTextContent(/imported budget|arrives in Stage 3/);
+  });
+
+  it('cash deficit (Stage 3 §6.7): the parcel waits while cash tops up to its target', async () => {
+    const c = await card(investmentPageTiming.cash_deficit);
+    expect(within(c).getByTestId('next-buy-parcel')).toHaveTextContent(
+      'Every 5 months while cash tops up to its target (normally every 3 months) · $4,860.00',
+    );
+    expect(within(c).getByTestId('next-buy-countdown')).toHaveTextContent(
+      'Wait 112 days (next buy 14/01/2027)',
+    );
   });
 
   it('invest: days since the last buy; the income-based amount when the budget switch is off', async () => {
@@ -483,14 +498,19 @@ describe('next buy (§6.3 item 5)', () => {
   it('split off (D46): a status line and why, never a bare "Cash first"', async () => {
     const c = await card(investmentPageTiming.split_off);
     const status = within(c).getByTestId('next-buy-countdown');
-    expect(status).toHaveTextContent(/^Automatic investment split is off$/);
+    expect(status.textContent).toBe(
+      'Automatic investment split is off and the investment amount is $0',
+    );
     // A status word with an icon, in the check (orange) tone, not red.
     const flag = status.querySelector('[data-status]');
     expect(flag).toHaveAttribute('data-status', 'check');
     expect(flag?.querySelector('svg')).not.toBeNull();
-    expect(within(c).getByTestId('next-buy-split-off')).toHaveTextContent(
-      'The budget sends the whole leftover to cash, so there is no monthly amount to invest.',
-    );
+    // D54: where to set the amount, as a link to the Budget page.
+    expect(
+      within(within(c).getByTestId('next-buy-split-off')).getByRole('link', {
+        name: 'Set an amount on the Budget page',
+      }),
+    ).toHaveAttribute('href', '/budget');
     expect(c).not.toHaveTextContent(/cash first/i);
     expect(within(c).getByTestId('next-buy-hint')).toHaveTextContent(/^Consider ASX:DEF$/);
     const amount = within(c).getByRole('rowheader', { name: 'Monthly amount to invest' })
@@ -517,17 +537,18 @@ describe('next buy (§6.3 item 5)', () => {
       expect(within(missing).getByText(label)).toBeVisible();
     }
     expect(missing).toHaveTextContent(
-      'Set these in the workbook and re-import (only while no app edits exist), or on the Settings page in Stage 5.',
+      'Pay and budget settings and budget items are set on the Budget page; everything else in the workbook, or on the Settings page in Stage 5.',
+    );
+    expect(within(missing).getByRole('link', { name: 'Budget page' })).toHaveAttribute(
+      'href',
+      '/budget',
     );
   });
 
-  it('below the emergency fund: top up cash first, and the deferred cash wait', async () => {
+  it('below the emergency fund: top up cash first', async () => {
     const c = await card(investmentPageTiming.below_emergency_fund);
     expect(within(c).getByTestId('next-buy-hint')).toHaveTextContent(
-      'Top up cash first: cash is below the emergency fund ($21,000.00)',
-    );
-    expect(c).toHaveTextContent(
-      'Cash is below its target; the cash-first wait is added in Stage 3.',
+      "Top up cash first: the cash that counts toward the emergency fund (not loans you've made) is below it ($21,000.00)",
     );
   });
 

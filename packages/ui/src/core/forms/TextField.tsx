@@ -8,6 +8,8 @@ export interface TextFieldProps extends FieldBaseProps {
   placeholder?: string;
   autoComplete?: string;
   maxLength?: number;
+  /** The id of a `<datalist>` of suggestions (Stage 3, additive). */
+  list?: string;
 }
 
 export function TextField({
@@ -25,6 +27,7 @@ export function TextField({
   placeholder,
   autoComplete,
   maxLength,
+  list,
 }: TextFieldProps): JSX.Element {
   const ids = useFieldIds(id, hint, error);
   return (
@@ -48,6 +51,7 @@ export function TextField({
           placeholder={placeholder}
           autoComplete={autoComplete}
           maxLength={maxLength}
+          list={list}
           disabled={disabled}
           {...controlAria(ids, error, required)}
         />

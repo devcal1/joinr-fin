@@ -1,5 +1,6 @@
-// The frozen public API (stage-2.md §2.2): the `engine` value satisfies EngineApi member by
-// member, and the functions keep their exact signatures (checked by tsc in `pnpm typecheck`).
+// The frozen public API (stage-2.md §2.2, stage-3.md §2.2): the `engine` value satisfies
+// EngineApi member by member, and the functions keep their exact signatures (checked by tsc in
+// `pnpm typecheck`).
 import { INSTRUMENT_KINDS } from '@joinr/schema';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as api from '../src/index';
@@ -14,6 +15,8 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.contributionsAt).toEqualTypeOf<EngineApi['contributionsAt']>();
     expectTypeOf(api.netPurchases).toEqualTypeOf<EngineApi['netPurchases']>();
     expectTypeOf(api.purchaseWindows).toEqualTypeOf<EngineApi['purchaseWindows']>();
+    // Stage 3 appended optional inputs (compressSeries' yearBasis, investCountdown's
+    // cashDeficitMonths); the implementations take them.
     expectTypeOf(api.compressSeries).toEqualTypeOf<EngineApi['compressSeries']>();
     expectTypeOf(api.budgetInvestment).toEqualTypeOf<EngineApi['budgetInvestment']>();
     expectTypeOf(api.parcelOptimiser).toEqualTypeOf<EngineApi['parcelOptimiser']>();
@@ -22,6 +25,20 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.nextBuyHint).toEqualTypeOf<EngineApi['nextBuyHint']>();
     expectTypeOf(api.assetClassOfKind).toEqualTypeOf<EngineApi['assetClassOfKind']>();
     expectTypeOf(api.sheetDate).toEqualTypeOf<EngineApi['sheetDate']>();
+    // Stage 3.
+    expectTypeOf(api.cashTotals).toEqualTypeOf<EngineApi['cashTotals']>();
+    expectTypeOf(api.monthlyPayCents).toEqualTypeOf<EngineApi['monthlyPayCents']>();
+    expectTypeOf(api.computeSavings).toEqualTypeOf<EngineApi['computeSavings']>();
+    expectTypeOf(api.cashKpis).toEqualTypeOf<EngineApi['cashKpis']>();
+    expectTypeOf(api.savingsGoals).toEqualTypeOf<EngineApi['savingsGoals']>();
+    expectTypeOf(api.computeSideIncome).toEqualTypeOf<EngineApi['computeSideIncome']>();
+    expectTypeOf(api.computeBudget).toEqualTypeOf<EngineApi['computeBudget']>();
+    expectTypeOf(api.budgetInvestInputOf).toEqualTypeOf<EngineApi['budgetInvestInputOf']>();
+    expectTypeOf(api.computeDividends).toEqualTypeOf<EngineApi['computeDividends']>();
+    expectTypeOf(api.dividendSuggestions).toEqualTypeOf<EngineApi['dividendSuggestions']>();
+    expectTypeOf(api.cashDeficitMonths).toEqualTypeOf<EngineApi['cashDeficitMonths']>();
+    expectTypeOf(api.compressCashflow).toEqualTypeOf<EngineApi['compressCashflow']>();
+    expectTypeOf(api.yearWindow).toEqualTypeOf<EngineApi['yearWindow']>();
 
     const members: (keyof EngineApi)[] = [
       'computeInvestments',
@@ -38,14 +55,47 @@ describe('@joinr/engine public API', () => {
       'nextBuyHint',
       'assetClassOfKind',
       'sheetDate',
+      'cashTotals',
+      'monthlyPayCents',
+      'computeSavings',
+      'cashKpis',
+      'savingsGoals',
+      'computeSideIncome',
+      'computeBudget',
+      'budgetInvestInputOf',
+      'computeDividends',
+      'dividendSuggestions',
+      'cashDeficitMonths',
+      'compressCashflow',
+      'yearWindow',
     ];
     expect(Object.keys(api.engine).sort()).toEqual([...members].sort());
     for (const name of members) expect(api.engine[name]).toBe(api[name]);
   });
 
-  it('has the FIFO matching seam and the implementation flag', () => {
+  it('has the FIFO matching seam and the implementation flags', () => {
     expect(api.MATCHING_STRATEGIES).toEqual(['fifo']);
     expectTypeOf(api.ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
+    expectTypeOf(api.CASHFLOW_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
+  });
+
+  it('gives the FY or calendar year containing a date (§2.3)', () => {
+    expect(api.yearWindow('2026-09-25', 'fy')).toEqual({
+      basis: 'fy',
+      start: '2026-07-01',
+      end: '2027-07-01',
+      year: 2026,
+    });
+    expect(api.yearWindow('2026-06-30', 'fy')).toMatchObject({ start: '2025-07-01', year: 2025 });
+    expect(api.yearWindow('2026-07-01', 'fy')).toMatchObject({ start: '2026-07-01', year: 2026 });
+    expect(api.yearWindow('2026-09-25', 'calendar')).toEqual({
+      basis: 'calendar',
+      start: '2026-01-01',
+      end: '2027-01-01',
+      year: 2026,
+    });
+    expect(api.yearWindow('2026-12-31', 'calendar')).toMatchObject({ end: '2027-01-01' });
+    expect(() => api.yearWindow('25/09/2026', 'fy')).toThrow(RangeError);
   });
 
   it('maps each kind to its asset class', () => {

@@ -1,6 +1,6 @@
 // Processing between extraction and writes (stage-1.md §4.4–§4.7): owner corrections (D27),
-// feed-row exclusions (D22/D23), the instrument set, suspect flags (D26), dividend re-keying (D28)
-// and budget → cash account links. Pure: no DB.
+// feed-row exclusions (D22/D23), the instrument set, suspect flags (D26), dividend re-keying (D28),
+// budget → cash account links and the account kinds kept across a re-import (D49). Pure: no DB.
 import {
   BULLION_FEEDS,
   compareDecimals,
@@ -8,6 +8,7 @@ import {
   JoinrDecimal,
   normaliseDecimal,
   splitSymbol,
+  type CashAccountKind,
   type CorrectionsFile,
   type DividendCorrection,
   type InstrumentKind,
@@ -23,7 +24,6 @@ import type {
   InstrumentDraft,
   LedgerRow,
   NoteRow,
-  SideIncomeRow,
   WorkbookModel,
 } from './model';
 
@@ -442,35 +442,62 @@ export function linkBudgetAccounts(model: WorkbookModel): void {
   }
 }
 
-// ─── One row per period ─────────────────────────────────────────────────────────────────────────
+// ─── Account kinds across a re-import (D49; stage-3.md §3.5 item 3) ────────────────────────────
 
-/** Side income: one entry per (period, stream); the later row wins (unexplained otherwise). */
-export function dedupeSideIncome(entries: SideIncomeRow[], checks: Check[]): SideIncomeRow[] {
-  const byKey = new Map<string, SideIncomeRow>();
-  const dups = new Map<string, string[]>();
-  for (const e of entries) {
-    const key = `${e.periodMonth}|${e.streamIndex}`;
-    const prev = byKey.get(key);
-    if (prev) dups.set(key, [...(dups.get(key) ?? [prev.sheetRef]), e.sheetRef]);
-    byKey.set(key, e);
-  }
-  for (const [key, refs] of dups) {
-    const [period, stream] = key.split('|');
-    checks.push(
-      check({
-        id: `income.period.${period}.${Number(stream) + 1}`,
-        section: 'income',
-        label: `Side income ${period}: several rows in one month`,
-        sheetRef: refs.at(-1) ?? null,
-        status: 'unexplained',
-        reasonCode: 'unsupported_value',
-        reason: `Rows ${refs.join(', ')} fall in the same month; only the last was imported`,
-      }),
-    );
-  }
-  const kept = new Set(byKey.values());
-  return entries.filter((e) => kept.has(e));
+/** An account as stored before the replace-all delete. */
+export interface StoredAccountKind {
+  name: string;
+  sheetRef: string | null;
+  kind: CashAccountKind;
 }
+
+export interface CarriedKinds {
+  /** One kind per new account, in the new accounts' order (`bank` when nothing matched). */
+  kinds: CashAccountKind[];
+  /** Names of the stored non-bank accounts whose kind no new account took (stored order). */
+  notCarried: string[];
+}
+
+/**
+ * A new account takes the kind of the stored account with the same name when that name is unique
+ * among both the stored and the new accounts, else of the stored account with the same sheet ref
+ * and name (a row added or removed above an account shifts the row-based refs, so the name wins
+ * when it can). Everything else is `bank`, the importer's default.
+ */
+export function carryAccountKinds(
+  stored: readonly StoredAccountKind[],
+  next: readonly { name: string; sheetRef: string | null }[],
+): CarriedKinds {
+  const key = (name: string) => name.trim();
+  const tally = (names: readonly string[]) => {
+    const counts = new Map<string, number>();
+    for (const n of names) counts.set(key(n), (counts.get(key(n)) ?? 0) + 1);
+    return counts;
+  };
+  const storedNames = tally(stored.map((s) => s.name));
+  const nextNames = tally(next.map((a) => a.name));
+  const used = new Set<number>();
+  const kinds = next.map((a): CashAccountKind => {
+    const name = key(a.name);
+    const unique = storedNames.get(name) === 1 && nextNames.get(name) === 1;
+    const index = unique
+      ? stored.findIndex((s) => key(s.name) === name)
+      : stored.findIndex(
+          (s, i) =>
+            !used.has(i) &&
+            s.sheetRef !== null &&
+            s.sheetRef === a.sheetRef &&
+            key(s.name) === name,
+        );
+    if (index < 0) return 'bank';
+    used.add(index);
+    return stored[index]!.kind;
+  });
+  const notCarried = stored.filter((s, i) => s.kind !== 'bank' && !used.has(i)).map((s) => s.name);
+  return { kinds, notCarried };
+}
+
+// ─── One row per period ─────────────────────────────────────────────────────────────────────────
 
 /** Period notes: one per (period, kind); several notes in one month are joined. */
 export function mergeNotes(notes: NoteRow[]): NoteRow[] {

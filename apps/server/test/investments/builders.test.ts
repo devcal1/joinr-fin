@@ -21,7 +21,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildCharts, liveGainRatio } from '../../src/investments/charts';
 import { createInvestmentsContext, type InvestmentsDeps } from '../../src/investments/context';
 import { buildHoldingDetail } from '../../src/investments/detail';
-import { lastDayOfMonth, sideIncomePeriodsOf } from '../../src/investments/load';
 import { tradeFlags } from '../../src/investments/mappers';
 import { buildInvestmentPage } from '../../src/investments/page';
 import { buildTradesResponse } from '../../src/investments/trades';
@@ -352,7 +351,7 @@ describe('buildInvestmentPage (fake engine)', () => {
 });
 
 describe('buildTiming (fake engine)', () => {
-  it('builds the budget, optimiser, countdown and consider-next inputs from the imported rows', () => {
+  it('builds the budget, optimiser, countdown and consider-next inputs from the live rows', () => {
     const engine = engineFor({
       etf: etfResult(),
       stock: { ...emptyResult('stock', AS_OF), summary: summaryResult({ valueCents: 20000 }) },
@@ -360,7 +359,10 @@ describe('buildTiming (fake engine)', () => {
     const page = buildInvestmentPage(createInvestmentsContext(deps(engine)), 'etf');
 
     const input = engine.calls.budgetInvestment[0]![0] as BudgetInvestInput;
-    const cash = 500000 + 2000000; // non-offset accounts only
+    // stage-3.md §4.5 (D59): the cash class is Total Cash (non-offset accounts, the loan you've
+    // made included); the emergency-fund test cash leaves the loan out (offsets stay out, D56 off).
+    const cash = 500000 + 2000000 + 300000;
+    const emergencyFundCash = 500000 + 2000000;
     const other = 180000 + 46150; // 1 × 1800 + 10 × 46.15, AUD rows
     // Latest snapshot (2026-07, step 2): cash / (stocks + etf + crypto + cash + mf + other).
     const snapTotal = 170000 + 340000 + 800000 + 2600000 + 150000 + 200000;
@@ -371,14 +373,16 @@ describe('buildTiming (fake engine)', () => {
       payFrequency: 'fortnightly',
       netPayCents: 300000,
       includeSideIncome: false,
-      sideIncomePeriods: [
-        { periodStart: '2026-06-01', periodEnd: '2026-06-30', amountCents: 50000 },
-        { periodStart: '2026-07-01', periodEnd: '2026-07-31', amountCents: 75000 },
-      ],
+      // The closed side-income periods from computeSideIncome (the fake engine has none).
+      sideIncomePeriods: [],
+      // budgetInvestInputOf maps every budget row (the automatic rows too) in sort order.
       items: [
         { kind: 'item', monthlyCents: 200000 },
         { kind: 'item', monthlyCents: 60000 },
         { kind: 'item', monthlyCents: 5000 },
+        { kind: 'auto_yearly', monthlyCents: null },
+        { kind: 'auto_invest', monthlyCents: null },
+        { kind: 'auto_cash', monthlyCents: null },
       ],
       yearlyExpenseAnnualCents: [80000, 120000],
       autoInvestSplit: null,
@@ -387,7 +391,7 @@ describe('buildTiming (fake engine)', () => {
       aggressiveness: null,
       lastSnapshotCashShare: ratio(2600000, snapTotal),
       currentCashShare: ratio(cash, 55000 + 20000 + cash + other),
-      cashCents: cash,
+      cashCents: emergencyFundCash,
       emergencyFundMonths: null,
       emergencyFundOverrideCents: null,
       marginalTaxRate: null,
@@ -411,6 +415,14 @@ describe('buildTiming (fake engine)', () => {
       // D46: the budget switches, as sent to budgetInvestment.
       useBudgetForInvest: null,
       autoInvestSplit: null,
+      // SheetOptions H12 (the fake engine answers null).
+      cashDeficitMonths: null,
+    });
+    expect(engine.calls.cashDeficitMonths[0]![0]).toEqual({
+      cashCents: cash,
+      liquidTotalCents: 55000 + 20000 + cash + other,
+      targetRatio: null,
+      avgMonthlySavingsCents: null,
     });
     expect(engine.calls.considerNext[0]![0]).toEqual({
       classes: {
@@ -421,7 +433,7 @@ describe('buildTiming (fake engine)', () => {
         managed_fund: { valueCents: 0, targetRatio: null },
         other_assets: { valueCents: other, targetRatio: null },
       },
-      cashCents: cash,
+      cashCents: emergencyFundCash,
       emergencyFundCents: null,
     });
     expect(engine.calls.nextBuyHint[0]![0]).toMatchObject({ kind: 'etf', parcelCents: null });
@@ -437,7 +449,7 @@ describe('buildTiming (fake engine)', () => {
         investmentRowCents: null,
         sideIncomeInvestCents: 0,
         useBudget: null,
-        source: 'imported_budget',
+        source: 'live_budget',
       },
       plan: null,
       lastPurchaseDate: '2025-06-16',
@@ -453,10 +465,11 @@ describe('buildTiming (fake engine)', () => {
         'allocation.otherAssets',
       ],
       deferred: [],
+      cashDeficitMonths: null,
     });
   });
 
-  it('maps a waiting countdown, the plan, the hint symbol, merged missing keys and the deferred wait', () => {
+  it('maps a waiting countdown, the plan, the hint symbol, merged missing keys and the cash-deficit wait', () => {
     const def = id('ASX:DEF');
     const engine = fakeEngine({
       computeInvestments: (input) => emptyResult(input.kind, input.asOf),
@@ -495,6 +508,8 @@ describe('buildTiming (fake engine)', () => {
         ],
       }),
       nextBuyHint: () => ({ assetClass: 'etf', instrumentId: def, parcelCents: 368000 }),
+      cashKpis: (input) => ({ ...fakeEngine().cashKpis(input), avgSavingsCents: 250000 }),
+      cashDeficitMonths: () => 5,
     });
     const page = buildInvestmentPage(createInvestmentsContext(deps(engine)), 'etf');
     expect(page.timing.monthlyInvestCents).toBe(184000);
@@ -529,8 +544,12 @@ describe('buildTiming (fake engine)', () => {
       'returns.marketReturn',
       'returns.cashInterestRate',
     ]);
-    // Cash (10 %) is below its 20 % target: the Stage 3 cash-deficit wait is deferred.
-    expect(page.timing.deferred).toEqual(['cash_deficit_period']);
+    // Stage 3 (§2.12): the cash-deficit wait is live, so nothing is deferred; the average savings
+    // feed it and the countdown takes max(plan months, the wait).
+    expect(page.timing.deferred).toEqual([]);
+    expect(page.timing.cashDeficitMonths).toBe(5);
+    expect(engine.calls.cashDeficitMonths[0]![0]).toMatchObject({ avgMonthlySavingsCents: 250000 });
+    expect(engine.calls.investCountdown[0]![0]).toMatchObject({ cashDeficitMonths: 5 });
     expect(engine.calls.nextBuyHint[0]![0]).toMatchObject({ parcelCents: 368000 });
   });
 });
@@ -766,23 +785,6 @@ describe('buildTradesResponse and buildHoldingDetail (fake engine)', () => {
 
   it('answers null for an unknown instrument', () => {
     expect(buildHoldingDetail(createInvestmentsContext(deps(engineFor({}))), 999)).toBeNull();
-  });
-});
-
-describe('loader helpers', () => {
-  it('sums side income per period and fills missing period bounds', () => {
-    expect(
-      sideIncomePeriodsOf([
-        { periodMonth: '2026-02', periodStart: null, periodEnd: null, amountCents: 100 },
-        { periodMonth: '2026-01', periodStart: '2026-01-05', periodEnd: null, amountCents: 1 },
-        { periodMonth: '2026-02', periodStart: null, periodEnd: '2026-02-27', amountCents: 50 },
-      ]),
-    ).toEqual([
-      { periodStart: '2026-01-05', periodEnd: '2026-01-31', amountCents: 1 },
-      { periodStart: '2026-02-01', periodEnd: '2026-02-27', amountCents: 150 },
-    ]);
-    expect(lastDayOfMonth('2024-02')).toBe('2024-02-29');
-    expect(lastDayOfMonth('2026-12')).toBe('2026-12-31');
   });
 });
 

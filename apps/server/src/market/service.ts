@@ -46,6 +46,11 @@ export interface MarketDataServiceOptions {
   scheduler: Scheduler;
   fetchImpl?: typeof fetch;
   clock?: Clock;
+  /**
+   * Stage 3 (stage-3.md §4.6): provider cool-downs shared with the dividend-events service, so a
+   * 429/403 seen by either job pauses Yahoo for both. Omitted → a private instance (as before).
+   */
+  cooldowns?: Cooldowns;
   /** Test knobs. */
   runDeadlineMs?: number;
   yahooSpacingMs?: number;
@@ -98,7 +103,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
   const clock = o.clock ?? systemClock;
   const deadlineMs = o.runDeadlineMs ?? RUN_DEADLINE_MS;
   const notifyDelayMs = o.notifyDelayMs ?? NOTIFY_DELAY_MS;
-  const cooldowns = new Cooldowns();
+  const cooldowns = o.cooldowns ?? new Cooldowns();
   const providers = mode === 'off' ? null : (o.providers ?? buildProviders(mode, o, clock));
   const sleep = clockSleep(clock);
 

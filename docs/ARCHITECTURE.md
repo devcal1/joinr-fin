@@ -105,8 +105,11 @@ Shutdown:
 | `routes/import.ts` | `POST /api/import` and the import runs. |
 | `routes/prices.ts` | Prices, refresh, manual overrides, price sources, market series. |
 | `routes/investments.ts` | The investment pages, the trade ledger, holding detail, and trade and holding changes. |
-| `investments/` | Builds engine inputs from the database and the price service (`load.ts`, `context.ts`), maps engine results to the API's DTOs (`page.ts`, `trades.ts`, `detail.ts`, `charts.ts`, `timing.ts`, `mappers.ts`), and runs the mutations (`mutations.ts`). |
-| `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. |
+| `routes/{cash,sideIncome,budget,dividends,settings}.ts` | The cash-flow pages and their changes (Stage 3), the dividend suggestions and the settings PATCH. |
+| `investments/` | Loads every finance row in one read transaction (`load.ts`), maps engine results to the investment DTOs (`page.ts`, `trades.ts`, `detail.ts`, `charts.ts`, `timing.ts`, `mappers.ts`), and runs the trade and holding mutations (`mutations.ts`). |
+| `cashflow/` | The finance context (`context.ts`: one request's rows, prices and memoised engine results), the engine inputs (`inputs.ts`), the page builders (`cash.ts`, `sideIncome.ts`, `budget.ts`, `dividends.ts`), the mutations (`mutations/`), the responses and the owner-confirmed constants (`constants.ts`). |
+| `market/dividends/` | The dividend-events service: Yahoo chart events and closes cached in `dividend_events` by a daily `dividends` job. |
+| `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. The price and dividend-events services share one set of provider cool-downs. |
 | `scheduler/` | A small generic job scheduler that logs every run in `job_runs`. |
 | `cli/import.ts` | `pnpm import:workbook`. |
 | `errors.ts` | The JSON error shape, `HttpError` and `parseWith` (Zod validation, `400 VALIDATION_ERROR`). |
@@ -155,7 +158,7 @@ One function, `importWorkbook(db, { bytes, … })` in `@joinr/importer`, serves 
 - **Replace-all, idempotent.** An import replaces the imported tables. Ids restart at 1 after the delete (no AUTOINCREMENT), so importing the same bytes twice gives identical tables. Instruments are upserted by kind and symbol, which keeps price sources and manual prices set in the app.
 - **Reconciliation report.** Every check compares a sheet value (a tab total, held units, a History row, a count) with the value read back from the database inside the transaction. Each check is `match`, `explained` (with a reason code and, where relevant, a decision reference), `suspect`, `info` or `unexplained`. The target is zero unexplained.
 - **Corrections** are owner-approved data fixes kept outside the repo (`import-corrections.json` in `DATA_DIR`, or in `reference/` on the development PC; `IMPORT_CORRECTIONS_FILE` overrides). Each applied correction is listed in the report.
-- **Upload route.** The body is the raw `.xlsx` (25 MiB limit; a route-scoped parser accepts only `application/octet-stream` and the xlsx MIME type). One import runs at a time. While app-entered data exists (`origin = 'app'` in a domain table, `instruments` or `settings`, or the deletion marker of a workbook row deleted in the app; `hasAppData()`), a real import answers `409 IMPORT_APP_DATA_EXISTS` before the confirm check (and again right before importing), with no backup and no run row; dry runs still run, and only the CLI overrides, with `--yes --replace-app-data` (D34). When data exists, a real import needs `confirmReplace=true` and takes a `VACUUM INTO` backup first. A committed import tells the price service to refresh soon.
+- **Upload route.** The body is the raw `.xlsx` (25 MiB limit; a route-scoped parser accepts only `application/octet-stream` and the xlsx MIME type). One import runs at a time. While app-entered data exists (`origin = 'app'` in a domain table or `instruments`, a workbook setting edited in the app, or the deletion marker of a workbook row deleted in the app; `hasAppData()`), a real import answers `409 IMPORT_APP_DATA_EXISTS` before the confirm check (and again right before importing), with no backup and no run row; dry runs still run, and only the CLI overrides, with `--yes --replace-app-data` (D34). When data exists, a real import needs `confirmReplace=true` and takes a `VACUUM INTO` backup first. A committed import tells the price service to refresh soon.
 - A crash mid-import leaves the data untouched (the transaction rolls back), and the next start marks the run `failed`.
 
 ## Investments
@@ -173,7 +176,7 @@ GET /api/investments/:kind
 - **The engine owns every figure.** The server loads rows, passes the fee authority fields straight through (a `fee_rate` wins over `fee_cents`), takes `asOf` as the server-local date of the injected clock, and maps the results. Money is integer cents; units, prices and ratios are decimal strings.
 - **Unpriced holdings** are flagged and left out of every total; stale prices are used and flagged. A price that would value a position beyond safe-integer cents counts as no price, so one absurd price cannot fail every investment page.
 - **Ledger flags** are the stored review flags plus a live `oversell`; a stored `oversell` is ignored, because the engine's FIFO (buys before sells on a date) decides it and an imported one can go stale.
-- **Timing** reads the imported budget rows and settings until the live budget arrives (Stage 3); missing inputs are listed by key, never guessed.
+- **Timing** reads the live data (Stage 3): `budgetInvestInputOf` of the same budget input the Budget page uses, the live cash balances (the emergency-fund test cash for the cash-first advice and the budget's 100 %-to-cash rule), the closed side-income periods and the months cash needs to reach its target share (`cashDeficitMonths`, SheetOptions H12; the countdown waits the longer of that and the parcel plan). Nothing is deferred any more. Missing inputs are listed by key, never guessed.
 - **Charts** take market value and gain from the snapshots and recompute contributions and net purchases from the trades, so in-app trades and exited holdings count. A live point is added for the current month when no snapshot exists for it.
 - **Tests** inject a fake engine through `buildApp({ engine })`; the tests that need real FIFO results run only once the engine reports itself implemented.
 
@@ -199,6 +202,40 @@ GET /api/investments/:kind
 
 **Id reuse.** Instrument ids have no AUTOINCREMENT, so a deleted id can be reused. The price refresh therefore writes a price only when the instrument still has the kind and symbol it had when the run chose it.
 
+## Cash flow and income
+
+```
+GET /api/cash · /api/side-income · /api/budget · /api/dividends (and the investment pages' timing)
+  price service ─┐
+  one read transaction: instruments, trades, dividends, settings (+ origins), snapshots, cash
+    accounts and balance entries, budget rows, yearly expenses, streams, deposits, period notes,
+    adjustments, goals, super entries, properties, loans, other assets, dividend events, the
+    last dividends job run ──────────────────────────────────────────────────────────────┐
+  FinanceContext (memoised per request) ◄──────────────────────────────────────────────┘
+    computeInvestments ×4 · cashTotals · computeSideIncome · computeSavings · cashKpis
+    · computeBudget / budgetInvestInputOf · computeDividends
+  ─► page builders ─► DTOs (the server adds names, symbols, origins, notes and counts)
+```
+
+- **One context.** `createFinanceContext` reads the prices first, then every row in one read transaction, and computes each engine result at most once per request. The investment routes use the same context, so the next-buy timing reads the live budget and cash.
+- **Owner-confirmed constants** (D59) live in `cashflow/constants.ts`: `LOANS_COUNT_FOR_EMERGENCY_FUND = false` (loans you've made are left out of the emergency-fund test) and `GOALS_CASH_BASIS = 'available'` (the savings goals start from available cash). The DTOs report both, so the web copy follows a change.
+- **Engine inputs** (`cashflow/inputs.ts`): the snapshots' stored cash, super, salary, property and mortgage columns; the provisional period's live values (Total Cash, the current pay through `monthlyPayCents`, voluntary super after the latest snapshot, the property and mortgage as imported until Stage 4); every trade, AUD other-asset purchase, deposit and dividend; the adjustments; the budget rows in sort order with the linked account's name.
+- **Mutations** run in one `BEGIN IMMEDIATE` transaction each, answer `409 IMPORT_IN_PROGRESS` first while an upload import runs, compare "changed" after normalising both sides (so a no-op save never flips `origin`), write the deletion marker for a workbook row, and answer with the row's DTO rebuilt from a fresh context.
+- **Balance history (D58):** a balance save upserts `(account, as_of)`; the account's `balance_cents`/`balance_as_of` are a copy of its latest entry, kept in step on every save and delete.
+- **Recorded periods:** an adjustment is accepted only on a closed period's month (every snapshot month but the first), a period note on any snapshot month; the provisional month's label can still change.
+
+**D34 in Stage 3.**
+
+| Kind of data | Counts as app data |
+|---|---|
+| Import-owned rows (accounts, balance entries, deposits, streams, notes, budget rows, yearly expenses, dividends) created or changed in the app | Yes (`origin = 'app'`), except an account's kind-only change, which the importer keeps |
+| A workbook row deleted in the app | Yes (the deletion marker) |
+| A setting whose registry `source` is set (a workbook setting) edited in the app | Yes |
+| An app-only setting (`savings.yearBasis`) | No |
+| Savings adjustments and goals, the dividend-events cache and its dismissed flags (overlays) | No: an import never touches them, so a re-import keeps them |
+
+**Dividend events.** `market/dividends/` implements the frozen `DividendEventsService` (`refresh`, `status`). In mode `live` or `fake` it registers a `dividends` job (daily when `PRICE_REFRESH_MINUTES` > 0, manual otherwise) that fetches Yahoo chart events and daily closes for the stocks, ETFs and managed funds with trades, converts timestamps to the exchange's local date, and upserts `dividend_events` without touching `dismissed_at`. It waits while the price job runs and shares its rate-limit cool-down. The page reads the cache: the engine turns events into suggestions (due, upcoming, dismissed) and the server adds the status, the cache counts and the last run's error (URLs removed, at most 200 characters).
+
 ## Price service and scheduler
 
 ```
@@ -211,7 +248,7 @@ scheduler ──(every PRICE_REFRESH_MINUTES, or "Refresh now")──► prices 
 - **Resilience:** a failed fetch keeps the last good price, repeated failures back off, and a rate-limited provider cools down. A manual price always wins over a fetched one.
 - **Status** is computed, never stored: `fresh`, `stale`, `failed`, `manual` or `none`. Prices seeded from the workbook show as stale until the first refresh.
 - **Bullion** is priced from the built-in series (silver and gold per ounce in AUD), not from holdings.
-- **Scheduler:** generic and reusable (Stage 5 adds the month-end snapshot job, Stage 7 backups). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
+- **Scheduler:** generic and reusable (Stage 3 adds the `dividends` job, Stage 5 the month-end snapshot job, Stage 7 backups). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
 
 ## Data
 

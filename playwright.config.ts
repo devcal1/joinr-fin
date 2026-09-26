@@ -29,13 +29,13 @@ export default defineConfig({
       name: 'desktop',
       use: { viewport: { width: 1440, height: 900 } },
       dependencies: ['setup'],
-      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/],
+      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/, /cashflow-mutations\.spec\.ts/],
     },
     {
       name: 'phone',
       use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true },
       dependencies: ['setup'],
-      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/],
+      testIgnore: [/.*\.setup\.ts/, /trades\.spec\.ts/, /cashflow-mutations\.spec\.ts/],
     },
     // The app rows trades.spec.ts creates would make the import spec's upload answer 409 (D34), so
     // it runs alone, after every desktop and phone spec (stage-2.md §7.6 step 6).
@@ -44,6 +44,14 @@ export default defineConfig({
       use: { viewport: { width: 1440, height: 900 } },
       testMatch: /trades\.spec\.ts/,
       dependencies: ['desktop', 'phone'],
+    },
+    // The cash-flow mutations create (and delete) app rows too, so they run alone after the trade
+    // mutations; the two mutating projects never overlap (stage-3.md §7.8 step 5, §12).
+    {
+      name: 'cashflow-mutations',
+      use: { viewport: { width: 1440, height: 900 } },
+      testMatch: /cashflow-mutations\.spec\.ts/,
+      dependencies: ['mutations'],
     },
   ],
   webServer: {

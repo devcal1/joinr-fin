@@ -16,6 +16,10 @@ export const API_ERROR_CODES = [
   'TRADE_OVERSELL',
   'INSTRUMENT_EXISTS',
   'INSTRUMENT_IN_USE',
+  // Stage 3 (stage-3.md §4.1): 409 · 409 · 409.
+  'ACCOUNT_IN_USE',
+  'STREAM_IN_USE',
+  'LAST_BALANCE_ENTRY',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 

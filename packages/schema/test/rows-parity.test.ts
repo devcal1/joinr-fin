@@ -79,6 +79,22 @@ describe('Zod insert schemas match the Drizzle tables', () => {
       typeof t.importRuns.$inferInsert
     >();
     expectTypeOf<Out<typeof rows.newJobRunSchema>>().toEqualTypeOf<typeof t.jobRuns.$inferInsert>();
+    // Stage 3 (migration 0003).
+    expectTypeOf<Out<typeof rows.newCashBalanceEntrySchema>>().toEqualTypeOf<
+      typeof t.cashBalanceEntries.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newSideIncomeDepositSchema>>().toEqualTypeOf<
+      typeof t.sideIncomeDeposits.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newSavingsAdjustmentSchema>>().toEqualTypeOf<
+      typeof t.savingsAdjustments.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newSavingsGoalSchema>>().toEqualTypeOf<
+      typeof t.savingsGoals.$inferInsert
+    >();
+    expectTypeOf<Out<typeof rows.newDividendEventSchema>>().toEqualTypeOf<
+      typeof t.dividendEvents.$inferInsert
+    >();
   });
 
   it('covers every table and every column (runtime)', () => {
@@ -105,6 +121,11 @@ describe('Zod insert schemas match the Drizzle tables', () => {
       [rows.newLoanSchema, t.loans],
       [rows.newImportRunSchema, t.importRuns],
       [rows.newJobRunSchema, t.jobRuns],
+      [rows.newCashBalanceEntrySchema, t.cashBalanceEntries],
+      [rows.newSideIncomeDepositSchema, t.sideIncomeDeposits],
+      [rows.newSavingsAdjustmentSchema, t.savingsAdjustments],
+      [rows.newSavingsGoalSchema, t.savingsGoals],
+      [rows.newDividendEventSchema, t.dividendEvents],
     ];
     expect(pairs).toHaveLength(Object.keys(t.tables).length);
     for (const [schema, table] of pairs) {
@@ -125,5 +146,42 @@ describe('Zod insert schemas match the Drizzle tables', () => {
     expect(
       rows.newLoanSchema.safeParse({ name: 'x', currentBalanceCents: -1, sortOrder: 1 }).success,
     ).toBe(false);
+  });
+
+  it('rejects zero deposits and adjustments and a non-positive goal target (Stage 3)', () => {
+    const deposit = { streamId: 1, depositDate: '2026-07-31', amountCents: 50000 };
+    expect(rows.newSideIncomeDepositSchema.safeParse(deposit).success).toBe(true);
+    expect(
+      rows.newSideIncomeDepositSchema.safeParse({ ...deposit, amountCents: -500 }).success,
+    ).toBe(true);
+    expect(rows.newSideIncomeDepositSchema.safeParse({ ...deposit, amountCents: 0 }).success).toBe(
+      false,
+    );
+    const adjustment = { periodMonth: '2026-07', amountCents: -100000, note: 'Car sold' };
+    expect(rows.newSavingsAdjustmentSchema.safeParse(adjustment).success).toBe(true);
+    expect(
+      rows.newSavingsAdjustmentSchema.safeParse({ ...adjustment, amountCents: 0 }).success,
+    ).toBe(false);
+    expect(rows.newSavingsAdjustmentSchema.safeParse({ ...adjustment, note: '' }).success).toBe(
+      false,
+    );
+    const goal = { name: 'Holiday', targetCents: 500000, sortOrder: 1 };
+    expect(rows.newSavingsGoalSchema.safeParse(goal).success).toBe(true);
+    expect(rows.newSavingsGoalSchema.safeParse({ ...goal, targetCents: 0 }).success).toBe(false);
+    const event = {
+      instrumentId: 3,
+      exDate: '2026-06-30',
+      amountPerUnit: '0.5',
+      currency: 'AUD',
+      source: 'fake',
+      fetchedAt: '2026-09-24T04:32:00.000Z',
+    };
+    expect(rows.newDividendEventSchema.safeParse(event).success).toBe(true);
+    expect(rows.newDividendEventSchema.safeParse({ ...event, source: 'sheet2' }).success).toBe(
+      false,
+    );
+    expect(rows.newDividendEventSchema.safeParse({ ...event, amountPerUnit: '0.50' }).success).toBe(
+      false,
+    );
   });
 });

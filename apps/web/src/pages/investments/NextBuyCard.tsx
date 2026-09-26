@@ -1,6 +1,7 @@
-// The "Next buy" card (stage-2.md §6.3 item 5, D39/D40). The hint line shows on every page; the
-// countdown, the amount to invest and the parcel show on the ETFs page only (the sheet's timing
-// lived on ETFs). Missing inputs are listed in words.
+// The "Next buy" card (stage-2.md §6.3 item 5, D39/D40; Stage 3 §6.7, D54). The hint line shows
+// on every page; the countdown, the amount to invest and the parcel show on the ETFs page only
+// (the sheet's timing lived on ETFs). The timing reads the live budget (a link to /budget); the
+// parcel says when the cash-deficit wait stretches it. Missing inputs are listed in words.
 import type { InvestmentPageResponse } from '@joinr/schema';
 import {
   Callout,
@@ -16,10 +17,9 @@ import { CircleAlert } from 'lucide-react';
 import type { JSX } from 'react';
 import { Missing } from '../../components/QueryStates';
 import {
-  DEFERRED_CASH_NOTE,
-  IMPORTED_BUDGET_NOTE,
-  MISSING_INPUTS_FOOTER,
-  SPLIT_OFF_NOTE,
+  IMPORTED_BUDGET_TEXT,
+  LIVE_BUDGET_LINK,
+  SPLIT_OFF_LINK,
   assetClassText,
   countdownText,
   hintText,
@@ -55,7 +55,13 @@ export function NextBuyCard({ page }: { page: InvestmentPageResponse }): JSX.Ele
       },
       {
         label: 'Parcel',
-        value: parcelText(timing.plan) ?? <span className="jf-app-muted">Not available</span>,
+        value: (
+          <span data-testid="next-buy-parcel">
+            {parcelText(timing.plan, timing.cashDeficitMonths) ?? (
+              <span className="jf-app-muted">Not available</span>
+            )}
+          </span>
+        ),
       },
       {
         label: 'Last ETF or stock buy',
@@ -92,7 +98,7 @@ export function NextBuyCard({ page }: { page: InvestmentPageResponse }): JSX.Ele
         ) : null}
         {full && splitOff ? (
           <p className="jf-app-meta" data-testid="next-buy-split-off">
-            {SPLIT_OFF_NOTE}
+            <Link to="/budget">{SPLIT_OFF_LINK}</Link>
           </p>
         ) : null}
         <KeyValueTable caption="Next buy details" items={items} />
@@ -109,13 +115,20 @@ export function NextBuyCard({ page }: { page: InvestmentPageResponse }): JSX.Ele
                 <li key={key}>{missingInputLabel(key)}</li>
               ))}
             </ul>
-            <p>{MISSING_INPUTS_FOOTER}</p>
+            <p data-testid="next-buy-missing-footer">
+              Pay and budget settings and budget items are set on the{' '}
+              <Link to="/budget">Budget page</Link>; everything else in the workbook, or on the
+              Settings page in Stage 5.
+            </p>
           </Callout>
         ) : null}
-        {timing.deferred.includes('cash_deficit_period') ? (
-          <p className="jf-app-meta">{DEFERRED_CASH_NOTE}</p>
-        ) : null}
-        <p className="jf-app-meta">{IMPORTED_BUDGET_NOTE}</p>
+        <p className="jf-app-meta" data-testid="next-buy-budget-source">
+          {timing.budget.source === 'live_budget' ? (
+            <Link to="/budget">{LIVE_BUDGET_LINK}</Link>
+          ) : (
+            IMPORTED_BUDGET_TEXT
+          )}
+        </p>
       </div>
     </Card>
   );

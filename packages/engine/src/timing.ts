@@ -1,37 +1,29 @@
-// Investment timing (stage-2.md §2.12, D39, D40): the Budget investment amount, the parcel
-// optimiser (an inferred formula), the countdown to the next buy, "consider next" and the next-buy
-// hint. Every template constant below is the template's own (spec 02 §0.5, spec 01 §5.4).
+// Investment timing (stage-2.md §2.12, D39, D40; stage-3.md §2.12): the parcel optimiser (an
+// inferred formula), the cash-deficit wait (SheetOptions H12), the countdown to the next buy,
+// "consider next" and the next-buy hint. The Budget chain lives in budget.ts. Every template
+// constant below is the template's own (spec 02 §0.5, spec 01 §5.4).
 import {
   ASSET_CLASSES,
   JoinrDecimal,
-  type AllocationAggressiveness,
   type AssetClass,
   type DecimalString,
   type InstrumentKind,
   type IsoDate,
-  type PayFrequency,
 } from '@joinr/schema';
 import {
   addDaysIso,
   centsOf,
   dayNumber,
   dec,
-  decN,
   dollarsOf,
-  maxDec,
-  minDec,
-  ONE,
+  floorWhole,
   ratioString,
-  roundDownToward,
-  roundUpAway,
   sheetWeekday,
   sum,
   ZERO,
   type Dec,
 } from './num';
 import type {
-  BudgetInvestInput,
-  BudgetInvestResult,
   Cents,
   ConsiderNextResult,
   ConsiderNextRow,
@@ -42,28 +34,8 @@ import type {
   TimingInput,
 } from './types';
 
-/** Monthly pay factors (spec 02 §0.5, exact template constants). */
-const PAY_FACTORS: Readonly<Record<PayFrequency, Dec>> = {
-  monthly: new JoinrDecimal(1),
-  four_weekly: new JoinrDecimal('1.0833333333'),
-  fortnightly: new JoinrDecimal('4.34523783659').times('0.5'),
-  weekly: new JoinrDecimal('4.34523783659'),
-  twice_monthly: new JoinrDecimal(2),
-};
-
-/** The allocation step k: light 1, normal 2, aggressive 3 (null → aggressive, the else branch). */
-const AGGRESSIVENESS_K: Readonly<Record<AllocationAggressiveness, number>> = {
-  light: 1,
-  normal: 2,
-  aggressive: 3,
-};
-
 const DAYS_PER_YEAR = 365;
 const MAX_PARCEL_MONTHS = 12;
-
-function mean(values: readonly Dec[]): Dec | null {
-  return values.length === 0 ? null : sum(values).div(values.length);
-}
 
 /** Sheets DATE(year, month, day) for whole numbers: a day or month outside its range rolls over. */
 export function sheetDate(year: number, month: number, day: number): IsoDate {
@@ -87,142 +59,6 @@ export function assetClassOfKind(kind: InstrumentKind): AssetClass {
     crypto: 'crypto',
   };
   return classes[kind];
-}
-
-/**
- * The Budget investment row and the D40 monthly amount to invest (Budget B2, C24, J4, L7, D3, C28,
- * C29; SheetOptions H41–H43, H2), in the twelve steps of §2.12.
- */
-export function budgetInvestment(input: BudgetInvestInput): BudgetInvestResult {
-  const asOfDay = dayNumber(input.asOf);
-  const missing: TimingInput[] = [];
-  const need = (isMissing: boolean, key: TimingInput) => {
-    if (isMissing && !missing.includes(key)) missing.push(key);
-  };
-  const items = input.items.filter((i) => i.kind === 'item');
-
-  // 1. Monthly income (Budget B2): pay × frequency factor, plus the 365-day side-income mean.
-  const periodTotal = (p: { amountCents: Cents }) => dollarsOf(p.amountCents, 'side income');
-  const side365 =
-    mean(
-      input.sideIncomePeriods
-        .filter((p) => dayNumber(p.periodStart) > asOfDay - DAYS_PER_YEAR)
-        .map(periodTotal),
-    ) ?? ZERO;
-  const monthlyIncome =
-    input.netPayCents === null || input.payFrequency === null
-      ? null
-      : dollarsOf(input.netPayCents, 'net pay')
-          .times(PAY_FACTORS[input.payFrequency])
-          .plus(input.includeSideIncome ? side365 : ZERO);
-
-  // 2. Yearly fund (C24): ROUNDUP(Σ annual / 60) × 5 dollars.
-  const annual = sum(input.yearlyExpenseAnnualCents.map((c) => dollarsOf(c, 'yearly expense')));
-  const yearlyFund = roundUpAway(annual.div(60), 0).times(5);
-
-  // 3–4. Planned spend (J4) and leftover (L7).
-  const plannedSpend = sum(
-    items.map((i) => (i.monthlyCents === null ? ZERO : dollarsOf(i.monthlyCents, 'budget item'))),
-  ).plus(yearlyFund);
-  const leftover = monthlyIncome === null ? null : monthlyIncome.minus(plannedSpend);
-
-  // 5. Emergency fund (D3): the override, else ROUNDUP(months × planned / 1000) × 1000 dollars.
-  const emergencyFund =
-    input.emergencyFundOverrideCents !== null
-      ? dollarsOf(input.emergencyFundOverrideCents, 'emergency fund override')
-      : input.emergencyFundMonths === null
-        ? null
-        : roundUpAway(decN(input.emergencyFundMonths).times(plannedSpend).div(1000), 0).times(1000);
-
-  // 6–8. The cash share (H41) and the invest share (H42).
-  const k = AGGRESSIVENESS_K[input.aggressiveness ?? 'aggressive'];
-  const share =
-    input.lastSnapshotCashShare !== null
-      ? dec(input.lastSnapshotCashShare, 'last snapshot cash share')
-      : input.currentCashShare !== null
-        ? dec(input.currentCashShare, 'current cash share')
-        : ZERO;
-  const cash = dollarsOf(input.cashCents, 'cash');
-  const belowEmergency =
-    input.useBudgetForInvest === true && emergencyFund !== null && cash.lessThan(emergencyFund);
-  let cashShare: Dec | null = null;
-  if (input.cashTargetRatio !== null) {
-    const target = dec(input.cashTargetRatio, 'cash target');
-    const stepped = roundUpAway(target.plus(target.minus(share).times(k)), 2);
-    cashShare = maxDec(minDec(stepped, ONE), belowEmergency ? ONE : ZERO);
-  }
-  const investShare = cashShare === null ? null : ONE.minus(cashShare);
-
-  // 9–10. The investment row (C28) and the cash row (C29), whole tens of dollars.
-  let investmentRow: Dec | null = null;
-  let cashRow: Dec | null = null;
-  if (input.autoInvestSplit === false) {
-    investmentRow = ZERO;
-    cashRow = leftover === null ? null : roundDownToward(leftover.div(10), 0).times(10);
-  } else if (input.autoInvestSplit === true && leftover !== null) {
-    if (investShare !== null) {
-      investmentRow = roundDownToward(leftover.div(10).times(investShare), 0).times(10);
-    }
-    if (cashShare !== null)
-      cashRow = roundDownToward(leftover.div(10).times(cashShare), 0).times(10);
-  }
-
-  // 11. After-tax side income since the last ETF or stock buy, at the invest share.
-  const tax =
-    input.marginalTaxRate === null ? null : dec(input.marginalTaxRate, 'marginal tax rate');
-  const lastPurchase = input.lastPurchaseDate;
-  const sinceLastBuy =
-    lastPurchase === null
-      ? null
-      : mean(
-          input.sideIncomePeriods
-            .filter((p) => dayNumber(p.periodEnd) > dayNumber(lastPurchase))
-            .map(periodTotal),
-        );
-  const sideIncomeInvest =
-    sinceLastBuy === null || tax === null || investShare === null
-      ? ZERO
-      : investShare.times(ONE.minus(tax)).times(sinceLastBuy);
-
-  // 12. D40: the monthly amount to invest.
-  const useBudget = input.useBudgetForInvest;
-  let monthlyInvest: Dec | null = null;
-  if (
-    monthlyIncome !== null &&
-    investShare !== null &&
-    input.autoInvestSplit !== null &&
-    useBudget !== null
-  ) {
-    const base = useBudget ? investmentRow : monthlyIncome.times(investShare);
-    if (base !== null) monthlyInvest = base.plus(sideIncomeInvest);
-  }
-
-  need(input.netPayCents === null, 'pay.netPayCents');
-  need(input.payFrequency === null, 'pay.frequency');
-  need(items.length === 0, 'budget.items');
-  need(input.useBudgetForInvest === null, 'budget.useForInvestAmount');
-  need(input.autoInvestSplit === null, 'budget.autoInvestSplit');
-  need(input.cashTargetRatio === null, 'allocation.cash');
-  need(input.aggressiveness === null, 'investing.allocationAggressiveness');
-  need(emergencyFund === null, 'budget.emergencyFundMonths');
-  need(input.lastSnapshotCashShare === null, 'snapshots');
-  need(input.marginalTaxRate === null, 'tax.marginalRate');
-  need(input.lastPurchaseDate === null, 'investments.lastPurchaseDate');
-
-  return {
-    monthlyIncomeCents: monthlyIncome === null ? null : centsOf(monthlyIncome),
-    yearlyFundCents: centsOf(yearlyFund),
-    plannedSpendCents: centsOf(plannedSpend),
-    leftoverCents: leftover === null ? null : centsOf(leftover),
-    emergencyFundCents: emergencyFund === null ? null : centsOf(emergencyFund),
-    cashShareRatio: cashShare === null ? null : ratioString(cashShare),
-    investShareRatio: investShare === null ? null : ratioString(investShare),
-    investmentRowCents: investmentRow === null ? null : centsOf(investmentRow),
-    cashRowCents: cashRow === null ? null : centsOf(cashRow),
-    sideIncomeInvestCents: centsOf(sideIncomeInvest),
-    monthlyInvestCents: monthlyInvest === null ? null : centsOf(monthlyInvest),
-    missing,
-  };
 }
 
 /**
@@ -258,11 +94,35 @@ export function parcelOptimiser(i: {
 }
 
 /**
+ * The cash-deficit wait (SheetOptions H12, stage-3.md §2.12, §11 fix 16): with cash below its
+ * target share of the liquid total, the months of average savings that top it up,
+ * floor((target × liquid total − cash) / average savings) + 1. Null when there is no target, the
+ * cash share is at or above it (the sheet's "-"), the liquid total is not positive or the average
+ * savings is missing or not positive (the sheet's IFERROR branch).
+ */
+export function cashDeficitMonths(i: {
+  cashCents: Cents;
+  liquidTotalCents: Cents;
+  targetRatio: DecimalString | null;
+  avgMonthlySavingsCents: Cents | null;
+}): number | null {
+  const cash = dollarsOf(i.cashCents, 'cash');
+  const liquid = dollarsOf(i.liquidTotalCents, 'liquid total');
+  if (i.targetRatio === null || i.avgMonthlySavingsCents === null) return null;
+  const savings = dollarsOf(i.avgMonthlySavingsCents, 'average savings');
+  if (!savings.greaterThan(0) || !liquid.greaterThan(0)) return null;
+  const target = dec(i.targetRatio, 'cash target');
+  if (cash.div(liquid).greaterThanOrEqualTo(target)) return null;
+  return floorWhole(target.times(liquid).minus(cash).div(savings)) + 1;
+}
+
+/**
  * The countdown to the next buy (SheetOptions H14–H18, ETFs I18): the last ETF or stock buy's
  * month at pay day + 2, plus 30 days per parcel month, rolled forward to a Thursday (+365 days
  * when growth is 0, the template quirk). Calendar days; the half-day offset is dropped (§11 fix 16).
- * Nothing to invest is `cash_first`, or `split_off` when the budget drives the amount and its
- * automatic investment split is off (D46).
+ * The wait is the longer of the parcel plan and the cash-deficit wait (H14 = MAX(H12:H13),
+ * stage-3.md §2.12). Nothing to invest is `cash_first`, or `split_off` when the budget drives the
+ * amount and its automatic investment split is off (D46).
  */
 export function investCountdown(i: {
   asOf: IsoDate;
@@ -273,7 +133,12 @@ export function investCountdown(i: {
   growthRatio: DecimalString | null;
   useBudgetForInvest?: boolean | null;
   autoInvestSplit?: boolean | null;
+  cashDeficitMonths?: number | null;
 }): Countdown {
+  const deficit = i.cashDeficitMonths ?? 0;
+  if (!Number.isSafeInteger(deficit) || deficit < 0) {
+    throw new RangeError(`engine: cash-deficit months must be a whole number: ${deficit}`);
+  }
   if (i.monthlyInvestCents === null) return { state: 'unavailable', missing: [] };
   if (i.monthlyInvestCents <= 0) {
     // D46: with the budget driving the amount and its automatic split off, the investment row is
@@ -288,7 +153,7 @@ export function investCountdown(i: {
   if (i.plan === null || i.lastPurchaseDate === null || i.payDayOfMonth === null) {
     return { state: 'unavailable', missing };
   }
-  const periodDays = 30 * i.plan.months;
+  const periodDays = 30 * Math.max(i.plan.months, deficit);
   const last = i.lastPurchaseDate;
   const base = sheetDate(Number(last.slice(0, 4)), Number(last.slice(5, 7)), i.payDayOfMonth + 2);
   let next = addDaysIso(base, periodDays);

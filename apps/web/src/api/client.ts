@@ -61,7 +61,7 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 interface RequestOptions {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: BodyInit;
   headers?: Record<string, string>;
 }
@@ -103,9 +103,9 @@ export function apiGet<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'GET' });
 }
 
-/** POST/PUT/DELETE with an optional JSON body. */
+/** POST/PUT/PATCH/DELETE with an optional JSON body. */
 export function apiSend<T>(
-  method: 'POST' | 'PUT' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<T> {

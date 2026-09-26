@@ -82,8 +82,9 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
     { id: '2', cells: { name: 'Side income 2', archived: false } },
   ],
   'side-income': [
-    { id: '3', cells: { period: '2026-07', stream: 'Side income 1', start: '2026-07-01', end: '2026-07-31', amount: 75000 } },
-    { id: '2', cells: { period: '2026-06', stream: 'Side income 2', start: null, end: '2026-06-30', amount: 0 } },
+    { id: '3', cells: { date: '2026-09-10', stream: 'Side income 1', amount: 20000, note: 'Consulting', sheetRef: null } },
+    { id: '2', cells: { date: '2026-07-31', stream: 'Side income 1', amount: 75000, note: null, sheetRef: 'Side Income!G3' } },
+    { id: '1', cells: { date: '2026-06-30', stream: 'Side income 2', amount: -5000, note: null, sheetRef: 'Side Income!H2' } },
   ],
   'period-notes': [
     { id: '1', cells: { period: '2026-07', kind: 'spend', note: 'Car service' } },
@@ -120,6 +121,24 @@ const RECORD_ROWS: Record<RecordEntityId, RecordRow[]> = {
     { id: 'pay.frequency', valueType: 'enum', cells: { key: 'pay.frequency', label: 'Pay frequency', category: 'pay', value: 'fortnightly', updatedAt: FIXTURE_NOW } },
     { id: 'pay.jobStartDate', valueType: 'date', cells: { key: 'pay.jobStartDate', label: 'Job start date', category: 'pay', value: '2020-01-06', updatedAt: FIXTURE_NOW } },
     { id: 'pay.netPayCents', valueType: 'money', cells: { key: 'pay.netPayCents', label: 'Net pay per pay', category: 'pay', value: 300000, updatedAt: FIXTURE_NOW } },
+  ],
+  // Stage 3 (stage-3.md §3.2).
+  'cash-balance-entries': [
+    { id: '5', cells: { account: 'Example Bank – Everyday', asOf: '2026-09-20', balance: 520000, note: 'After rent', sheetRef: null } },
+    { id: '1', cells: { account: 'Example Bank – Everyday', asOf: FIXTURE_WORKBOOK_AS_OF, balance: 500000, note: null, sheetRef: 'Cash!A2' } },
+    { id: '2', cells: { account: 'Example Card', asOf: FIXTURE_WORKBOOK_AS_OF, balance: -25000, note: null, sheetRef: 'Cash!A5' } },
+  ],
+  'savings-adjustments': [
+    { id: '1', cells: { period: '2026-07', amount: 1000000, note: 'Car sold' } },
+    { id: '2', cells: { period: '2026-06', amount: -200000, note: 'Loan to a friend' } },
+  ],
+  'savings-goals': [
+    { id: '1', cells: { name: 'Emergency buffer', target: 1000000, targetDate: null, sortOrder: 1, note: null } },
+    { id: '2', cells: { name: 'Holiday', target: 500000, targetDate: '2027-06-30', sortOrder: 2, note: 'Two weeks away' } },
+  ],
+  'dividend-events': [
+    { id: '4:2026-09-01', cells: { symbol: 'ASX:DEF', exDate: '2026-09-01', amountPerUnit: '0.45', currency: 'AUD', closeBeforeEx: '52.1', closeDate: '2026-08-31', source: 'fake', fetchedAt: FIXTURE_NOW, dismissed: false } },
+    { id: '3:2026-06-30', cells: { symbol: 'ASX:XYZ', exDate: '2026-06-30', amountPerUnit: '1.2', currency: 'AUD', closeBeforeEx: null, closeDate: null, source: 'yahoo', fetchedAt: FIXTURE_NOW, dismissed: true } },
   ],
 };
 
@@ -549,4 +568,10 @@ export const apiErrors = {
   instrumentExists: { error: { code: 'INSTRUMENT_EXISTS', message: 'An ETF with the symbol ASX:DEF already exists' } },
   instrumentInUse: { error: { code: 'INSTRUMENT_IN_USE', message: 'This holding has trades or dividends, so it cannot be deleted' } },
   tradeValidation: { error: { code: 'VALIDATION_ERROR', message: 'quantity.units: must be a positive number; price: must be greater than zero' } },
+  // Stage 3 (stage-3.md §4.1, §4.3)
+  accountInUse: { error: { code: 'ACCOUNT_IN_USE', message: 'This account is used by 2 budget rows; move them first' } },
+  streamInUse: { error: { code: 'STREAM_IN_USE', message: 'This stream has 3 deposits' } },
+  lastBalanceEntry: { error: { code: 'LAST_BALANCE_ENTRY', message: 'An account keeps at least one balance' } },
+  cashValidation: { error: { code: 'VALIDATION_ERROR', message: 'asOf: must not be after tomorrow; entries: an account appears twice' } },
+  dividendValidation: { error: { code: 'VALIDATION_ERROR', message: 'exDate: after the payment date; netAmountCents: must not be zero' } },
 } satisfies Record<string, ApiErrorBody>;

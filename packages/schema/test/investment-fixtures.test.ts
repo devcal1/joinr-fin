@@ -77,6 +77,7 @@ describe('coverage', () => {
     expect(Object.keys(f.investmentPageTiming).sort()).toEqual(
       [
         'below_emergency_fund',
+        'cash_deficit',
         'cash_first',
         'invest',
         'no_targets',
@@ -93,6 +94,15 @@ describe('coverage', () => {
       budget: { useBudget: true, investmentRowCents: 0, sideIncomeInvestCents: 0 },
       countdown: { state: 'split_off' },
     });
+    // Stage 3: the live budget everywhere; the cash-deficit wait lengthens the countdown.
+    for (const page of Object.values(f.investmentPageTiming)) {
+      expect(page.timing.budget.source).toBe('live_budget');
+      expect(page.timing.deferred).toEqual([]);
+    }
+    const deficit = f.investmentPageTiming.cash_deficit.timing;
+    expect(deficit.cashDeficitMonths).toBeGreaterThan(deficit.plan.months);
+    const cash = deficit.considerNext.rows.find((r) => r.assetClass === 'cash')!;
+    expect(compareDecimals(cash.currentRatio, cash.targetRatio)).toBe(-1);
   });
 });
 
@@ -196,7 +206,10 @@ describe.each(f.allInvestmentPageFixtures.map((p, i) => [`${i}: ${p.kind}`, p] a
       }
       if (t.countdown.state === 'wait' || t.countdown.state === 'invest') {
         expect(t.plan?.months).toBeGreaterThan(0);
-        expect(t.countdown.periodDays).toBe(30 * t.plan!.months);
+        // Stage 3 (§2.12): H14 = MAX(plan months, the cash-deficit months).
+        expect(t.countdown.periodDays).toBe(
+          30 * Math.max(t.plan!.months, t.cashDeficitMonths ?? 0),
+        );
       }
       // Nothing to invest (cash first, or the budget's automatic split off): no plan, no parcel.
       if (t.countdown.state === 'cash_first' || t.countdown.state === 'split_off') {

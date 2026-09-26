@@ -8,6 +8,7 @@ import {
   ALLOCATION_AGGRESSIVENESS,
   CHART_DATE_UNITS,
   PAY_FREQUENCIES,
+  YEAR_BASES,
   type AllocationAggressiveness,
   type PayFrequency,
   type ReasonCode,
@@ -83,6 +84,8 @@ export const SETTING_KEYS = [
   'fire.withdrawalRate',
   'fire.preservationAge',
   'fire.yearlySpendOverrideCents',
+  // Stage 3 (stage-3.md §3.3): app-only (no workbook source).
+  'savings.yearBasis',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -142,7 +145,7 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'returns.marketReturn', label: 'Market investment return', category: 'returns', type: 'ratio', source: so(25, 'Market Investment Return'), defaultValue: null },
   { key: 'tax.marginalRate', label: 'Marginal tax rate', category: 'pay', type: 'ratio', min: 0, max: 1, source: so(26, 'Tax Bracket'), defaultValue: null },
   { key: 'goals.houseDepositRatio', label: 'House deposit target', category: 'goals', type: 'ratio', min: 0, max: 1, source: so(27, 'House Deposit - % Target'), defaultValue: null },
-  { key: 'goals.houseDepositInvestmentShare', label: 'House deposit: investment contribution', category: 'goals', type: 'ratio', min: 0, max: 1, source: so(28, 'House Deposit - Investment Contribution %'), defaultValue: null },
+  { key: 'goals.houseDepositInvestmentShare', label: 'Savings goals: share of investments counted', category: 'goals', type: 'ratio', min: 0, max: 1, source: so(28, 'House Deposit - Investment Contribution %'), defaultValue: null },
   { key: 'budget.emergencyFundMonths', label: 'Emergency fund (months)', category: 'budget', type: 'integer', min: 0, source: so(30, 'Emergency Fund Duration'), defaultValue: null },
   { key: 'budget.autoInvestSplit', label: 'Automatic investment split', category: 'budget', type: 'boolean', source: so(33, 'Automatic Investment System'), defaultValue: null },
   { key: 'crypto.feeRate', label: 'Crypto fee', category: 'crypto', type: 'ratio', min: 0, max: 1, source: so(38, 'Crypto Fee (%)'), defaultValue: null },
@@ -174,6 +177,7 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'fire.withdrawalRate', label: 'Withdrawal rate', category: 'fire', type: 'ratio', source: cell(FIRE_TAB_PREFIX, 'E9'), defaultValue: null },
   { key: 'fire.preservationAge', label: 'Preservation age', category: 'fire', type: 'integer', min: 0, max: 120, source: cell(FIRE_TAB_PREFIX, 'E10'), defaultValue: null },
   { key: 'fire.yearlySpendOverrideCents', label: 'Yearly spend override', category: 'fire', type: 'money', min: 0, source: cell(FIRE_TAB_PREFIX, 'E48'), defaultValue: null, onlyWhenTyped: true },
+  { key: 'savings.yearBasis', label: 'Year for the cash figures', category: 'savings', type: 'enum', enumValues: YEAR_BASES, source: null, defaultValue: 'fy' },
 ];
 
 const SETTINGS_BY_KEY: ReadonlyMap<string, SettingDef> = new Map(SETTINGS.map((s) => [s.key, s]));
@@ -187,6 +191,42 @@ export function settingDef(key: SettingKey): SettingDef {
   const def = SETTINGS_BY_KEY.get(key);
   if (!def) throw new RangeError(`Unknown setting key: ${key}`);
   return def;
+}
+
+/**
+ * True for a key the workbook provides (its registry `source` is set): an import writes it, so an
+ * in-app edit of it counts as app data (D34, stage-3.md §3.3 rule 2). App-only keys
+ * (`savings.yearBasis`) never do.
+ */
+export function isWorkbookSetting(key: SettingKey): boolean {
+  return settingDef(key).source !== null;
+}
+
+/**
+ * The keys the app edits in Stage 3 (`PATCH /api/settings`; stage-3.md §3.3). The Budget page
+ * edits the first nine, the Cash page the rest. Stage 5 extends the list to every key.
+ */
+export const EDITABLE_SETTING_KEYS = [
+  'pay.frequency',
+  'pay.netPayCents',
+  'pay.dayOfMonth',
+  'pay.jobStartDate',
+  'budget.includeSideIncome',
+  'budget.emergencyFundMonths',
+  'budget.emergencyFundOverrideCents',
+  'budget.autoInvestSplit',
+  'budget.useForInvestAmount',
+  'goals.cashSavingsTargetCents',
+  'goals.eoyCashGoalCents',
+  'goals.houseDepositInvestmentShare',
+  'savings.includeMortgagePrincipal',
+  'savings.yearBasis',
+  'property.offsetsIncludeEmergencyFund',
+] as const satisfies readonly SettingKey[];
+export type EditableSettingKey = (typeof EDITABLE_SETTING_KEYS)[number];
+
+export function isEditableSettingKey(value: unknown): value is EditableSettingKey {
+  return typeof value === 'string' && (EDITABLE_SETTING_KEYS as readonly string[]).includes(value);
 }
 
 /** SheetOptions ID (column P) → the setting stored from it. */

@@ -6,6 +6,7 @@ import {
   appMeta,
   budgetItems,
   cashAccounts,
+  cashBalanceEntries,
   DOMAIN_TABLES_DELETE_ORDER,
   dividends,
   importRuns,
@@ -19,8 +20,10 @@ import {
   prices,
   priceSources,
   properties,
+  savingsAdjustments,
+  savingsGoals,
   settings,
-  sideIncomeEntries,
+  sideIncomeDeposits,
   snapshots,
   superEntries,
   superFunds,
@@ -62,11 +65,16 @@ function isoDateLocal(d: Date): string {
   return `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1, 2)}-${p(d.getDate(), 2)}`;
 }
 
-/** Deletes every row the seed writes (everything except other app_meta keys). */
+/**
+ * Deletes every row the seed writes (everything except other app_meta keys), plus the Stage 3
+ * overlays (savings adjustments and goals), so a seeded database starts without them.
+ */
 export function clearSeededTables(db: JoinrDb): void {
   db.transaction((tx) => {
     for (const table of DOMAIN_TABLES_DELETE_ORDER) tx.delete(table).run();
-    tx.delete(instruments).run(); // cascades price_sources and prices
+    tx.delete(savingsAdjustments).run();
+    tx.delete(savingsGoals).run();
+    tx.delete(instruments).run(); // cascades price_sources, prices and dividend_events
     tx.delete(marketQuotes).run();
     tx.delete(settings).run();
     tx.delete(importRuns).run();
@@ -115,6 +123,11 @@ const SHEET_OF: Record<InstrumentKind, string> = {
  * failed (ASX:DEF), manual (EXAMPLEFUND), none (ASX:OLD, EXAMPLEFUND2). Default fees (D38): $0 flat on
  * ASX:DEF and a rate on BTC; every other instrument uses the global default. Every row keeps
  * origin 'import' (no app rows), so an import after seeding is still allowed.
+ *
+ * Stage 3 (stage-3.md §3.6): four cash accounts (a bank, a savings account, an offset and a loan
+ * you've made), one balance entry per account plus an earlier one for the everyday account, and
+ * the side income as dated deposits (the Stage 1 period entries are no longer seeded: the server
+ * reads deposits). No overlays and no dividend events.
  */
 export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedResult {
   const now = options.now ?? new Date();
@@ -347,24 +360,56 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
       ])
       .run();
 
-    // Cash accounts.
-    const cash = (name: string, balanceCents: number, sortOrder: number, isOffset = false) =>
-      tx
+    // Cash accounts, each with its balance entry (D58) at the workbook as-of.
+    const cash = (
+      name: string,
+      balanceCents: number,
+      sortOrder: number,
+      extra: { isOffset?: boolean; kind?: 'bank' | 'loan_receivable' } = {},
+    ) => {
+      const sheetRef = `Cash!A${sortOrder + 1}`;
+      const accountId = tx
         .insert(cashAccounts)
         .values({
           name,
+          kind: extra.kind ?? 'bank',
           balanceCents,
           balanceAsOf: SEED_WORKBOOK_AS_OF,
-          isOffset,
+          isOffset: extra.isOffset ?? false,
           sortOrder,
           origin: 'import',
-          sheetRef: `Cash!A${sortOrder + 1}`,
+          sheetRef,
         })
         .returning({ id: cashAccounts.id })
         .get().id;
+      return { accountId, sheetRef };
+    };
     const everyday = cash('Example Bank – Everyday', 500000, 1);
-    cash('Example Bank – Savings', 2000000, 2);
-    cash('Example Bank – Offset', 1000000, 3, true);
+    const savingsAccount = cash('Example Bank – Savings', 2000000, 2);
+    const offset = cash('Example Bank – Offset', 1000000, 3, { isOffset: true });
+    const loan = cash('Loan to a friend', 300000, 4, { kind: 'loan_receivable' });
+    const entry = (
+      account: { accountId: number; sheetRef: string },
+      asOf: string,
+      balanceCents: number,
+    ) => ({
+      accountId: account.accountId,
+      asOf,
+      balanceCents,
+      note: null,
+      origin: 'import' as const,
+      sheetRef: account.sheetRef,
+    });
+    tx.insert(cashBalanceEntries)
+      .values([
+        // An earlier balance, so the everyday account's history chart has two points.
+        entry(everyday, '2026-07-31', 450000),
+        entry(everyday, SEED_WORKBOOK_AS_OF, 500000),
+        entry(savingsAccount, SEED_WORKBOOK_AS_OF, 2000000),
+        entry(offset, SEED_WORKBOOK_AS_OF, 1000000),
+        entry(loan, SEED_WORKBOOK_AS_OF, 300000),
+      ])
+      .run();
 
     // Budget items and yearly expenses.
     tx.insert(budgetItems)
@@ -375,7 +420,7 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
           monthlyCents: 200000,
           category: 'Housing',
           accountName: 'Example Bank – Everyday',
-          cashAccountId: everyday,
+          cashAccountId: everyday.accountId,
           sortOrder: 1,
           origin: 'import',
           sheetRef: 'Budget!A8',
@@ -386,7 +431,7 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
           monthlyCents: 60000,
           category: 'Food',
           accountName: 'Example Bank – Everyday',
-          cashAccountId: everyday,
+          cashAccountId: everyday.accountId,
           sortOrder: 2,
           origin: 'import',
           sheetRef: 'Budget!A9',
@@ -462,34 +507,31 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         .get().id;
     const s1 = stream('Side income 1', 1);
     const s2 = stream('Side income 2', 2);
-    tx.insert(sideIncomeEntries)
+    // Side income as dated deposits (D57): two at the Jun and Jul 2026 period ends, plus one after
+    // the last snapshot (the provisional period). The Stage 1 period entries (side_income_entries)
+    // are no longer seeded: the server reads deposits (stage-3.md §4.5).
+    tx.insert(sideIncomeDeposits)
       .values([
         {
           streamId: s1,
-          periodMonth: '2026-06',
-          periodStart: '2026-06-01',
-          periodEnd: '2026-06-30',
+          depositDate: '2026-06-30',
           amountCents: 50000,
           origin: 'import',
           sheetRef: 'Side Income!G2',
         },
         {
-          streamId: s2,
-          periodMonth: '2026-06',
-          periodStart: '2026-06-01',
-          periodEnd: '2026-06-30',
-          amountCents: 0,
-          origin: 'import',
-          sheetRef: 'Side Income!H2',
-        },
-        {
           streamId: s1,
-          periodMonth: '2026-07',
-          periodStart: '2026-07-01',
-          periodEnd: '2026-07-31',
+          depositDate: '2026-07-31',
           amountCents: 75000,
           origin: 'import',
           sheetRef: 'Side Income!G3',
+        },
+        {
+          streamId: s2,
+          depositDate: '2026-08-20',
+          amountCents: 20000,
+          origin: 'import',
+          sheetRef: 'Side Income!H4',
         },
       ])
       .run();
@@ -744,8 +786,8 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         label: 'Cash total',
         sheetRef: 'Cash!C13',
         unit: 'cents',
-        expected: 2500000,
-        actual: 2500000,
+        expected: 2800000,
+        actual: 2800000,
         diff: 0,
         status: 'match',
         reasonCode: null,
@@ -793,7 +835,7 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         templateVersion: '2.15.4',
       },
       corrections: { name: null, sha256: null, entries: 0, applied: 0 },
-      counts: { instruments: 8, trades: 9, dividends: 2, 'cash-accounts': 3 },
+      counts: { instruments: 8, trades: 9, dividends: 2, 'cash-accounts': 4 },
       totals,
       checks,
     };

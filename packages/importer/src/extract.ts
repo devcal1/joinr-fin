@@ -60,7 +60,7 @@ import type {
   PriceCell,
   PropertyRow,
   SettingPlan,
-  SideIncomeRow,
+  SideIncomeDepositRow,
   SnapshotRow,
   SuperEntryRow,
   SuperFundRow,
@@ -518,9 +518,14 @@ export function extractCash(ctx: ExtractContext): { accounts: CashAccountRow[]; 
 
 // ─── Side income ────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Side income (D57, stage-3.md §3.5 item 1): one dated deposit per non-zero numeric G/H cell of a
+ * row with a date in F, dated min(F, the workbook as-of). Zero cells write nothing; the J notes
+ * stay period notes.
+ */
 export function extractSideIncome(ctx: ExtractContext): {
   streams: IncomeStreamRow[];
-  entries: SideIncomeRow[];
+  deposits: SideIncomeDepositRow[];
   notes: NoteRow[];
 } {
   const { r } = ctx;
@@ -529,25 +534,26 @@ export function extractSideIncome(ctx: ExtractContext): {
     { name: r.text(s, 'G1') ?? 'Side income 1', sheetRef: sheetRef(s, 'G1') },
     { name: r.text(s, 'H1') ?? 'Side income 2', sheetRef: sheetRef(s, 'H1') },
   ];
-  const entries: SideIncomeRow[] = [];
+  const deposits: SideIncomeDepositRow[] = [];
   const notes: NoteRow[] = [];
   for (let row = SIDE_INCOME.firstRow; row <= SIDE_INCOME.lastRow; row++) {
     const end = r.date(s, `F${row}`);
     if (end === null) continue;
     const periodMonth = isoMonthOf(end);
-    const start = r.date(s, `E${row}`);
+    const depositDate = end > ctx.asOf ? ctx.asOf : end;
     const note = r.text(s, `J${row}`);
     let any = false;
     (['G', 'H'] as const).forEach((col, streamIndex) => {
       const n = ctx.num(s, `${col}${row}`, 'income');
       if (n === null) return;
       any = true;
-      entries.push({
+      const amountCents = centsFromNumber(n);
+      if (amountCents === 0) return;
+      deposits.push({
         streamIndex,
-        periodMonth,
-        periodStart: start,
         periodEnd: end,
-        amountCents: centsFromNumber(n),
+        depositDate,
+        amountCents,
         sheetRef: sheetRef(s, `${col}${row}`),
       });
     });
@@ -567,7 +573,7 @@ export function extractSideIncome(ctx: ExtractContext): {
       );
     }
   }
-  return { streams, entries, notes };
+  return { streams, deposits, notes };
 }
 
 // ─── Budget ─────────────────────────────────────────────────────────────────────────────────────
@@ -585,6 +591,23 @@ function budgetKind(name: string): BudgetItemKind {
   if (name.startsWith('Investment Savings -')) return 'auto_invest';
   if (name.startsWith('Cash Savings -')) return 'auto_cash';
   return 'item';
+}
+
+/**
+ * A budget row's stored monthly amount: an `item`'s C (blank → 0); the `auto_invest` row's C only
+ * when it is typed, with no formula (D54, stage-3.md §3.5 item 4; the template's
+ * `IF(... "Yes", ROUNDDOWN(...), 0)` formula stays null); null for the other derived rows.
+ */
+export function budgetMonthlyCents(
+  ctx: ExtractContext,
+  kind: BudgetItemKind,
+  row: number,
+): number | null {
+  const addr = `C${row}`;
+  if (kind === 'item') return centsFromNumber(ctx.num(BUDGET.sheet, addr, 'budget') ?? 0);
+  if (kind !== 'auto_invest' || ctx.hasFormula(BUDGET.sheet, addr)) return null;
+  const typed = ctx.num(BUDGET.sheet, addr, 'budget');
+  return typed === null ? null : centsFromNumber(typed);
 }
 
 export function extractBudget(ctx: ExtractContext): {
@@ -616,13 +639,12 @@ export function extractBudget(ctx: ExtractContext): {
       continue;
     }
     const kind = budgetKind(name);
-    const monthly = kind === 'item' ? ctx.num(s, `C${row}`, 'budget') : null;
     items.push({
       row,
       sheetRef: sheetRef(s, `A${row}`),
       name,
       kind,
-      monthlyCents: kind === 'item' ? centsFromNumber(monthly ?? 0) : null,
+      monthlyCents: budgetMonthlyCents(ctx, kind, row),
       category: ctx.text(s, `G${row}`),
       accountName: ctx.text(s, `F${row}`),
       cashAccountIndex: null,

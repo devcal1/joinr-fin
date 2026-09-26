@@ -1,22 +1,29 @@
-// The engine's public types (stage-2.md §2.2, FROZEN). Names, fields and signatures here do not
-// change; the engine owner adds internal modules freely. Imports: the `@joinr/schema` root only.
+// The engine's public types (stage-2.md §2.2 and stage-3.md §2.2, FROZEN). Names, fields and
+// signatures here do not change; the engine owner adds internal modules freely. Imports: the
+// `@joinr/schema` root only.
 import type {
   AllocationAggressiveness,
   AssetClass,
   BudgetItemKind,
   CapitalGainTerm,
+  CashAccountKind,
   ChartDateUnit,
   ConsiderReason,
   DecimalString,
+  DividendSuggestionStatus,
+  DrpAdvice,
   HoldingFlag,
   HoldingStatus,
   InstrumentKind,
   IsoDate,
   IsoMonth,
+  KpiTrend,
   PayFrequency,
   PriceStatus,
+  SavingsPeriodStatus,
   SettingKey,
   TradeSide,
+  YearBasis,
 } from '@joinr/schema';
 
 /** Integer cents (a safe integer). */
@@ -314,7 +321,10 @@ export interface BudgetInvestInput {
   lastSnapshotCashShare: DecimalString | null;
   /** Fallback when there is no snapshot; both null → 0 (§2.12 step 7). */
   currentCashShare: DecimalString | null;
-  /** Σ non-offset cash accounts. */
+  /**
+   * The cash the emergency-fund test compares (cashTotals.emergencyFundTestCents; stage-3.md §2.4,
+   * §2.9 step 8). Stage 2 passed Σ non-offset cash accounts.
+   */
   cashCents: Cents;
   emergencyFundMonths: number | null;
   emergencyFundOverrideCents: Cents | null;
@@ -402,6 +412,11 @@ export type CompressSeriesFn = (
   unit: ChartDateUnit,
   count: number | null,
   modes: Readonly<Record<string, 'end' | 'sum'>>,
+  /**
+   * Stage 3 (optional, appended; stage-3.md §2.13): the yearly unit groups by
+   * yearWindow(date, yearBasis). Omitted → 'calendar', so every Stage 2 caller is unchanged.
+   */
+  yearBasis?: YearBasis,
 ) => CompressedPoint[];
 export type BudgetInvestmentFn = (input: BudgetInvestInput) => BudgetInvestResult;
 export type ParcelOptimiserFn = (i: {
@@ -424,6 +439,11 @@ export type InvestCountdownFn = (i: {
    */
   useBudgetForInvest?: boolean | null;
   autoInvestSplit?: boolean | null;
+  /**
+   * Stage 3 (optional, appended; stage-3.md §2.12, SheetOptions H12): the cash-deficit wait.
+   * periodDays = 30 × max(plan.months, cashDeficitMonths ?? 0). Omitted → the plan's months.
+   */
+  cashDeficitMonths?: number | null;
 }) => Countdown;
 export type ConsiderNextFn = (i: {
   classes: Readonly<Record<AssetClass, { valueCents: Cents; targetRatio: DecimalString | null }>>;
@@ -440,6 +460,526 @@ export type NextBuyHintFn = (i: {
 export type AssetClassOfKindFn = (kind: InstrumentKind) => AssetClass;
 /** Sheets DATE(): day/month overflow rolls over. */
 export type SheetDateFn = (year: number, month: number, day: number) => IsoDate;
+
+// ═══ Stage 3: cash flow and income (stage-3.md §2.2, FROZEN) ════════════════════════════════════
+
+// ─── Cash accounts (§2.4) ───────────────────────────────────────────────────────────────────────
+
+export interface EngineCashAccount {
+  id: number;
+  kind: CashAccountKind;
+  isOffset: boolean;
+  balanceCents: Cents;
+}
+
+export interface CashTotalsResult {
+  /** Σ non-offset accounts (Cash!C13; D49 loans included). */
+  totalCashCents: Cents;
+  /** Non-offset subtotals. */
+  byKind: Readonly<Record<CashAccountKind, Cents>>;
+  /** Σ offset accounts (never in Total Cash). */
+  offsetCents: Cents;
+  /** = byKind.loan_receivable. */
+  loansCents: Cents;
+  /**
+   * total − loans (the "Available cash" figure; D59: the EF test, goals, cash target and EOY goal
+   * use it).
+   */
+  availableCashCents: Cents;
+  /**
+   * (loansCountForEmergencyFund ? total : available) + (offsetsIncludeEmergencyFund ? offsets : 0)
+   * (D59, §11 fix 20, D56).
+   */
+  emergencyFundTestCents: Cents;
+}
+
+// ─── Savings engine (§2.5) ──────────────────────────────────────────────────────────────────────
+
+/** One per snapshot (History row), any order. */
+export interface SavingsSnapshotInput {
+  periodMonth: IsoMonth;
+  runDate: IsoDate;
+  /** History N. */
+  cashValueCents: Cents | null;
+  /** History R. */
+  superContribCents: Cents | null;
+  /** History W. */
+  salaryMonthlyCents: Cents | null;
+  /** History Y. */
+  propertyPurchaseCents: Cents | null;
+  /** History AB (≤ 0). */
+  mortgageBalanceCents: Cents | null;
+  /** History AD (cumulative). */
+  mortgagePrincipalPaidCents: Cents | null;
+}
+
+/** The provisional period's live values. */
+export interface SavingsLiveInput {
+  /** Total Cash now (cashTotals.totalCashCents; loans in, D59). */
+  cashCents: Cents;
+  /** monthlyPayCents(current pay settings) (§4.5). */
+  salaryMonthlyCents: Cents | null;
+  /** Voluntary contributions for months after the latest snapshot's (§4.5). */
+  superContribCents: Cents;
+  propertyPurchaseCents: Cents | null;
+  mortgageBalanceCents: Cents | null;
+  mortgagePrincipalPaidCents: Cents | null;
+}
+
+export interface SavingsInput {
+  asOf: IsoDate;
+  snapshots: readonly SavingsSnapshotInput[];
+  /** Null → no provisional period. */
+  live: SavingsLiveInput | null;
+  /** Every trade of every kind (added investments). */
+  trades: readonly EngineTrade[];
+  otherAssetPurchases: readonly { date: IsoDate; amountCents: Cents }[];
+  /** Deposits (D57). */
+  sideIncome: readonly { date: IsoDate; amountCents: Cents }[];
+  /** Income (§2.5 step 5). */
+  dividends: readonly EngineDividend[];
+  /** D51. */
+  adjustments: readonly { periodMonth: IsoMonth; amountCents: Cents }[];
+  /** savings.includeMortgagePrincipal (null → true). */
+  includeMortgagePrincipal: boolean;
+}
+
+export interface SavingsFigures {
+  incomeCents: Cents | null;
+  savingsCents: Cents | null;
+  savingsRatio: DecimalString | null;
+  spendCents: Cents | null;
+}
+
+export interface SavingsPeriod {
+  periodMonth: IsoMonth;
+  /** Provisional: runDate = asOf. */
+  runDate: IsoDate;
+  /** The window (after, through]; the first period: after = null. */
+  after: IsoDate | null;
+  through: IsoDate;
+  /** 'first' | 'closed' | 'provisional'. */
+  status: SavingsPeriodStatus;
+  cashCents: Cents | null;
+  /** Cash J. */
+  cashGainCents: Cents | null;
+  /** Cash K. */
+  cashGainRatio: DecimalString | null;
+  /** Cash L (null for the first period). */
+  addedInvestmentsCents: Cents | null;
+  added: {
+    tradesCents: Cents;
+    otherAssetsCents: Cents;
+    superCents: Cents;
+    mortgagePrincipalCents: Cents;
+    propertyDepositCents: Cents;
+  } | null;
+  income: {
+    salaryCents: Cents | null;
+    sideIncomeCents: Cents;
+    cashDividendsCents: Cents;
+    otherDividendsCents: Cents;
+  } | null;
+  /** 0 when none. */
+  adjustmentCents: Cents;
+  /** As the sheet computes (Cash M, N, P). */
+  raw: SavingsFigures;
+  /** The app's figures (D51 + §11 fixes 12, 19). */
+  adjusted: SavingsFigures;
+}
+
+export interface SavingsResult {
+  /** Run-date order; the provisional period last. */
+  periods: SavingsPeriod[];
+}
+
+// ─── Cash KPIs (§2.6) ───────────────────────────────────────────────────────────────────────────
+
+export interface CashKpisInput {
+  asOf: IsoDate;
+  periods: readonly SavingsPeriod[];
+  yearBasis: YearBasis;
+  jobStartDate: IsoDate | null;
+  /** Available cash now (cashTotals.availableCashCents; D59, §2.6). */
+  currentCashCents: Cents;
+  eoyCashGoalCents: Cents | null;
+  cashSavingsTargetCents: Cents | null;
+}
+
+/** [start, end); year = the FY start year or the calendar year. */
+export interface YearWindow {
+  basis: YearBasis;
+  start: IsoDate;
+  end: IsoDate;
+  year: number;
+}
+
+export interface CashKpisResult {
+  /** The latest recorded snapshot's run date (Net Worth C51). */
+  anchor: IsoDate | null;
+  /** Containing the anchor (asOf when none). */
+  year: YearWindow;
+  /** C17, C18, C37. */
+  lastPeriod: {
+    periodMonth: IsoMonth;
+    runDate: IsoDate;
+    cashGainCents: Cents | null;
+    savingsCents: Cents | null;
+    savingsRatio: DecimalString | null;
+    rawSavingsRatio: DecimalString | null;
+  } | null;
+  /** The 12-month averaging window. */
+  avgWindow: { from: IsoDate; periods: number } | null;
+  /** C19 (closed periods only). */
+  avgCashGainCents: Cents | null;
+  /** Mean of (cash gain − adjustment). */
+  avgCashGainAdjustedCents: Cents | null;
+  avgAddedInvestmentsCents: Cents | null;
+  /** C20 (adjusted). */
+  avgSavingsCents: Cents | null;
+  avgSavingsRawCents: Cents | null;
+  /** C22 = avgCashGainAdjusted × 12 (§2.6). */
+  predictedCashPerYearCents: Cents | null;
+  /** C21, C42, C43. */
+  yearCashGainCents: Cents;
+  yearSavingsCents: Cents;
+  yearAddedInvestmentsCents: Cents;
+  yearIncomeCents: Cents;
+  yearPeriods: number;
+  /** C38 fixed: Σ savings / Σ income (adjusted). */
+  yearSavingsRatio: DecimalString | null;
+  yearSavingsRawRatio: DecimalString | null;
+  /** C39 (closed). */
+  last3SavingsRatio: DecimalString | null;
+  /** C41 fixed: ratio change per month. */
+  trendPerMonth: DecimalString | null;
+  /** C40. */
+  trend: KpiTrend | null;
+  monthsToYearEnd: number | null;
+  /** C24. */
+  eoyProjectedCashCents: Cents | null;
+  /** C27 fixed (÷ months left); positive = surplus. */
+  eoyGapPerMonthCents: Cents | null;
+  /** C25. */
+  eoyOnTarget: boolean | null;
+  /** C30–C34. */
+  cashTarget: {
+    targetCents: Cents;
+    progressRatio: DecimalString;
+    monthsToTarget: number | null;
+    arrival: IsoDate | null;
+    status: 'reached' | 'on_track' | 'no_savings';
+  } | null;
+  /** Budget M4. */
+  spend6mCents: Cents | null;
+  spend6mRawCents: Cents | null;
+  spend6mPeriods: number;
+}
+
+// ─── Savings goals (§2.7, D55) ──────────────────────────────────────────────────────────────────
+
+export interface SavingsGoalsInput {
+  /** cashKpis.anchor ?? asOf. */
+  anchor: IsoDate;
+  /** Waterfall order. */
+  goals: readonly { id: number; targetCents: Cents; targetDate: IsoDate | null }[];
+  /** The cash base: available cash (D59; the server's rule, §4.5). */
+  goalsCashCents: Cents;
+  emergencyFundCents: Cents | null;
+  /** Σ ETF, stock, fund and crypto values (priced). */
+  investmentsValueCents: Cents;
+  /** goals.houseDepositInvestmentShare (null → 0). */
+  investmentShareRatio: DecimalString | null;
+  avgCashGainAdjustedCents: Cents | null;
+  avgAddedInvestmentsCents: Cents | null;
+}
+
+export interface SavingsGoalResult {
+  id: number;
+  allocatedCents: Cents;
+  remainingCents: Cents;
+  progressRatio: DecimalString;
+  reached: boolean;
+  monthsToGo: number | null;
+  eta: IsoDate | null;
+  onTrack: boolean | null;
+  requiredPerMonthCents: Cents | null;
+}
+
+export interface SavingsGoalsResult {
+  savedCents: Cents;
+  monthlyProgressCents: Cents | null;
+  goals: SavingsGoalResult[];
+}
+
+// ─── Side income (§2.8, D57) ────────────────────────────────────────────────────────────────────
+
+export interface SideIncomeInput {
+  asOf: IsoDate;
+  snapshots: readonly { periodMonth: IsoMonth; runDate: IsoDate }[];
+  deposits: readonly { id: number; streamId: number; date: IsoDate; amountCents: Cents }[];
+}
+
+export interface SideIncomePeriodResult {
+  periodMonth: IsoMonth;
+  /** [start, end] (inclusive dates, the sheet's E/F). */
+  start: IsoDate;
+  end: IsoDate;
+  status: 'closed' | 'provisional';
+  totalCents: Cents;
+  byStream: { streamId: number; amountCents: Cents }[];
+  depositIds: number[];
+}
+
+export interface SideIncomeResult {
+  /** Oldest first; the provisional period last. */
+  periods: SideIncomePeriodResult[];
+  /** Deposits outside every period. */
+  beforeFirstCents: Cents;
+  afterAsOfCents: Cents;
+  fy: { financialYear: number; start: IsoDate; end: IsoDate };
+  /** C3 fixed. */
+  avgPerPeriodThisFyCents: Cents | null;
+  periodsThisFy: number;
+  /** C4 fixed. */
+  fyToDateCents: Cents;
+  /** C5 = C3 × 12 (SheetOptions H27). */
+  projectedYearCents: Cents | null;
+  /** C6 fixed. */
+  avg365Cents: Cents | null;
+  periods365: number;
+  /** C7. */
+  lifetimeCents: Cents;
+  byStreamLifetime: { streamId: number; amountCents: Cents }[];
+}
+
+// ─── Budget (§2.9) ──────────────────────────────────────────────────────────────────────────────
+
+export interface BudgetRowInput {
+  id: number | null;
+  kind: BudgetItemKind;
+  name: string | null;
+  monthlyCents: Cents | null;
+  category: string | null;
+  accountId: number | null;
+  accountName: string | null;
+}
+
+export interface BudgetInput extends Omit<BudgetInvestInput, 'items' | 'yearlyExpenseAnnualCents'> {
+  /** Display order: items and the auto rows. */
+  rows: readonly BudgetRowInput[];
+  yearlyExpenses: readonly { id: number; name: string; annualCents: Cents }[];
+}
+
+export interface BudgetRowResult {
+  id: number | null;
+  kind: BudgetItemKind;
+  name: string | null;
+  /** Auto rows computed; a null item → 0. */
+  monthlyCents: Cents;
+  /** B. */
+  incomeShareRatio: DecimalString | null;
+  /** D, E. */
+  weeklyCents: Cents;
+  yearlyCents: Cents;
+  category: string | null;
+  accountId: number | null;
+  accountName: string | null;
+  savingsLine: boolean;
+  /** Derived: auto rows; manual: auto_invest with the split off (D54). */
+  derived: boolean;
+  manual: boolean;
+}
+
+export interface BudgetTransferResult {
+  accountId: number | null;
+  accountName: string | null;
+  perPayCents: Cents;
+  monthlyCents: Cents;
+  rows: number;
+}
+
+export interface BudgetResult {
+  /** The shared D40 chain (B2, C24, J4, L7, D3, H41–H43, C28, C29, H2). */
+  invest: BudgetInvestResult;
+  /** F2. */
+  annualIncomeCents: Cents | null;
+  /** L9. */
+  yearlySavingsCents: Cents | null;
+  /** L11. */
+  plannedSavingsRatio: DecimalString | null;
+  /** Leftover − investment row − cash row (the $10 rounding); null without a leftover. */
+  unallocatedCents: Cents | null;
+  /**
+   * Σ every item row (savings lines included) + yearly fund: the sheet's D3 basis (D61), so it
+   * equals the planned spend.
+   */
+  emergencyFundBasisCents: Cents;
+  rows: BudgetRowResult[];
+  yearlyExpenses: { id: number; name: string; annualCents: Cents; monthlyCents: Cents }[];
+  /** A35:B, first-appearance order. */
+  transfers: BudgetTransferResult[];
+  unassigned: { perPayCents: Cents; monthlyCents: Cents; rows: number };
+  perPayTotalCents: Cents | null;
+  byCategory: { category: string | null; monthlyCents: Cents }[];
+  /** D54. */
+  investManual: boolean;
+}
+
+// ─── Dividends (§2.10) and suggestions (§2.11) ──────────────────────────────────────────────────
+
+export interface DividendHoldingInput {
+  instrumentId: number;
+  kind: InstrumentKind;
+  dividendFreqMonths: number | null;
+  drp: boolean | null;
+  /** HoldingResult.netUnits. */
+  unitsNow: DecimalString;
+}
+
+export interface DividendsInput {
+  asOf: IsoDate;
+  holdings: readonly DividendHoldingInput[];
+  trades: readonly EngineTrade[];
+  dividends: readonly EngineDividend[];
+}
+
+export interface DividendFyRow {
+  financialYear: number;
+  byKind: Readonly<Record<InstrumentKind, Cents>>;
+  totalCents: Cents;
+}
+
+export interface DividendMonthRow {
+  month: IsoMonth;
+  byKind: Readonly<Record<InstrumentKind, Cents>>;
+  totalCents: Cents;
+}
+
+export interface DividendHoldingFyResult {
+  instrumentId: number;
+  kind: InstrumentKind;
+  netThisFyCents: Cents;
+  payments: number;
+  frequencyMonths: number | null;
+  drp: boolean | null;
+  /** Dividends O. */
+  yield365Ratio: DecimalString | null;
+  /** Dividends N. */
+  monthsToExtraUnit: number | null;
+  /** Dividends R. */
+  advice: DrpAdvice | null;
+}
+
+export interface DividendsResult {
+  /** One per input dividend, input order (Stage 2 §2.9 rule). */
+  rows: DividendResult[];
+  /**
+   * Newest first; asOf's FY and the 4 before it (zero rows kept), plus every older FY that has a
+   * payment (§2.10).
+   */
+  byFinancialYear: DividendFyRow[];
+  /** Oldest first; the 12 calendar months ending with asOf's month. */
+  rolling12: DividendMonthRow[];
+  /** Net desc, then instrumentId. */
+  holdingsThisFy: DividendHoldingFyResult[];
+  unlinkedThisFyCents: Cents;
+  /** SheetOptions H30, H28. */
+  kpis: {
+    financialYear: number;
+    thisFyCents: Cents;
+    lastFyCents: Cents;
+    allTimeCents: Cents;
+    rolling12Cents: Cents;
+    reinvestedThisFyCents: Cents;
+    daysIntoFy: number;
+    projectedFyCents: Cents | null;
+  };
+}
+
+export interface DividendEventInput {
+  instrumentId: number;
+  exDate: IsoDate;
+  amountPerUnit: DecimalString;
+  currency: string;
+  closeBeforeEx: DecimalString | null;
+  dismissed: boolean;
+}
+
+export interface DividendSuggestionResult {
+  instrumentId: number;
+  exDate: IsoDate;
+  amountPerUnit: DecimalString;
+  unitsAtEx: DecimalString;
+  estimatedNetCents: Cents;
+  priceAtEx: DecimalString | null;
+  yieldRatio: DecimalString | null;
+  expectedPaymentDate: IsoDate;
+  status: DividendSuggestionStatus;
+}
+
+// ─── Charts (§2.13) ─────────────────────────────────────────────────────────────────────────────
+
+export interface CashflowChartPoint {
+  label: string;
+  period: IsoMonth;
+  date: IsoDate;
+  live: boolean;
+  cashCents: Cents | null;
+  cashGainCents: Cents | null;
+  addedInvestmentsCents: Cents | null;
+  adjustmentCents: Cents;
+  savingsCents: Cents | null;
+  savingsRawCents: Cents | null;
+  incomeCents: Cents | null;
+  savingsRatio: DecimalString | null;
+  savingsRawRatio: DecimalString | null;
+  trendRatio: DecimalString | null;
+}
+
+// ─── Stage 3 function signatures (FROZEN) ───────────────────────────────────────────────────────
+
+/** The server passes loansCountForEmergencyFund = false (D59, §11 fix 20, §4.5). */
+export type CashTotalsFn = (i: {
+  accounts: readonly EngineCashAccount[];
+  offsetsIncludeEmergencyFund: boolean;
+  loansCountForEmergencyFund: boolean;
+}) => CashTotalsResult;
+/**
+ * Net pay × the template's pay-frequency factor (the same factors budgetInvestment uses); null
+ * when either is null.
+ */
+export type MonthlyPayCentsFn = (i: {
+  netPayCents: Cents | null;
+  payFrequency: PayFrequency | null;
+}) => Cents | null;
+export type ComputeSavingsFn = (input: SavingsInput) => SavingsResult;
+export type CashKpisFn = (input: CashKpisInput) => CashKpisResult;
+export type SavingsGoalsFn = (input: SavingsGoalsInput) => SavingsGoalsResult;
+export type ComputeSideIncomeFn = (input: SideIncomeInput) => SideIncomeResult;
+export type ComputeBudgetFn = (input: BudgetInput) => BudgetResult;
+/** The timing chain's exact input. */
+export type BudgetInvestInputOfFn = (input: BudgetInput) => BudgetInvestInput;
+export type ComputeDividendsFn = (input: DividendsInput) => DividendsResult;
+export type DividendSuggestionsFn = (i: {
+  asOf: IsoDate;
+  events: readonly DividendEventInput[];
+  trades: readonly EngineTrade[];
+  dividends: readonly EngineDividend[];
+}) => DividendSuggestionResult[];
+export type CashDeficitMonthsFn = (i: {
+  cashCents: Cents;
+  liquidTotalCents: Cents;
+  targetRatio: DecimalString | null;
+  avgMonthlySavingsCents: Cents | null;
+}) => number | null;
+export type CompressCashflowFn = (i: {
+  periods: readonly SavingsPeriod[];
+  unit: ChartDateUnit;
+  count: number | null;
+  yearBasis: YearBasis;
+}) => CashflowChartPoint[];
+export type YearWindowFn = (date: IsoDate, basis: YearBasis) => YearWindow;
 
 // ─── The function set as one value (server injection, §4.5) ─────────────────────────────────────
 
@@ -459,4 +999,18 @@ export interface EngineApi {
   nextBuyHint: NextBuyHintFn;
   assetClassOfKind: AssetClassOfKindFn;
   sheetDate: SheetDateFn;
+  // Stage 3 (stage-3.md §2.2).
+  cashTotals: CashTotalsFn;
+  monthlyPayCents: MonthlyPayCentsFn;
+  computeSavings: ComputeSavingsFn;
+  cashKpis: CashKpisFn;
+  savingsGoals: SavingsGoalsFn;
+  computeSideIncome: ComputeSideIncomeFn;
+  computeBudget: ComputeBudgetFn;
+  budgetInvestInputOf: BudgetInvestInputOfFn;
+  computeDividends: ComputeDividendsFn;
+  dividendSuggestions: DividendSuggestionsFn;
+  cashDeficitMonths: CashDeficitMonthsFn;
+  compressCashflow: CompressCashflowFn;
+  yearWindow: YearWindowFn;
 }

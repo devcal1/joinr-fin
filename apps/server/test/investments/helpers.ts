@@ -5,6 +5,9 @@
 import {
   assetClassOfKind,
   sheetDate,
+  yearWindow,
+  type BudgetInvestResult,
+  type CashTotalsResult,
   type EngineApi,
   type HoldingResult,
   type InvestmentsInput,
@@ -14,6 +17,8 @@ import {
 } from '@joinr/engine';
 import {
   ASSET_CLASSES,
+  CASH_ACCOUNT_KINDS,
+  financialYearOfIso,
   JoinrDecimal,
   multiplyToCents,
   normaliseDecimal,
@@ -169,6 +174,50 @@ export function unitsOnlyCompute(input: InvestmentsInput): InvestmentsResult {
   return { ...emptyResult(input.kind, input.asOf), holdings, trades };
 }
 
+/** budgetInvestment's neutral answer (nothing known). */
+export function neutralBudgetInvest(): BudgetInvestResult {
+  return {
+    monthlyIncomeCents: null,
+    yearlyFundCents: 0,
+    plannedSpendCents: 0,
+    leftoverCents: null,
+    emergencyFundCents: null,
+    cashShareRatio: null,
+    investShareRatio: null,
+    investmentRowCents: null,
+    cashRowCents: null,
+    sideIncomeInvestCents: 0,
+    monthlyInvestCents: null,
+    missing: [],
+  };
+}
+
+/** Cash totals by the stage-3.md §2.4 rules (simple sums; enough for fakes). */
+function fakeCashTotals(i: Parameters<EngineApi['cashTotals']>[0]): CashTotalsResult {
+  const byKind = Object.fromEntries(CASH_ACCOUNT_KINDS.map((k) => [k, 0])) as Record<
+    (typeof CASH_ACCOUNT_KINDS)[number],
+    number
+  >;
+  let offsetCents = 0;
+  for (const a of i.accounts) {
+    if (a.isOffset) offsetCents += a.balanceCents;
+    else byKind[a.kind] += a.balanceCents;
+  }
+  const totalCashCents = Object.values(byKind).reduce((x, y) => x + y, 0);
+  const loansCents = byKind.loan_receivable;
+  const availableCashCents = totalCashCents - loansCents;
+  return {
+    totalCashCents,
+    byKind,
+    offsetCents,
+    loansCents,
+    availableCashCents,
+    emergencyFundTestCents:
+      (i.loansCountForEmergencyFund ? totalCashCents : availableCashCents) +
+      (i.offsetsIncludeEmergencyFund ? offsetCents : 0),
+  };
+}
+
 export type FakeEngine = EngineApi & { calls: Record<keyof EngineApi, unknown[][]> };
 
 /** Every engine function with neutral answers; `overrides` replace any of them. Calls are recorded. */
@@ -191,20 +240,7 @@ export function fakeEngine(overrides: Partial<EngineApi> = {}): FakeEngine {
         live: p.live,
         values: { ...p.values },
       })),
-    budgetInvestment: () => ({
-      monthlyIncomeCents: null,
-      yearlyFundCents: 0,
-      plannedSpendCents: 0,
-      leftoverCents: null,
-      emergencyFundCents: null,
-      cashShareRatio: null,
-      investShareRatio: null,
-      investmentRowCents: null,
-      cashRowCents: null,
-      sideIncomeInvestCents: 0,
-      monthlyInvestCents: null,
-      missing: [],
-    }),
+    budgetInvestment: neutralBudgetInvest,
     parcelOptimiser: () => null,
     investCountdown: () => ({ state: 'unavailable', missing: [] }),
     considerNext: ({ classes }) => ({
@@ -225,6 +261,132 @@ export function fakeEngine(overrides: Partial<EngineApi> = {}): FakeEngine {
     }),
     assetClassOfKind,
     sheetDate,
+    // Stage 3 (stage-3.md §2.2): neutral answers (nothing recorded, nothing known).
+    cashTotals: fakeCashTotals,
+    monthlyPayCents: () => null,
+    computeSavings: () => ({ periods: [] }),
+    cashKpis: ({ asOf, yearBasis }) => ({
+      anchor: null,
+      year: yearWindow(asOf, yearBasis),
+      lastPeriod: null,
+      avgWindow: null,
+      avgCashGainCents: null,
+      avgCashGainAdjustedCents: null,
+      avgAddedInvestmentsCents: null,
+      avgSavingsCents: null,
+      avgSavingsRawCents: null,
+      predictedCashPerYearCents: null,
+      yearCashGainCents: 0,
+      yearSavingsCents: 0,
+      yearAddedInvestmentsCents: 0,
+      yearIncomeCents: 0,
+      yearPeriods: 0,
+      yearSavingsRatio: null,
+      yearSavingsRawRatio: null,
+      last3SavingsRatio: null,
+      trendPerMonth: null,
+      trend: null,
+      monthsToYearEnd: null,
+      eoyProjectedCashCents: null,
+      eoyGapPerMonthCents: null,
+      eoyOnTarget: null,
+      cashTarget: null,
+      spend6mCents: null,
+      spend6mRawCents: null,
+      spend6mPeriods: 0,
+    }),
+    savingsGoals: ({ goals }) => ({
+      savedCents: 0,
+      monthlyProgressCents: null,
+      goals: goals.map((g) => ({
+        id: g.id,
+        allocatedCents: 0,
+        remainingCents: g.targetCents,
+        progressRatio: '0',
+        reached: false,
+        monthsToGo: null,
+        eta: null,
+        onTrack: null,
+        requiredPerMonthCents: null,
+      })),
+    }),
+    computeSideIncome: ({ asOf }) => {
+      const fy = yearWindow(asOf, 'fy');
+      return {
+        periods: [],
+        beforeFirstCents: 0,
+        afterAsOfCents: 0,
+        fy: { financialYear: fy.year, start: fy.start, end: fy.end },
+        avgPerPeriodThisFyCents: null,
+        periodsThisFy: 0,
+        fyToDateCents: 0,
+        projectedYearCents: null,
+        avg365Cents: null,
+        periods365: 0,
+        lifetimeCents: 0,
+        byStreamLifetime: [],
+      };
+    },
+    computeBudget: (input) => ({
+      invest: neutralBudgetInvest(),
+      annualIncomeCents: null,
+      yearlySavingsCents: null,
+      plannedSavingsRatio: null,
+      unallocatedCents: null,
+      emergencyFundBasisCents: 0,
+      rows: input.rows.map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        name: r.name,
+        monthlyCents: r.monthlyCents ?? 0,
+        incomeShareRatio: null,
+        weeklyCents: 0,
+        yearlyCents: 0,
+        category: r.category,
+        accountId: r.accountId,
+        accountName: r.accountName,
+        savingsLine: false,
+        derived: r.kind !== 'item',
+        manual: false,
+      })),
+      yearlyExpenses: input.yearlyExpenses.map((y) => ({ ...y, monthlyCents: 0 })),
+      transfers: [],
+      unassigned: { perPayCents: 0, monthlyCents: 0, rows: 0 },
+      perPayTotalCents: null,
+      byCategory: [],
+      investManual: false,
+    }),
+    budgetInvestInputOf: ({ rows, yearlyExpenses, ...rest }) => ({
+      ...rest,
+      items: rows.map((r) => ({ kind: r.kind, monthlyCents: r.monthlyCents })),
+      yearlyExpenseAnnualCents: yearlyExpenses.map((y) => y.annualCents),
+    }),
+    computeDividends: ({ asOf, dividends }) => ({
+      rows: dividends.map((d) => ({
+        dividendId: d.id,
+        instrumentId: d.instrumentId,
+        unitsAtEx: null,
+        yieldRatio: null,
+      })),
+      byFinancialYear: [],
+      rolling12: [],
+      holdingsThisFy: [],
+      unlinkedThisFyCents: 0,
+      kpis: {
+        financialYear: financialYearOfIso(asOf),
+        thisFyCents: 0,
+        lastFyCents: 0,
+        allTimeCents: 0,
+        rolling12Cents: 0,
+        reinvestedThisFyCents: 0,
+        daysIntoFy: 1,
+        projectedFyCents: null,
+      },
+    }),
+    dividendSuggestions: () => [],
+    cashDeficitMonths: () => null,
+    compressCashflow: () => [],
+    yearWindow,
     ...overrides,
   };
   const calls = {} as Record<keyof EngineApi, unknown[][]>;

@@ -48,6 +48,8 @@ export interface FieldFrameProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  /** Visually hidden label (still the input's accessible name). */
+  labelHidden?: boolean;
   children: ReactNode;
 }
 
@@ -60,6 +62,7 @@ export function FieldFrame({
   required,
   disabled,
   className,
+  labelHidden = false,
   children,
 }: FieldFrameProps): JSX.Element {
   return (
@@ -71,7 +74,10 @@ export function FieldFrame({
         className,
       )}
     >
-      <label htmlFor={ids.inputId} className="jf-field__label">
+      <label
+        htmlFor={ids.inputId}
+        className={cx('jf-field__label', labelHidden && 'jf-visually-hidden')}
+      >
         {label}
         {required ? (
           <span className="jf-field__required" aria-hidden="true">

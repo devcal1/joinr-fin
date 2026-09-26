@@ -1,10 +1,18 @@
 import { eq, getTableName, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  cashAccounts,
+  cashBalanceEntries,
+  dividendEvents,
   DOMAIN_TABLES_DELETE_ORDER,
+  incomeStreams,
   instruments,
   prices,
   priceSources,
+  savingsAdjustments,
+  savingsGoals,
+  sideIncomeDeposits,
+  sideIncomeEntries,
   tables,
   trades,
 } from '../src/db/index';
@@ -13,6 +21,7 @@ import {
   createTestDb,
   dumpDomainTables,
   dumpDomainTablesJson,
+  SEED_WORKBOOK_AS_OF,
   seedGenericData,
   type TestDb,
 } from '../src/testing/index';
@@ -37,16 +46,29 @@ describe('createTestDb', () => {
       n: number;
     };
     expect(n.n).toBe(COMMITTED_MIGRATION_COUNT);
-    expect(COMMITTED_MIGRATION_COUNT).toBeGreaterThanOrEqual(3); // 0000, 0001, 0002 (Stage 2)
+    expect(COMMITTED_MIGRATION_COUNT).toBeGreaterThanOrEqual(4); // 0000 … 0003 (Stage 3)
     expect(testDb.sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
   });
 });
 
+/**
+ * Tables the seed leaves empty on purpose: the Stage 3 overlays and events cache (§3.6), and the
+ * Stage 1 side-income period entries (never written again: the server reads deposits).
+ */
+const UNSEEDED: ReadonlySet<unknown> = new Set([
+  savingsAdjustments,
+  savingsGoals,
+  dividendEvents,
+  sideIncomeEntries,
+]);
+
 describe('seedGenericData', () => {
-  it('puts rows in every table', () => {
+  it('puts rows in every table but the overlays, the events cache and the old period entries', () => {
     seedGenericData(testDb.db);
     for (const table of Object.values(tables)) {
-      expect(count(getTableName(table)), getTableName(table)).toBeGreaterThan(0);
+      const name = getTableName(table);
+      if (UNSEEDED.has(table)) expect(count(name), name).toBe(0);
+      else expect(count(name), name).toBeGreaterThan(0);
     }
   });
 
@@ -116,6 +138,80 @@ describe('seedGenericData: Stage 2 columns', () => {
   });
 });
 
+describe('seedGenericData: Stage 3 rows (stage-3.md §3.6)', () => {
+  it('gives every account a balance entry at the as-of, plus an earlier everyday balance', () => {
+    seedGenericData(testDb.db);
+    const accounts = testDb.db.select().from(cashAccounts).all();
+    expect(accounts.map((a) => [a.kind, a.isOffset])).toEqual([
+      ['bank', false],
+      ['bank', false],
+      ['bank', true],
+      ['loan_receivable', false],
+    ]);
+    const entries = testDb.db.select().from(cashBalanceEntries).all();
+    for (const a of accounts) {
+      const own = entries.filter((e) => e.accountId === a.id);
+      const latest = own.reduce((x, y) => (y.asOf > x.asOf ? y : x));
+      // The account's balance is its latest entry's (the denormalised copy, D58).
+      expect(latest).toMatchObject({
+        asOf: a.balanceAsOf,
+        balanceCents: a.balanceCents,
+        origin: 'import',
+        sheetRef: a.sheetRef,
+      });
+    }
+    const everyday = accounts[0]!;
+    expect(entries.filter((e) => e.accountId === everyday.id)).toHaveLength(2);
+    expect(entries).toHaveLength(accounts.length + 1);
+  });
+
+  it('writes the side income as dated deposits only, plus a provisional one', () => {
+    seedGenericData(testDb.db);
+    const deposits = testDb.db.select().from(sideIncomeDeposits).all();
+    // The Stage 1 period entries are no longer seeded (the server reads deposits).
+    expect(testDb.db.select().from(sideIncomeEntries).all()).toEqual([]);
+    // Two deposits at the Jun and Jul 2026 period ends (the seeded snapshots' run dates).
+    expect(deposits.filter((d) => d.depositDate <= '2026-07-31').map((d) => d.depositDate)).toEqual(
+      ['2026-06-30', '2026-07-31'],
+    );
+    expect(deposits.every((d) => d.amountCents !== 0 && d.origin === 'import')).toBe(true);
+    // One deposit after the last seeded snapshot (31/07/2026), on or before the as-of.
+    const later = deposits.filter((d) => d.depositDate > '2026-07-31');
+    expect(later).toHaveLength(1);
+    expect(later[0]!.depositDate <= SEED_WORKBOOK_AS_OF).toBe(true);
+    const streams = new Set(deposits.map((d) => d.streamId));
+    expect(streams.size).toBe(testDb.db.select().from(incomeStreams).all().length);
+  });
+
+  it('writes no app rows in the new tables, and no overlays or events', () => {
+    seedGenericData(testDb.db);
+    for (const table of ['cash_balance_entries', 'side_income_deposits', 'cash_accounts']) {
+      const n = testDb.sqlite
+        .prepare(`SELECT count(*) AS n FROM "${table}" WHERE origin = 'app'`)
+        .get() as { n: number };
+      expect(n.n, table).toBe(0);
+    }
+    for (const table of ['savings_adjustments', 'savings_goals', 'dividend_events']) {
+      expect(count(table), table).toBe(0);
+    }
+  });
+
+  it('clears the overlays when it re-seeds', () => {
+    seedGenericData(testDb.db);
+    testDb.db
+      .insert(savingsGoals)
+      .values({ name: 'Holiday', targetCents: 500000, sortOrder: 1 })
+      .run();
+    testDb.db
+      .insert(savingsAdjustments)
+      .values({ periodMonth: '2026-07', amountCents: 100000, note: 'Car sold' })
+      .run();
+    seedGenericData(testDb.db);
+    expect(count('savings_goals')).toBe(0);
+    expect(count('savings_adjustments')).toBe(0);
+  });
+});
+
 describe('dumpDomainTables', () => {
   it('lists the domain tables plus settings and pricing, in key order', () => {
     seedGenericData(testDb.db);
@@ -126,6 +222,12 @@ describe('dumpDomainTables', () => {
       expect(dump).toHaveProperty(extra);
     }
     expect(dump).not.toHaveProperty('import_runs');
+    // Stage 3: the import writes balance entries and deposits; overlays and events are not dumped.
+    expect(dump.cash_balance_entries!.length).toBeGreaterThan(0);
+    expect(dump.side_income_deposits!.length).toBeGreaterThan(0);
+    for (const overlay of ['savings_adjustments', 'savings_goals', 'dividend_events']) {
+      expect(dump).not.toHaveProperty(overlay);
+    }
     const ids = dump.trades!.map((r) => r.id as number);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
   });

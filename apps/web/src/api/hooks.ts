@@ -1,10 +1,43 @@
 // TanStack Query hooks for the API. Query keys are fixed by the plans:
 // Stage 1 (stage-1.md §6.2): ['records'], ['records', id], ['import', 'runs'], ['import', 'run', id],
 // ['prices'], ['status']. Stage 2 (stage-2.md §6.2): ['investments', kind],
-// ['investments', kind, 'trades'], ['instruments', id].
+// ['investments', kind, 'trades'], ['instruments', id]. Stage 3 (stage-3.md §6.2): ['cash'],
+// ['side-income'], ['budget'], ['dividends'].
 import type {
   AppStatus,
+  BudgetAutoKind,
+  BudgetAutoRowInput,
+  BudgetItemInput,
+  BudgetItemMutationResponse,
+  BudgetPageResponse,
+  CashAccountCreate,
+  CashAccountMutationResponse,
+  CashAccountUpdate,
+  CashBalancesInput,
+  CashBalancesResponse,
+  CashPageResponse,
   DeletedResponse,
+  DepositInput,
+  DepositMutationResponse,
+  DividendEventKey,
+  DividendEventsRefreshResponse,
+  DividendInputBody,
+  DividendMutationResponse,
+  DividendsPageResponse,
+  EditableNoteKind,
+  IncomeStreamInput,
+  IncomeStreamMutationResponse,
+  IsoMonth,
+  PeriodNoteResponse,
+  SavingsAdjustmentDto,
+  SavingsAdjustmentInput,
+  SavingsGoalInput,
+  SavingsGoalMutationResponse,
+  SettingsPatch,
+  SettingsPatchResponse,
+  SideIncomePageResponse,
+  YearlyExpenseInput,
+  YearlyExpenseMutationResponse,
   HoldingDetailResponse,
   InstrumentCreateBody,
   InstrumentDto,
@@ -48,7 +81,23 @@ export const queryKeys = {
   investmentTrades: (kind: InstrumentKind) => ['investments', kind, 'trades'] as const,
   instruments: ['instruments'] as const,
   holdingDetail: (id: number) => ['instruments', id] as const,
+  cash: ['cash'] as const,
+  sideIncome: ['side-income'] as const,
+  budget: ['budget'] as const,
+  dividends: ['dividends'] as const,
 };
+
+/** The four cash-flow pages' keys (stage-3.md §6.2). */
+const CASHFLOW_PAGE_KEYS = [
+  queryKeys.cash,
+  queryKeys.sideIncome,
+  queryKeys.budget,
+  queryKeys.dividends,
+] as const;
+
+function invalidateCashflowPages(queryClient: QueryClient): Promise<void>[] {
+  return CASHFLOW_PAGE_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey }));
+}
 
 /** How often a page polls while the server reports work in progress. */
 export const BUSY_POLL_MS = 2_000;
@@ -58,6 +107,8 @@ export const PRICES_POLL_MS = 60_000;
 export const STATUS_POLL_MS = 60_000;
 /** The investment pages, ledgers and holding details refetch every minute while visible. */
 export const INVESTMENTS_POLL_MS = 60_000;
+/** The four cash-flow pages refetch every minute while visible (stage-3.md §6.2). */
+export const CASHFLOW_POLL_MS = 60_000;
 
 // ─── Queries ──────────────────────────────────────────────────────────────────────────────────
 
@@ -146,6 +197,50 @@ export function useHoldingDetail(id: number): UseQueryResult<HoldingDetailRespon
   });
 }
 
+// Stage 3: the cash-flow pages (stage-3.md §4.2, §6.2). Each refetches every minute while visible.
+
+/** `GET /api/cash`: accounts, balance history, savings periods, KPIs, goals, charts, settings. */
+export function useCashPage(): UseQueryResult<CashPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.cash,
+    queryFn: () => apiGet<CashPageResponse>('/api/cash'),
+    refetchInterval: CASHFLOW_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** `GET /api/side-income`: streams, deposits, periods, KPIs and the chart. */
+export function useSideIncomePage(): UseQueryResult<SideIncomePageResponse> {
+  return useQuery({
+    queryKey: queryKeys.sideIncome,
+    queryFn: () => apiGet<SideIncomePageResponse>('/api/side-income'),
+    refetchInterval: CASHFLOW_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** `GET /api/budget`: the live budget. */
+export function useBudgetPage(): UseQueryResult<BudgetPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.budget,
+    queryFn: () => apiGet<BudgetPageResponse>('/api/budget'),
+    refetchInterval: CASHFLOW_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** `GET /api/dividends`: the ledger, summaries, holdings this FY and Yahoo suggestions. */
+export function useDividendsPage(): UseQueryResult<DividendsPageResponse> {
+  return useQuery({
+    queryKey: queryKeys.dividends,
+    queryFn: () => apiGet<DividendsPageResponse>('/api/dividends'),
+    // Faster while a Yahoo check runs, like the prices page.
+    refetchInterval: (query) =>
+      query.state.data?.events.running ? BUSY_POLL_MS : CASHFLOW_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
 // ─── Mutations ────────────────────────────────────────────────────────────────────────────────
 
 export interface ImportRequest {
@@ -166,28 +261,52 @@ export function invalidateAfterImport(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
     queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
+    ...invalidateCashflowPages(queryClient),
   ]).then(() => undefined);
 }
 
-/** A refresh, a manual price or a source change: prices, status and every investment figure. */
+/**
+ * A refresh, a manual price or a source change: prices, status, every investment figure and the
+ * cash-flow pages (investment values feed the savings goals and the timing chain).
+ */
 function invalidatePrices(queryClient: QueryClient): Promise<void> {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.prices }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
     queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
+    ...invalidateCashflowPages(queryClient),
   ]).then(() => undefined);
 }
 
 /**
  * After a trade or instrument change: the investment figures, prices (held status), records, the
- * import runs (`hasAppData` changes) and the header status (stage-2.md §6.2).
+ * import runs (`hasAppData` changes) and the header status (stage-2.md §6.2), plus the four
+ * cash-flow pages: trades and instruments feed added investments, the last-buy date, units at the
+ * ex-date and the dividend suggestions (stage-3.md §6.2).
  */
 export function invalidateAfterInvestmentChange(queryClient: QueryClient): Promise<void> {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.prices }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.records }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.import }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+    ...invalidateCashflowPages(queryClient),
+  ]).then(() => undefined);
+}
+
+/**
+ * After any Stage 3 mutation (stage-3.md §6.2): the four cash-flow pages, the investment pages
+ * (the live budget and cash feed their timing), holding details, records, the import runs
+ * (`hasAppData`) and the header status.
+ */
+export function invalidateAfterCashflowChange(queryClient: QueryClient): Promise<void> {
+  return Promise.all([
+    ...invalidateCashflowPages(queryClient),
+    queryClient.invalidateQueries({ queryKey: queryKeys.investments }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.instruments }),
     queryClient.invalidateQueries({ queryKey: queryKeys.records }),
     queryClient.invalidateQueries({ queryKey: queryKeys.import }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
@@ -355,6 +474,7 @@ export function invalidateAfterInstrumentDelete(
     queryClient.invalidateQueries({ queryKey: queryKeys.records }),
     queryClient.invalidateQueries({ queryKey: queryKeys.import }),
     queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+    ...invalidateCashflowPages(queryClient),
   ]).then(() => undefined);
 }
 
@@ -365,4 +485,307 @@ export function useDeleteInstrument(): UseMutationResult<DeletedResponse, Error,
     mutationFn: (id: number) => apiSend<DeletedResponse>('DELETE', `/api/instruments/${id}`),
     onSuccess: (_result, id) => invalidateAfterInstrumentDelete(queryClient, id),
   });
+}
+
+// ─── Cash flow (stage-3.md §4.2, §6.2) ───────────────────────────────────────────────────────────
+// Every Stage 3 mutation invalidates the same keys (invalidateAfterCashflowChange).
+
+/** A mutation whose success refreshes everything a cash-flow change can move. */
+function useCashflowMutation<TVariables, TResult>(
+  mutationFn: (variables: TVariables) => Promise<TResult>,
+): UseMutationResult<TResult, Error, TVariables> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => invalidateAfterCashflowChange(queryClient),
+  });
+}
+
+export interface UpdateRequest<Body> {
+  id: number;
+  body: Body;
+}
+
+// Cash
+
+/** `POST /api/cash/accounts` → 201 with the new account (and its opening balance entry). */
+export function useCreateCashAccount() {
+  return useCashflowMutation((body: CashAccountCreate) =>
+    apiSend<CashAccountMutationResponse>('POST', '/api/cash/accounts', body),
+  );
+}
+
+/** `PUT /api/cash/accounts/:id` (a kind-only change keeps the row's origin). */
+export function useUpdateCashAccount() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<CashAccountUpdate>) =>
+    apiSend<CashAccountMutationResponse>('PUT', `/api/cash/accounts/${id}`, body),
+  );
+}
+
+/** `DELETE /api/cash/accounts/:id` (409 ACCOUNT_IN_USE while budget rows use it). */
+export function useDeleteCashAccount() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/cash/accounts/${id}`),
+  );
+}
+
+/** `PUT /api/cash/balances`: one as-of date and the changed accounts' balances (D58). */
+export function useSaveBalances() {
+  return useCashflowMutation((body: CashBalancesInput) =>
+    apiSend<CashBalancesResponse>('PUT', '/api/cash/balances', body),
+  );
+}
+
+/** `DELETE /api/cash/balance-entries/:id` (409 LAST_BALANCE_ENTRY for an account's only entry). */
+export function useDeleteBalanceEntry() {
+  return useCashflowMutation((id: number) =>
+    apiSend<CashAccountMutationResponse>('DELETE', `/api/cash/balance-entries/${id}`),
+  );
+}
+
+export interface AdjustmentRequest {
+  periodMonth: IsoMonth;
+  body: SavingsAdjustmentInput;
+}
+
+/** `PUT /api/cash/adjustments/:periodMonth` (closed periods only, D51). */
+export function useSaveAdjustment() {
+  return useCashflowMutation(({ periodMonth, body }: AdjustmentRequest) =>
+    apiSend<SavingsAdjustmentDto>(
+      'PUT',
+      `/api/cash/adjustments/${encodeURIComponent(periodMonth)}`,
+      body,
+    ),
+  );
+}
+
+/** `DELETE /api/cash/adjustments/:periodMonth` (also removes an orphan). */
+export function useDeleteAdjustment() {
+  return useCashflowMutation((periodMonth: IsoMonth) =>
+    apiSend<{ periodMonth: IsoMonth }>(
+      'DELETE',
+      `/api/cash/adjustments/${encodeURIComponent(periodMonth)}`,
+    ),
+  );
+}
+
+export interface PeriodNoteRequest {
+  kind: EditableNoteKind;
+  periodMonth: IsoMonth;
+  /** `''` deletes the note. */
+  note: string;
+}
+
+/** `PUT /api/period-notes/:kind/:periodMonth` (recorded periods only). */
+export function useSavePeriodNote() {
+  return useCashflowMutation(({ kind, periodMonth, note }: PeriodNoteRequest) =>
+    apiSend<PeriodNoteResponse>(
+      'PUT',
+      `/api/period-notes/${encodeURIComponent(kind)}/${encodeURIComponent(periodMonth)}`,
+      { note },
+    ),
+  );
+}
+
+/** `POST /api/savings-goals` → 201. */
+export function useCreateSavingsGoal() {
+  return useCashflowMutation((body: SavingsGoalInput) =>
+    apiSend<SavingsGoalMutationResponse>('POST', '/api/savings-goals', body),
+  );
+}
+
+/** `PUT /api/savings-goals/:id`. */
+export function useUpdateSavingsGoal() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<SavingsGoalInput>) =>
+    apiSend<SavingsGoalMutationResponse>('PUT', `/api/savings-goals/${id}`, body),
+  );
+}
+
+/** `DELETE /api/savings-goals/:id`. */
+export function useDeleteSavingsGoal() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/savings-goals/${id}`),
+  );
+}
+
+/** `POST /api/savings-goals/reorder`: every goal id exactly once, in the new order. */
+export function useReorderSavingsGoals() {
+  return useCashflowMutation((ids: number[]) =>
+    apiSend<{ ids: number[] }>('POST', '/api/savings-goals/reorder', { ids }),
+  );
+}
+
+// Side income
+
+/** `POST /api/side-income/deposits` → 201. */
+export function useCreateDeposit() {
+  return useCashflowMutation((body: DepositInput) =>
+    apiSend<DepositMutationResponse>('POST', '/api/side-income/deposits', body),
+  );
+}
+
+/** `PUT /api/side-income/deposits/:id`. */
+export function useUpdateDeposit() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<DepositInput>) =>
+    apiSend<DepositMutationResponse>('PUT', `/api/side-income/deposits/${id}`, body),
+  );
+}
+
+/** `DELETE /api/side-income/deposits/:id`. */
+export function useDeleteDeposit() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/side-income/deposits/${id}`),
+  );
+}
+
+/** `POST /api/side-income/streams` → 201. */
+export function useCreateStream() {
+  return useCashflowMutation((body: IncomeStreamInput) =>
+    apiSend<IncomeStreamMutationResponse>('POST', '/api/side-income/streams', body),
+  );
+}
+
+/** `PUT /api/side-income/streams/:id` (rename or archive). */
+export function useUpdateStream() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<IncomeStreamInput>) =>
+    apiSend<IncomeStreamMutationResponse>('PUT', `/api/side-income/streams/${id}`, body),
+  );
+}
+
+/** `DELETE /api/side-income/streams/:id` (409 STREAM_IN_USE while it has deposits). */
+export function useDeleteStream() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/side-income/streams/${id}`),
+  );
+}
+
+// Budget
+
+/** `POST /api/budget/items` → 201. */
+export function useCreateBudgetItem() {
+  return useCashflowMutation((body: BudgetItemInput) =>
+    apiSend<BudgetItemMutationResponse>('POST', '/api/budget/items', body),
+  );
+}
+
+/** `PUT /api/budget/items/:id` (item rows only). */
+export function useUpdateBudgetItem() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<BudgetItemInput>) =>
+    apiSend<BudgetItemMutationResponse>('PUT', `/api/budget/items/${id}`, body),
+  );
+}
+
+/** `DELETE /api/budget/items/:id` (item rows only). */
+export function useDeleteBudgetItem() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/budget/items/${id}`),
+  );
+}
+
+/** `POST /api/budget/items/reorder`: every item and the yearly row, each exactly once. */
+export function useReorderBudgetItems() {
+  return useCashflowMutation((ids: number[]) =>
+    apiSend<{ ids: number[] }>('POST', '/api/budget/items/reorder', { ids }),
+  );
+}
+
+export interface BudgetAutoRowRequest {
+  kind: BudgetAutoKind;
+  body: BudgetAutoRowInput;
+}
+
+/** `PUT /api/budget/auto/:kind`: category, account and (auto_invest, split off) the amount. */
+export function useSaveBudgetAutoRow() {
+  return useCashflowMutation(({ kind, body }: BudgetAutoRowRequest) =>
+    apiSend<BudgetItemMutationResponse>(
+      'PUT',
+      `/api/budget/auto/${encodeURIComponent(kind)}`,
+      body,
+    ),
+  );
+}
+
+/** `POST /api/budget/yearly-expenses` → 201. */
+export function useCreateYearlyExpense() {
+  return useCashflowMutation((body: YearlyExpenseInput) =>
+    apiSend<YearlyExpenseMutationResponse>('POST', '/api/budget/yearly-expenses', body),
+  );
+}
+
+/** `PUT /api/budget/yearly-expenses/:id`. */
+export function useUpdateYearlyExpense() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<YearlyExpenseInput>) =>
+    apiSend<YearlyExpenseMutationResponse>('PUT', `/api/budget/yearly-expenses/${id}`, body),
+  );
+}
+
+/** `DELETE /api/budget/yearly-expenses/:id`. */
+export function useDeleteYearlyExpense() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/budget/yearly-expenses/${id}`),
+  );
+}
+
+// Dividends
+
+/** `POST /api/dividends` → 201 (also a confirmed suggestion). */
+export function useCreateDividend() {
+  return useCashflowMutation((body: DividendInputBody) =>
+    apiSend<DividendMutationResponse>('POST', '/api/dividends', body),
+  );
+}
+
+/** `PUT /api/dividends/:id`. */
+export function useUpdateDividend() {
+  return useCashflowMutation(({ id, body }: UpdateRequest<DividendInputBody>) =>
+    apiSend<DividendMutationResponse>('PUT', `/api/dividends/${id}`, body),
+  );
+}
+
+/** `DELETE /api/dividends/:id`. */
+export function useDeleteDividend() {
+  return useCashflowMutation((id: number) =>
+    apiSend<DeletedResponse>('DELETE', `/api/dividends/${id}`),
+  );
+}
+
+/**
+ * `POST /api/dividends/suggestions/refresh` ("Check Yahoo"): awaits the run (joins one in flight);
+ * 503 MARKET_DATA_DISABLED when market data is off. A failed or partial run still changes the
+ * page's status, so the pages refresh either way.
+ */
+export function useRefreshDividendEvents(): UseMutationResult<
+  DividendEventsRefreshResponse,
+  Error,
+  void
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiSend<DividendEventsRefreshResponse>('POST', '/api/dividends/suggestions/refresh'),
+    onSettled: () => invalidateAfterCashflowChange(queryClient),
+  });
+}
+
+/** `POST /api/dividends/suggestions/dismiss` (an overlay: a re-import keeps it). */
+export function useDismissSuggestion() {
+  return useCashflowMutation((key: DividendEventKey) =>
+    apiSend<DividendEventKey>('POST', '/api/dividends/suggestions/dismiss', key),
+  );
+}
+
+/** `POST /api/dividends/suggestions/restore`. */
+export function useRestoreSuggestion() {
+  return useCashflowMutation((key: DividendEventKey) =>
+    apiSend<DividendEventKey>('POST', '/api/dividends/suggestions/restore', key),
+  );
+}
+
+// Settings
+
+/** `PATCH /api/settings`: the settings a page edits (1–20 editable keys; null clears one). */
+export function usePatchSettings() {
+  return useCashflowMutation((body: SettingsPatch) =>
+    apiSend<SettingsPatchResponse>('PATCH', '/api/settings', body),
+  );
 }

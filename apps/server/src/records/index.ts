@@ -24,6 +24,8 @@ import {
 import {
   budgetItems,
   cashAccounts,
+  cashBalanceEntries,
+  dividendEvents,
   dividends,
   incomeStreams,
   instruments,
@@ -32,8 +34,10 @@ import {
   periodNotes,
   priceSources,
   properties,
+  savingsAdjustments,
+  savingsGoals,
   settings,
-  sideIncomeEntries,
+  sideIncomeDeposits,
   snapshots,
   superEntries,
   superFunds,
@@ -54,7 +58,7 @@ const ENTITY_TABLES: Readonly<Record<RecordEntityId, SQLiteTable>> = {
   'budget-items': budgetItems,
   'yearly-expenses': yearlyExpenses,
   'income-streams': incomeStreams,
-  'side-income': sideIncomeEntries,
+  'side-income': sideIncomeDeposits,
   'period-notes': periodNotes,
   snapshots,
   'other-assets': otherAssets,
@@ -63,6 +67,10 @@ const ENTITY_TABLES: Readonly<Record<RecordEntityId, SQLiteTable>> = {
   properties,
   loans,
   settings,
+  'cash-balance-entries': cashBalanceEntries,
+  'savings-adjustments': savingsAdjustments,
+  'savings-goals': savingsGoals,
+  'dividend-events': dividendEvents,
 };
 
 type Loader = (db: Db) => RecordRow[];
@@ -220,20 +228,84 @@ const loadIncomeStreams: Loader = (db) =>
     .all()
     .map((s) => row(s.id, { name: s.name, archived: s.archived }));
 
+/** Stage 3: the dated deposits (D57); the Stage 1 period entries are no longer listed. */
 const loadSideIncome: Loader = (db) =>
   db
-    .select({ e: sideIncomeEntries, stream: incomeStreams.name })
-    .from(sideIncomeEntries)
-    .innerJoin(incomeStreams, eq(incomeStreams.id, sideIncomeEntries.streamId))
-    .orderBy(asc(sideIncomeEntries.id))
+    .select({ d: sideIncomeDeposits, stream: incomeStreams.name })
+    .from(sideIncomeDeposits)
+    .innerJoin(incomeStreams, eq(incomeStreams.id, sideIncomeDeposits.streamId))
+    .orderBy(asc(sideIncomeDeposits.id))
     .all()
-    .map(({ e, stream }) =>
-      row(e.id, {
-        period: e.periodMonth,
+    .map(({ d, stream }) =>
+      row(d.id, {
+        date: d.depositDate,
         stream,
-        start: e.periodStart,
-        end: e.periodEnd,
-        amount: e.amountCents,
+        amount: d.amountCents,
+        note: d.note,
+        sheetRef: d.sheetRef,
+      }),
+    );
+
+const loadCashBalanceEntries: Loader = (db) =>
+  db
+    .select({ e: cashBalanceEntries, account: cashAccounts.name })
+    .from(cashBalanceEntries)
+    .innerJoin(cashAccounts, eq(cashAccounts.id, cashBalanceEntries.accountId))
+    .orderBy(asc(cashBalanceEntries.id))
+    .all()
+    .map(({ e, account }) =>
+      row(e.id, {
+        account,
+        asOf: e.asOf,
+        balance: e.balanceCents,
+        note: e.note,
+        sheetRef: e.sheetRef,
+      }),
+    );
+
+const loadSavingsAdjustments: Loader = (db) =>
+  db
+    .select()
+    .from(savingsAdjustments)
+    .orderBy(asc(savingsAdjustments.id))
+    .all()
+    .map((a) => row(a.id, { period: a.periodMonth, amount: a.amountCents, note: a.note }));
+
+const loadSavingsGoals: Loader = (db) =>
+  db
+    .select()
+    .from(savingsGoals)
+    .orderBy(asc(savingsGoals.sortOrder), asc(savingsGoals.id))
+    .all()
+    .map((g) =>
+      row(g.id, {
+        name: g.name,
+        target: g.targetCents,
+        targetDate: g.targetDate,
+        sortOrder: g.sortOrder,
+        note: g.note,
+      }),
+    );
+
+/** The events cache has a composite key: the row id is `<instrumentId>:<exDate>`. */
+const loadDividendEvents: Loader = (db) =>
+  db
+    .select({ e: dividendEvents, symbol: instruments.symbol })
+    .from(dividendEvents)
+    .innerJoin(instruments, eq(instruments.id, dividendEvents.instrumentId))
+    .orderBy(asc(dividendEvents.instrumentId), asc(dividendEvents.exDate))
+    .all()
+    .map(({ e, symbol }) =>
+      row(`${e.instrumentId}:${e.exDate}`, {
+        symbol,
+        exDate: e.exDate,
+        amountPerUnit: e.amountPerUnit,
+        currency: e.currency,
+        closeBeforeEx: e.closeBeforeEx,
+        closeDate: e.closeDate,
+        source: e.source,
+        fetchedAt: e.fetchedAt,
+        dismissed: e.dismissedAt !== null,
       }),
     );
 
@@ -424,6 +496,10 @@ const LOADERS: Readonly<Record<RecordEntityId, Loader>> = {
   properties: loadProperties,
   loans: loadLoans,
   settings: loadSettings,
+  'cash-balance-entries': loadCashBalanceEntries,
+  'savings-adjustments': loadSavingsAdjustments,
+  'savings-goals': loadSavingsGoals,
+  'dividend-events': loadDividendEvents,
 };
 
 const DECIMAL_TYPES: ReadonlySet<RecordColumnType> = new Set(['quantity', 'price', 'ratio']);

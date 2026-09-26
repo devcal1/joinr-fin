@@ -4,13 +4,25 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Config } from './config';
 import { closeDatabase, type AppDatabase } from './db/database';
 import { registerErrorHandler } from './errors';
+import {
+  createDividendEventsService,
+  createOffDividendEventsService,
+  type DividendEventsService,
+} from './market/dividends/index';
 import { createMarketDataService } from './market/index';
+import { Cooldowns } from './market/refresh';
+import { createService } from './market/service';
 import type { MarketDataService } from './market/types';
+import { budgetRoutes } from './routes/budget';
+import { cashRoutes } from './routes/cash';
+import { dividendsRoutes } from './routes/dividends';
 import { healthRoutes } from './routes/health';
 import { importRoutes } from './routes/import';
 import { investmentsRoutes } from './routes/investments';
 import { pricesRoutes } from './routes/prices';
 import { recordsRoutes } from './routes/records';
+import { settingsRoutes } from './routes/settings';
+import { sideIncomeRoutes } from './routes/sideIncome';
 import { statusRoutes } from './routes/status';
 import { createScheduler } from './scheduler/index';
 import type { Scheduler } from './scheduler/types';
@@ -21,6 +33,11 @@ import { assertWebDist, createNotFoundHandler, registerWebApp } from './web';
 export interface AppServices {
   scheduler: Scheduler;
   market: MarketDataService;
+  /**
+   * Stage 3 (stage-3.md §4.6): the dividend-events market data. Optional so existing test
+   * factories keep compiling; buildApp falls back to the off-mode service.
+   */
+  dividendEvents?: DividendEventsService;
 }
 
 export interface ServiceDeps {
@@ -49,7 +66,10 @@ export interface BuildAppOptions {
   now?: () => Date;
   /** Builds the scheduler and market data service. Defaults to `offServices` (tests). */
   services?: ServicesFactory;
-  /** The engine function set for the investments routes; defaults to the real engine (tests inject a fake). */
+  /**
+   * The engine function set for the investments and cash-flow routes; defaults to the real engine
+   * (tests inject a fake).
+   */
   engine?: EngineApi;
 }
 
@@ -64,11 +84,23 @@ export function isApiUrl(url: string): boolean {
   return path === '/api' || path.startsWith('/api/');
 }
 
-/** The real services, in the config's market data mode (index.ts). */
+/**
+ * The real services, in the config's market data mode (index.ts). The price and dividend-events
+ * services share one set of provider cool-downs, so a Yahoo 429/403 pauses both jobs (§4.6).
+ */
 export function defaultServices({ database, log, config }: ServiceDeps): AppServices {
   const scheduler = createScheduler({ db: database.db, log });
-  const market = createMarketDataService({ db: database.db, config, log, scheduler });
-  return { scheduler, market };
+  const cooldowns = new Cooldowns();
+  // createService is the frozen createMarketDataService plus the optional shared cool-downs.
+  const market = createService({ db: database.db, config, log, scheduler, cooldowns });
+  const dividendEvents = createDividendEventsService({
+    db: database.db,
+    config,
+    log,
+    scheduler,
+    cooldowns,
+  });
+  return { scheduler, market, dividendEvents };
 }
 
 /** Market data off and no refresh timer: the default when `services` is omitted (tests). */
@@ -80,7 +112,7 @@ export function offServices({ database, log }: ServiceDeps): AppServices {
     log,
     scheduler,
   });
-  return { scheduler, market };
+  return { scheduler, market, dividendEvents: createOffDividendEventsService() };
 }
 
 export async function buildApp({
@@ -95,7 +127,9 @@ export async function buildApp({
   if (config.serveWeb) assertWebDist(config.webDistDir);
 
   const app = Fastify({ logger: { level: config.logLevel } });
-  const { scheduler, market } = services({ database: db, log: app.log, config });
+  const built = services({ database: db, log: app.log, config });
+  const { scheduler, market } = built;
+  const dividendEvents = built.dividendEvents ?? createOffDividendEventsService();
   app.decorate('scheduler', scheduler);
   app.decorate('market', market);
 
@@ -129,6 +163,13 @@ export async function buildApp({
     now,
     engine,
   });
+  // Stage 3 (stage-3.md §4.2).
+  const cashflow = { prefix: '/api', database: db, config, market, dividendEvents, now, engine };
+  await app.register(cashRoutes, cashflow);
+  await app.register(sideIncomeRoutes, cashflow);
+  await app.register(budgetRoutes, cashflow);
+  await app.register(dividendsRoutes, cashflow);
+  await app.register(settingsRoutes, cashflow);
   if (config.serveWeb) await registerWebApp(app, config.webDistDir);
   app.setNotFoundHandler(createNotFoundHandler(config.serveWeb));
 

@@ -34,10 +34,15 @@ export function decN(value: number): Dec {
 
 /** Integer cents → dollars as a decimal. */
 export function dollarsOf(cents: Cents, what = 'cents'): Dec {
+  return new JoinrDecimal(checkCents(cents, what)).div(100);
+}
+
+/** `cents` itself after checking it is a safe integer (a programmer error otherwise). */
+export function checkCents(cents: Cents, what = 'cents'): Cents {
   if (!Number.isSafeInteger(cents)) {
     throw new RangeError(`engine: ${what} must be a safe integer: ${cents}`);
   }
-  return new JoinrDecimal(cents).div(100);
+  return cents;
 }
 
 /** Dollars → integer cents, rounded once, half away from zero (never -0). */
@@ -101,6 +106,21 @@ export function maxDec(a: Dec, b: Dec): Dec {
 
 export function minDec(a: Dec, b: Dec): Dec {
   return a.lessThan(b) ? a : b;
+}
+
+/** The mean of decimals; null for an empty list. */
+export function mean(values: readonly Dec[]): Dec | null {
+  return values.length === 0 ? null : sum(values).div(values.length);
+}
+
+/** CEILING to a whole number (toward +∞), as a JS integer. */
+export function ceilWhole(d: Dec): number {
+  return d.toDecimalPlaces(0, JoinrDecimal.ROUND_CEIL).toNumber();
+}
+
+/** FLOOR to a whole number (toward −∞), as a JS integer. */
+export function floorWhole(d: Dec): number {
+  return d.toDecimalPlaces(0, JoinrDecimal.ROUND_FLOOR).toNumber();
 }
 
 // ─── Dates ──────────────────────────────────────────────────────────────────────────────────────

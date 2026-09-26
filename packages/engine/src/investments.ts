@@ -37,6 +37,7 @@ import {
   ZERO,
   type Dec,
 } from './num';
+import { paymentMetrics } from './dividends';
 import { fyRowsFromGains } from './realised';
 import type {
   AllocationResult,
@@ -167,35 +168,6 @@ function slices(
   }));
 }
 
-/** §2.9: one result per input dividend. */
-function dividendResult(
-  d: EngineDividend,
-  linked: boolean,
-  unitsOf: (instrumentId: number, before: IsoDate) => Dec,
-): { result: DividendResult; yieldDec: Dec | null } {
-  if (!linked || d.instrumentId === null || d.exDate === null) {
-    return {
-      result: { dividendId: d.id, instrumentId: d.instrumentId, unitsAtEx: null, yieldRatio: null },
-      yieldDec: null,
-    };
-  }
-  const unitsAtEx = unitsOf(d.instrumentId, d.exDate);
-  let yieldDec: Dec | null = null;
-  if (d.priceAtEx !== null && unitsAtEx.greaterThan(0)) {
-    const px = dec(d.priceAtEx, `dividend ${d.id} price at ex-date`);
-    if (px.greaterThan(0)) yieldDec = dollarsOf(d.netAmountCents).div(px.times(unitsAtEx));
-  }
-  return {
-    result: {
-      dividendId: d.id,
-      instrumentId: d.instrumentId,
-      unitsAtEx: decimalString(unitsAtEx),
-      yieldRatio: yieldDec === null ? null : ratioString(yieldDec),
-    },
-    yieldDec,
-  };
-}
-
 /** Mean yield × 365 × (count − 1) / span over payments with a yield; null unless count ≥ 2 and span > 0. */
 function cadenceYield(payments: readonly { date: IsoDate; yieldDec: Dec }[]): Dec | null {
   if (payments.length < 2) return null;
@@ -322,7 +294,7 @@ export function computeInvestments(input: InvestmentsInput): InvestmentsResult {
   const dividendResults: DividendResult[] = [];
   const yieldsByInstrument = new Map<number, { date: IsoDate; yieldDec: Dec }[]>();
   for (const d of input.dividends) {
-    const { result, yieldDec } = dividendResult(d, isLinked(d), unitsBefore);
+    const { result, yieldDec } = paymentMetrics(d, isLinked(d), unitsBefore);
     dividendResults.push(result);
     if (yieldDec !== null && d.instrumentId !== null) {
       const list = yieldsByInstrument.get(d.instrumentId) ?? [];

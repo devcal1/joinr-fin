@@ -2,7 +2,11 @@
 import { sql } from 'drizzle-orm';
 import type { JoinrDb } from '../db/index';
 
-/** Every table the import writes (the replace-all set, instruments, settings and pricing). */
+/**
+ * Every table the import writes (the replace-all set, instruments, settings and pricing), parents
+ * before children. The Stage 3 overlays (`savings_adjustments`, `savings_goals`) and the
+ * `dividend_events` cache are not dumped: the import never writes them (stage-3.md §3.2).
+ */
 export const DUMPED_TABLES: readonly { table: string; orderBy: string }[] = [
   { table: 'instruments', orderBy: 'id' },
   { table: 'price_sources', orderBy: 'instrument_id' },
@@ -11,10 +15,12 @@ export const DUMPED_TABLES: readonly { table: string; orderBy: string }[] = [
   { table: 'trades', orderBy: 'id' },
   { table: 'dividends', orderBy: 'id' },
   { table: 'cash_accounts', orderBy: 'id' },
+  { table: 'cash_balance_entries', orderBy: 'id' },
   { table: 'budget_items', orderBy: 'id' },
   { table: 'yearly_expenses', orderBy: 'id' },
   { table: 'income_streams', orderBy: 'id' },
   { table: 'side_income_entries', orderBy: 'id' },
+  { table: 'side_income_deposits', orderBy: 'id' },
   { table: 'period_notes', orderBy: 'id' },
   { table: 'snapshots', orderBy: 'id' },
   { table: 'other_assets', orderBy: 'id' },

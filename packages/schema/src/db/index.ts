@@ -11,8 +11,10 @@ import { otherAssets, loans, properties, superEntries, superFunds } from './tabl
 import {
   budgetItems,
   cashAccounts,
+  cashBalanceEntries,
   incomeStreams,
   periodNotes,
+  sideIncomeDeposits,
   sideIncomeEntries,
   yearlyExpenses,
 } from './tables/cashflow';
@@ -43,16 +45,20 @@ export type JoinrDb = BetterSQLite3Database<typeof tables>;
 /**
  * The imported domain tables in a safe delete order (children first). The importer's replace-all
  * deletes these; instruments are upserted instead (§4.8), and `settings`, `price_sources`,
- * `prices`, `market_quotes`, `import_runs`, `job_runs` and `app_meta` are kept.
+ * `prices`, `market_quotes`, `import_runs`, `job_runs` and `app_meta` are kept. The Stage 3
+ * overlays (`savings_adjustments`, `savings_goals`) and the `dividend_events` cache are not listed:
+ * a re-import keeps them and they never count as app data (stage-3.md §3.4).
  */
 export const DOMAIN_TABLES_DELETE_ORDER = [
   dividends,
   trades,
+  sideIncomeDeposits,
   sideIncomeEntries,
   incomeStreams,
   periodNotes,
   budgetItems,
   yearlyExpenses,
+  cashBalanceEntries,
   cashAccounts,
   snapshots,
   superEntries,

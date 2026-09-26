@@ -1,6 +1,11 @@
 // Builders for the engine unit tests. Generic values only (repo is public): made-up symbols such
 // as ASX:ABC, ASX:DEF, ASX:XYZ, EXAMPLEFUND, BTC and ETH, and round numbers.
-import { JoinrDecimal, type InstrumentKind, type PriceStatus } from '@joinr/schema';
+import {
+  JoinrDecimal,
+  type InstrumentKind,
+  type PriceStatus,
+  type SavingsPeriodStatus,
+} from '@joinr/schema';
 import { computeInvestments } from '../src/index';
 import type {
   EngineDividend,
@@ -9,6 +14,8 @@ import type {
   EngineTrade,
   InvestmentsInput,
   InvestmentsResult,
+  SavingsFigures,
+  SavingsPeriod,
 } from '../src/index';
 
 export function instrument(
@@ -99,4 +106,75 @@ export function ratio(expr: InstanceType<typeof JoinrDecimal>): string {
   return d.isZero() ? '0' : d.toFixed();
 }
 
-export const D = (v: string | number) => new JoinrDecimal(v);
+export type Decimal = InstanceType<typeof JoinrDecimal>;
+
+export const D = (v: string | number): Decimal => new JoinrDecimal(v);
+
+/** Dollars → integer cents, half away from zero (an expectation helper). */
+export function cents(dollars: Decimal): number {
+  return dollars.times(100).toDecimalPlaces(0, JoinrDecimal.ROUND_HALF_UP).toNumber();
+}
+
+// ─── Savings periods built directly with the stage-3.md §2.5 rules (KPI and chart tests) ───────
+
+/** §2.5 steps 6–8 from income and savings cents. */
+export function savingsFigures(incomeCents: number, savingsCents: number | null): SavingsFigures {
+  const defined = savingsCents !== null && incomeCents > 0;
+  return {
+    incomeCents,
+    savingsCents,
+    savingsRatio: defined ? ratio(D(savingsCents).div(incomeCents)) : null,
+    spendCents: defined ? incomeCents - savingsCents : null,
+  };
+}
+
+/**
+ * A closed (or provisional) period: raw savings = gain + added; the adjustment comes off the
+ * adjusted savings; reinvested dividends (`otherDividends`) are adjusted income only.
+ */
+export function savingsPeriod(
+  runDate: string,
+  o: {
+    gain: number | null;
+    added?: number;
+    income?: number;
+    adjustment?: number;
+    otherDividends?: number;
+    cash?: number | null;
+    status?: SavingsPeriodStatus;
+  },
+): SavingsPeriod {
+  const added = o.added ?? 0;
+  const income = o.income ?? 500_000;
+  const other = o.otherDividends ?? 0;
+  const adjustment = o.adjustment ?? 0;
+  const raw = o.gain === null ? null : o.gain + added;
+  return {
+    periodMonth: runDate.slice(0, 7),
+    runDate,
+    after: null,
+    through: runDate,
+    status: o.status ?? 'closed',
+    cashCents: o.cash === undefined ? 1_000_000 : o.cash,
+    cashGainCents: o.gain,
+    cashGainRatio: null,
+    addedInvestmentsCents: added,
+    added: null,
+    income: null,
+    adjustmentCents: adjustment,
+    raw: savingsFigures(income - other, raw),
+    adjusted: savingsFigures(income, raw === null ? null : raw - adjustment),
+  };
+}
+
+/** The baseline period: cash only. */
+export function firstPeriod(runDate: string, cash = 1_000_000): SavingsPeriod {
+  const none = { incomeCents: null, savingsCents: null, savingsRatio: null, spendCents: null };
+  return {
+    ...savingsPeriod(runDate, { gain: null, cash }),
+    status: 'first',
+    addedInvestmentsCents: null,
+    raw: none,
+    adjusted: none,
+  };
+}
