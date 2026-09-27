@@ -41,7 +41,7 @@ tools/privacy-guard  (standalone, Node built-ins only)
 | `@joinr/web` | React 19 + Vite SPA. Code-based TanStack Router routes and TanStack Query. There is one route per page, plus `/styleguide` (the component gallery) and `/preview/screen/:variant` (the brand screens). |
 | `@joinr/server` | Fastify API, SQLite access and migrations. In production it also serves the SPA. |
 | `@joinr/ui` | Design tokens, global CSS, layout and content components, brand components and chart wrappers. It is split into `core`, `brand` and `charts`. |
-| `@joinr/engine` | Pure calculation functions: from Stage 2 the investments (FIFO parcels, realised gains by financial year, holding metrics, XIRR, allocation, contributions history, the investment timing); from Stage 3 cash, savings, budget, side income and dividends; from Stage 4 other assets, super, property and loans (with an amortisation schedule) and the live History columns; later FIRE. No I/O and no clock: every "today" is an `asOf` input, and ESLint bans `Date.now()`, `new Date()` and node imports in its sources. It imports only the `@joinr/schema` root, so it could run in the browser; today only the server calls it. |
+| `@joinr/engine` | Pure calculation functions: from Stage 2 the investments (FIFO parcels, realised gains by financial year, holding metrics, XIRR, allocation, contributions history, the investment timing); from Stage 3 cash, savings, budget, side income and dividends; from Stage 4 other assets, super, property and loans (with an amortisation schedule) and the live History columns; from Stage 5 the snapshots and the net-worth dashboard; from Stage 6 the FIRE planner (the inputs derived from the other results, the corrected projection, and the template's formulas in a sheet mode for the golden tests). No I/O and no clock: every "today" is an `asOf` input, and ESLint bans `Date.now()`, `new Date()` and node imports in its sources. It imports only the `@joinr/schema` root, so it could run in the browser; today only the server calls it. |
 | `@joinr/schema` | The shared data contract. The root entry holds enums, Zod schemas, API DTO types, the settings and record-browser registries, and pricing, decimal and date helpers; `/db` holds the Drizzle tables; `/testing` the in-memory test database, the generic seed and a table dump; `/fixtures` typed sample DTOs for UI tests. |
 | `@joinr/importer` | Reads a workbook export (SheetJS) into the database in one transaction and produces a reconciliation report. `/testing` builds a generic synthetic workbook for tests. |
 | `@joinr/privacy-guard` | The pre-commit check that keeps private material out of this public repo. |
@@ -84,7 +84,7 @@ The start-up sequence is in `apps/server/src/index.ts`:
 3. **Migrations.** `runMigrations` applies pending SQL migrations in one transaction. A second run is a no-op.
 4. **Bookkeeping.** The server records `created_at` once and `last_started_at` on every start, in `app_meta`.
 5. **Stale runs.** `markInterruptedRuns` marks import and job runs left `running` by a crash or restart as `failed` (`interrupted`).
-6. **App.** `buildApp({ config, db, services: defaultServices })` builds the Fastify instance. It has no side effects at import. The services factory receives the app's own logger and builds the scheduler and the market data service; the app is decorated with both (`app.scheduler`, `app.market`). Tests omit `services` and get `offServices`: market data off, no timers.
+6. **App.** `buildApp({ config, db, services: defaultServices })` builds the Fastify instance. It has no side effects at import. Before it registers the routes it runs the one-off settings upgrades (`fire/upgrade.ts`, `applySettingUpgrades`; see [FIRE](#fire)). The services factory receives the app's own logger and builds the scheduler and the market data service; the app is decorated with both (`app.scheduler`, `app.market`). Tests omit `services` and get `offServices`: market data off, no timers.
 7. **Listen.** It logs `Joinr Finance listening on http://HOST:PORT`, then starts the scheduler.
 
 Shutdown:
@@ -108,11 +108,13 @@ Shutdown:
 | `routes/{cash,sideIncome,budget,dividends,settings}.ts` | The cash-flow pages and their changes (Stage 3), the dividend suggestions and the settings PATCH. |
 | `routes/{otherAssets,super,property}.ts` | The Other Assets, Super and Property pages and their changes (Stage 4). |
 | `routes/{netWorth,history}.ts`, `GET /api/settings` | The Net Worth dashboard, the History page, the aggregation API, record, correct and delete (Stage 5), and the Settings page. |
+| `routes/fire.ts` | The FIRE page (`GET /api/fire`, with a what-if query) and "Use the workbook's figure" (Stage 6). |
 | `assets/` | The Stage 4 engine inputs (`inputs.ts`), the page builders (`otherAssets.ts`, `super.ts`, `property.ts`), the mutations (`mutations/`), the responses and the pages' settings keys (`constants.ts`). |
 | `investments/` | Loads every finance row in one read transaction (`load.ts`), maps engine results to the investment DTOs (`page.ts`, `trades.ts`, `detail.ts`, `charts.ts`, `timing.ts`, `mappers.ts`), and runs the trade and holding mutations (`mutations.ts`). |
 | `cashflow/` | The finance context (`context.ts`: one request's rows, prices and memoised engine results), the engine inputs (`inputs.ts`), the page builders (`cash.ts`, `sideIncome.ts`, `budget.ts`, `dividends.ts`), the mutations (`mutations/`), the responses and the owner-confirmed constants (`constants.ts`). |
 | `history/` | The Stage 5 engine inputs (`inputs.ts`), the page builders (`pages.ts`, `snapshots.ts`), the DTO mappers (`dto.ts`), the month writer (`record.ts`, `writeRecordedMonths`), corrections and deletes (`mutations.ts`), the audit log (`audit.ts`), the responses and the month-end recorder (`recorder.ts`). |
 | `settings/` | The Settings page (`page.ts`) and the pages that read each setting (`readers.ts`, `SETTING_READERS`). |
+| `fire/` | The Stage 6 input resolution (`inputs.ts`), the page builder and DTO mappers (`page.ts`), the one-off access-age upgrade and its marker (`upgrade.ts`), the notices (`notices.ts`) and "Use the workbook's figure" (`workbook.ts`). |
 | `market/dividends/` | The dividend-events service: Yahoo chart events and closes cached in `dividend_events` by a daily `dividends` job. |
 | `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. The price and dividend-events services share one set of provider cool-downs. |
 | `scheduler/` | A small generic job scheduler that logs every run in `job_runs`. |
@@ -312,6 +314,30 @@ PUT / DELETE /api/history/snapshots/:month ─► import-lock check ─► recor
 | The audit log and the recorder's `app_meta` state | No |
 | `history.autoRecord` (app-only) and the display choices (`charts.*`, `features.*`; a re-import keeps them) | No |
 | The workbook settings the app does not use, edited in the app | Yes |
+
+## FIRE
+
+```
+GET /api/fire[?spend=&withdrawalRate=&inflationRate=&marketReturn=&accessAge=&extraSavings=]
+  FinanceContext.fireDerived(): deriveFireInputs(dashboardFigures, netWorth().classes and
+    .liabilities, property(), savings().periods, kpis(), superResult())   (once per request)
+  fire/inputs.ts: each input from the query (what-if) → the stored setting (the super
+    contribution: an app-origin row only) → the derived figure → the registry default → missing
+  ─► projectFire(the resolved inputs + the derivation)   ─► DTOs
+  ─► while a what-if is active: projectFire(the saved inputs) ─► the baseline summary
+POST /api/fire/use-workbook-contribution ─► import-lock check ─► one IMMEDIATE transaction:
+  the import-origin super contribution row becomes origin 'app' (value unchanged)
+```
+
+- **The engine does the maths.** `deriveFireInputs` turns the Stage 3–5 results into the FIRE inputs (pre-super net worth and the debts inside it, the yearly spend and savings from the closed periods of the 12-month window, the super contribution over the last 12 whole months, the growth weights); `projectFire` is the corrected model (the exact real rate, the bridge to the access age, super top-ups, the year-by-year path in today's dollars, milestones and status); `fireSheet` reproduces the template's formulas for the golden tests only. The server resolves the inputs and maps the DTOs; a what-if runs the projection on the query's values and saves nothing.
+- **The one-off access-age upgrade** (`applySettingUpgrades(database, now)`): once per database, an import-origin `fire.preservationAge` of 65 becomes 60 with origin `app`, and an `app_meta` marker (`fire.accessAgeReplaced`, `{ from, to, at }`) records it. It runs in one IMMEDIATE transaction when `buildApp` starts (so a CLI import made while the server was down is upgraded) and after every committed import in the upload route and the CLI, never after a dry run; it logs one line with the key and the ages. With no marker and no imported 65 it does nothing, so a later import of 65 is still replaced. The marker drives the note on the FIRE page and the Settings field while the stored age is still 60.
+- **Settings.** The eight `fire.*` keys are display preferences (D103): an app edit never counts as app data and a re-import keeps it, so the upgrade and every FIRE save keep `data/` re-importable. `SettingDto.notice` carries the access-age note and, on an imported super contribution, the note that the FIRE page uses the derived figure. `SETTING_READERS` names FIRE on its own keys and on every other key its derivation reads.
+
+| Kind of data | Counts as app data |
+|---|---|
+| Any `fire.*` setting (a Settings save, the FIRE page's Save, Use the workbook's figure, Use the derived figure) | No (preference) |
+| The upgraded access age and the `app_meta` marker | No |
+| `returns.marketReturn`, `returns.cashInterestRate` (never written by the FIRE page) | Yes, as before |
 
 ## Price service and scheduler
 

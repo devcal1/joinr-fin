@@ -142,6 +142,9 @@ describe('engine purity', () => {
 
   it('scans every source file', () => {
     expect(files.length).toBeGreaterThanOrEqual(18);
+    // Stage 6 (stage-6.md §2.1): the FIRE modules are scanned like every other.
+    const names = files.map((f) => f.split(/[\\/]/).at(-1));
+    expect(names).toEqual(expect.arrayContaining(['fire.ts', 'fireSheet.ts']));
   });
 
   it.each(BANNED.map((b) => [b.label, b.re] as const))('uses no %s', (_label, re) => {

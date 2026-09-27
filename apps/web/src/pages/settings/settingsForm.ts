@@ -35,7 +35,7 @@ export const SETTINGS_WORKBOOK_NOTE =
 /** App-only and preference keys (D95). */
 export const SETTINGS_KEPT_NOTE = 'Kept when you re-import';
 export const FEATURES_NOTE = 'Hidden pages still count in your net worth.';
-export const FIRE_NOTE = 'Used by the FIRE planner (Stage 6).';
+export const FIRE_NOTE = 'Used by the FIRE planner; its what-if panel can save them too.';
 export const UNUSED_NOTE =
   "The app does not use these; they are kept so the workbook's settings stay complete.";
 export const AUTO_RECORD_APP_DATA_NOTE =

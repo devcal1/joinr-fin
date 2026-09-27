@@ -9,7 +9,7 @@ import { initChart, type EChartsType } from './echarts';
 import { usePrefersReducedMotion } from './hooks';
 import type { ChartLegendItem, EChartProps } from './types';
 
-export const DEFAULT_CHART_HEIGHT = 280;
+export const DEFAULT_CHART_HEIGHT = 240;
 export const DEFAULT_EMPTY_MESSAGE = 'Nothing to chart yet.';
 
 export type ChartViewState = 'ready' | 'refreshing' | 'loading' | 'empty';

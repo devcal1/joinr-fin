@@ -5,6 +5,7 @@ import { Save } from 'lucide-react';
 import { useState, type FormEvent, type JSX } from 'react';
 import { useSetPriceSource } from '../../api/hooks';
 import { SYMBOL_MAX, splitApiErrors, validatePriceSource } from './validation';
+import { escapeCancels } from '../../components/keyboard';
 
 const PROVIDER_OPTIONS: { value: PriceProvider; label: string }[] = [
   { value: 'yahoo', label: 'Yahoo Finance' },
@@ -66,6 +67,7 @@ export function PriceSourceForm({ item, onDone, onCancel }: PriceSourceFormProps
       <form
         className="jf-app-form"
         onSubmit={onSubmit}
+        onKeyDown={escapeCancels(onCancel, save.isPending)}
         noValidate
         aria-label={`Price source for ${item.symbol}`}
       >

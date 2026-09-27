@@ -7,6 +7,7 @@ import { cell, headers, rowOf } from '../../../test/investments';
 import { emulatePhone } from '../../../test/media';
 import { apiError, pending } from '../../../test/mockApi';
 import { renderApp } from '../../../test/renderApp';
+import { CHART_NO_RECORDED_PERIOD, CHART_NO_STREAMS, chartEmptyMessage } from './periodsText';
 
 const M = '−';
 
@@ -356,5 +357,40 @@ describe('Side Income page: streams (§6.4 item 7)', () => {
     expect(await screen.findByRole('note', { name: 'Not saved' })).toHaveTextContent(
       'This stream has 3 deposits',
     );
+  });
+});
+
+describe('Side Income page: the chart empty states (STYLE-15, stage-6.md §6.9 C)', () => {
+  const populated = sideIncomePages.populated;
+  const recordedPoint = populated.charts.points.find((p) => !p.live)!;
+
+  it('no recorded period: the chart is grouped by recorded month', () => {
+    const page = {
+      ...populated,
+      charts: { ...populated.charts, points: populated.charts.points.filter((p) => p.live) },
+    };
+    expect(chartEmptyMessage(page)).toBe(CHART_NO_RECORDED_PERIOD);
+    expect(CHART_NO_RECORDED_PERIOD).toBe(
+      'Side income is grouped by recorded month; it appears after the first recorded month.',
+    );
+  });
+
+  it('recorded periods but no stream or no deposit: add a deposit', () => {
+    expect(recordedPoint).toBeDefined();
+    expect(chartEmptyMessage({ ...populated, streams: [] })).toBe(CHART_NO_STREAMS);
+    expect(chartEmptyMessage({ ...populated, deposits: [] })).toBe(CHART_NO_STREAMS);
+    expect(CHART_NO_STREAMS).toBe('No side income yet. Add a deposit to start.');
+    expect(chartEmptyMessage(populated)).toBe('No side income yet');
+  });
+
+  it('the chart table view shows the message with no recorded month', async () => {
+    const { user } = await openSide({
+      ...sideIncomePages.noSnapshots,
+      charts: { ...sideIncomePages.noSnapshots.charts, points: [] },
+    });
+    const card = screen.getByRole('heading', { name: 'Side income by period' }).closest('section')!;
+    const toggle = within(card).queryByRole('button', { name: 'Table' });
+    if (toggle) await user.click(toggle);
+    expect(card).toHaveTextContent(CHART_NO_RECORDED_PERIOD);
   });
 });

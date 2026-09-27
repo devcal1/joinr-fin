@@ -23,6 +23,11 @@ export interface StatTileProps {
   keyFigure?: boolean;
   delta?: StatDelta;
   hint?: string;
+  /**
+   * Rendered under the hint (Stage 6, stage-6.md §6.5; additive): a meter and a "Saved:" line.
+   * It sits at the tile's foot (muted 12 px text), so meters line up across a row of tiles.
+   */
+  footer?: ReactNode;
 }
 
 const ARROWS: Record<DeltaDirection, LucideIcon> = {
@@ -38,7 +43,14 @@ const DEFAULT_TONE: Record<DeltaDirection, DeltaTone> = {
 };
 
 /** A KPI: uppercase label, monospaced figure; a delta shows an arrow, a sign and a word. */
-export function StatTile({ label, value, keyFigure, delta, hint }: StatTileProps): JSX.Element {
+export function StatTile({
+  label,
+  value,
+  keyFigure,
+  delta,
+  hint,
+  footer,
+}: StatTileProps): JSX.Element {
   const labelId = useId();
   const tone = delta ? (delta.tone ?? DEFAULT_TONE[delta.direction]) : undefined;
   return (
@@ -59,6 +71,7 @@ export function StatTile({ label, value, keyFigure, delta, hint }: StatTileProps
         </p>
       ) : null}
       {hint ? <p className="jf-stat-tile__hint">{hint}</p> : null}
+      {footer ? <div className="jf-stat-tile__footer">{footer}</div> : null}
     </div>
   );
 }

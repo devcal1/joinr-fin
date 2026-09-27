@@ -235,7 +235,7 @@ export function RollingSection({ page }: { page: NetWorthPageResponse }): JSX.El
         }
       />
       {oldestFirst ? null : projection}
-      <div className="jf-app-compact-table jf-app-wide-table">
+      <div className="jf-app-compact-table jf-app-wide-table jf-app-rolling-table">
         <ColumnTable
           columns={orderColumns(all, order)}
           rows={rows}

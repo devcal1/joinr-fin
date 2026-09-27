@@ -10,7 +10,7 @@ import { Building2, Landmark, Link2, Tags, Wallet } from 'lucide-react';
 import { useRef, useState, type JSX } from 'react';
 import { usePropertyPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { SettingsSection } from '../cashflow/SettingsSection';
 import { actionSelector, useEditor, type EditorState } from '../cashflow/formState';
 import { LoanBalancesForm } from './LoanBalancesForm';
@@ -107,14 +107,12 @@ export function PropertyPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Property" subtitle="Assets" actions={actions} />
-      {query.isPending ? <Loading label="Loading property…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load property"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading property…"
+        layout="dashboard"
+        errorTitle="Could not load property"
+      />
       {page ? <PropertyContent page={page} editor={editor} /> : null}
     </>
   );

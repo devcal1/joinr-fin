@@ -215,11 +215,32 @@ describe('SETTING_READERS (§4.5)', () => {
     }
     // The allocation targets are read by the dashboard's liquid allocation.
     expect(settingReaders('allocation.otherAssets')).toContain('net-worth');
-    for (const key of SETTING_KEYS.filter(
-      (k) => k.startsWith('features.') || k.startsWith('fire.'),
-    )) {
+    for (const key of SETTING_KEYS.filter((k) => k.startsWith('features.'))) {
       expect(settingReaders(key), key).toEqual([]);
     }
+  });
+
+  // Stage 6 (stage-6.md §4.5): the FIRE keys, and every other key the FIRE derivation reads.
+  it('maps the eight fire.* keys to FIRE alone and adds FIRE to the keys its derivation reads', () => {
+    const fireKeys = SETTING_KEYS.filter((k) => k.startsWith('fire.'));
+    expect(fireKeys).toHaveLength(8);
+    for (const key of fireKeys) expect(settingReaders(key), key).toEqual(['fire']);
+    for (const key of [
+      'returns.cashInterestRate',
+      'returns.marketReturn',
+      'super.sgRate',
+      'super.contributionsTaxRate',
+      'super.importedContributionType',
+      'pay.grossAnnualSalaryCents',
+      'pay.jobStartDate',
+      'savings.includeMortgagePrincipal',
+    ] as const) {
+      expect(settingReaders(key), key).toContain('fire');
+      // FIRE is the last page id, so it closes each list.
+      expect(settingReaders(key).at(-1), key).toBe('fire');
+    }
+    expect(settingReaders('features.fire')).toEqual([]);
+    expect(settingReaders('charts.dateUnit')).not.toContain('fire');
   });
 });
 

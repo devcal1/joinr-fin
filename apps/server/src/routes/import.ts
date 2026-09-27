@@ -6,6 +6,7 @@
 // existing data → resolve and parse the corrections file → back up the database (real imports
 // over existing data) → importWorkbook() (synchronous, one transaction) → tell the price
 // service the instruments may have changed → answer with the run read back from import_runs.
+// Stage 6 (stage-6.md §3.4): a committed import runs the D98 one-off (`applySettingUpgrades`).
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
@@ -32,6 +33,7 @@ import type { AppDatabase } from '../db/database';
 import { clearAppEditMarker, hasAppData, hasDomainData } from '../db/queries/domain';
 import { getImportRun, listImportRuns, recordFailedImportRun } from '../db/queries/importRuns';
 import { errorBody, HttpError, parseWith } from '../errors';
+import { applySettingUpgrades, logSettingUpgrades } from '../fire/upgrade';
 import type { MarketDataService } from '../market/types';
 
 /** The importer functions the route calls; tests inject fakes. */
@@ -277,6 +279,17 @@ export const importRoutes: FastifyPluginAsync<ImportRouteOptions> = async (app, 
           if (!result.dryRun) {
             // A committed import replaced every app edit, so the D34 deletion marker goes too.
             clearAppEditMarker(db);
+            // Stage 6 (stage-6.md §3.4): the D98 one-off on the freshly imported settings. The
+            // import has committed, so a failure here (e.g. SQLITE_BUSY) only defers the upgrade
+            // to the next start (buildApp runs it again); the run is still answered (triage CODE-3).
+            try {
+              logSettingUpgrades(request.log, applySettingUpgrades(database, now()));
+            } catch (err) {
+              request.log.warn(
+                { code: (err as { code?: unknown }).code },
+                'access-age upgrade deferred to the next start (D98)',
+              );
+            }
             try {
               market.notifyInstrumentsChanged();
             } catch (err) {

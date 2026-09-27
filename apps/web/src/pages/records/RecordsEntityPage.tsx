@@ -21,7 +21,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ArrowLeft } from 'lucide-react';
 import { useMemo, type JSX } from 'react';
 import { useRecordsPage } from '../../api/hooks';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { plural } from '../../formatting';
 import { recordTableColumns } from './cells';
 
@@ -96,15 +96,13 @@ export function RecordsEntityPage({ entity }: { entity: RecordEntityId }): JSX.E
         }
       />
       <EntitySwitcher current={entity} />
-      {query.isPending ? <Loading label={`Loading ${meta.label.toLowerCase()}…`} /> : null}
-      {query.isError ? (
-        <LoadError
-          title={`Could not load ${meta.label.toLowerCase()}`}
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
-      {query.isSuccess ? (
+      <QueryStates
+        query={query}
+        loading={`Loading ${meta.label.toLowerCase()}…`}
+        layout="table"
+        errorTitle={`Could not load ${meta.label.toLowerCase()}`}
+      />
+      {query.data ? (
         <section className="jf-app-records-table" aria-label={meta.label}>
           <p className="jf-app-meta">{plural(count, 'row')}</p>
           {rows.length >= RECORDS_PAGE_CAP ? (

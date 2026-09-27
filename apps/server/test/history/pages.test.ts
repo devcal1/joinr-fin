@@ -242,7 +242,15 @@ describe('GET /api/net-worth (§4.4, §4.5)', () => {
         .all()
         .some((s) => s.key === 'charts.dateUnit'),
     ).toBe(false);
-    for (const q of ['unit=weekly', 'count=0', 'count=241', 'count=1.5', 'other=1']) {
+    for (const q of [
+      'unit=weekly',
+      'count=0',
+      'count=241',
+      'count=1.5',
+      'count=',
+      'count=0x10',
+      'other=1',
+    ]) {
       expect((await call(ctx.app, { method: 'GET', url: `/api/net-worth?${q}` })).status, q).toBe(
         400,
       );

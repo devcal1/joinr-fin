@@ -1,6 +1,6 @@
 // Shared helpers for the investments suites: a fake engine (neutral answers plus a units-only
 // holdings model, so tests that do not depend on real FIFO run before the engine lands; Stage 4's
-// six and Stage 5's twelve members answer neutrally too), result
+// six, Stage 5's twelve and Stage 6's three members answer neutrally too), result
 // builders, a fake price service and a service factory that spies on notifyInstrumentsChanged.
 // Generic values only.
 import {
@@ -10,6 +10,9 @@ import {
   type BudgetInvestResult,
   type CashTotalsResult,
   type EngineApi,
+  type FireDerived,
+  type FireProjection,
+  type FireSheetResult,
   type HoldingResult,
   type InvestmentsInput,
   type InvestmentsResult,
@@ -241,6 +244,97 @@ function zeroBreakdown(): NetWorthBreakdown {
     offsetsCents: 0,
     netWorthCents: 0,
     missing: [],
+  };
+}
+
+/** A zero FIRE derivation (no window, no weights). */
+export function neutralFireDerived(month: string): FireDerived {
+  return {
+    preSuper: {
+      netWorthCents: 0,
+      superCents: 0,
+      primaryResidenceCents: 0,
+      primaryResidenceDebtCents: 0,
+      primaryResidenceLoanGrossCents: 0,
+      preSuperCents: 0,
+      debtCents: 0,
+      preSuperExHomeLoanCents: 0,
+    },
+    window: null,
+    rows: [],
+    spend: { yearlyCents: null, flooredPeriods: 0, rawYearlyCents: null },
+    savings: { yearlyCents: null, cappedPeriods: 0, superExcludedCents: 0, rawYearlyCents: null },
+    superContribution: {
+      yearlyCents: 0,
+      sgCents: 0,
+      memberCents: 0,
+      fromMonth: month,
+      toMonth: month,
+      sgSource: 'none',
+      contributions: 0,
+    },
+    growth: { weights: [], cashWeightCents: 0, marketWeightCents: 0 },
+  };
+}
+
+/** A needs_input projection with nothing computed. */
+export function neutralFireProjection(): FireProjection {
+  return {
+    status: 'needs_input',
+    missing: ['birthYear'],
+    ageNow: null,
+    accessYear: null,
+    yearsToAccess: null,
+    rates: null,
+    savingsPerYearCents: 0,
+    noSavingsHistory: true,
+    target: null,
+    fire: null,
+    topUps: null,
+    preSuper: {
+      currentCents: 0,
+      neededAtFireCents: null,
+      projectedAtFireCents: null,
+      progressRatio: null,
+    },
+    super: {
+      currentCents: 0,
+      neededAtAccessCents: null,
+      projectedAtAccessCents: null,
+      neededAtFireCents: null,
+      progressRatio: null,
+    },
+    milestones: [],
+    rows: [],
+  };
+}
+
+/** Every sheet-mode cell blank and no grid rows. */
+export function neutralFireSheet(): FireSheetResult {
+  const cells = [
+    'D2',
+    'V3',
+    'E52',
+    'E53',
+    'E54',
+    'E55',
+    'E56',
+    'E57',
+    'E60',
+    'E61',
+    'E62',
+    'E63',
+    'E64',
+    'C15',
+    'D15',
+    'E15',
+    'C16',
+    'D16',
+    'E16',
+  ] as const;
+  return {
+    cells: Object.fromEntries(cells.map((c) => [c, ''])) as FireSheetResult['cells'],
+    rows: [],
   };
 }
 
@@ -598,6 +692,10 @@ export function fakeEngine(overrides: Partial<EngineApi> = {}): FakeEngine {
     recordableMonths: () => [],
     recordingsDue: () => ({ due: [], blocked: null }),
     suggestMarginalRate: () => null,
+    // Stage 6 (stage-6.md §7.1: neutral answers).
+    deriveFireInputs: ({ asOf }) => neutralFireDerived(asOf.slice(0, 7)),
+    projectFire: () => neutralFireProjection(),
+    fireSheet: () => neutralFireSheet(),
     ...overrides,
   };
   const calls = {} as Record<keyof EngineApi, unknown[][]>;

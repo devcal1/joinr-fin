@@ -51,3 +51,11 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1)} kB`;
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
+
+/**
+ * Marks a documented place where a percentage keeps two or more decimals (stage-6.md §6.9 G): fee
+ * rates (Stage 2), raw record values and reconciliation figures (Stage 1), audit pairs (Stage 5
+ * STYLE-11), the tax bands and the marginal-rate suggestion. The format audit skips its percentage
+ * rule inside; every other rule still applies.
+ */
+export const RATE_DP_PLACE = { 'data-format-audit': 'rate-dp' } as const;

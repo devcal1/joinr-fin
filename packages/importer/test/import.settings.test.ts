@@ -355,11 +355,16 @@ describe('D95: display preferences set in the app are kept on re-import', () => 
     runImport(t.db, buildSyntheticWorkbook());
     for (const key of PREFERENCE_SETTING_KEYS) {
       const def = settingDef(key);
-      setAppValue(
-        t.db,
-        key,
-        def.type === 'boolean' ? false : def.type === 'integer' ? 6 : 'yearly',
-      );
+      // Stage 6 (D103): the fire.* keys are preferences too; each gets a value of its type.
+      const value = {
+        boolean: false,
+        integer: (def.min ?? 0) + 6,
+        enum: 'yearly',
+        ratio: '0.05',
+        money: 100000,
+        date: '2020-01-01',
+      }[def.type];
+      setAppValue(t.db, key, value);
     }
     const report = reportOf(
       runImport(t.db, buildSyntheticWorkbook({ mutate: withCashTargetBlank }), { now: LATER }),
@@ -368,8 +373,9 @@ describe('D95: display preferences set in the app are kept on re-import', () => 
     for (const key of PREFERENCE_SETTING_KEYS) {
       expect(settingRow(t.db, key)?.origin, key).toBe('app');
     }
+    // The two app-only Stage 6 keys have no workbook value to keep them against.
     expect(checkById(report, 'settings.keptAppPreference').actual).toBe(
-      PREFERENCE_SETTING_KEYS.length,
+      PREFERENCE_SETTING_KEYS.filter(isWorkbookSetting).length,
     );
     expect(checkById(report, 'settings.resetToDefault').actual).toBe(1);
     expect(lineIds(report)).toEqual(['settings.resetToDefault', 'settings.keptAppPreference']);

@@ -296,7 +296,7 @@ describe('services', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.json()).toMatchObject({ taxSuggestion: null, allocationSumRatio: null });
-    expect(res.json<{ settings: unknown[] }>().settings).toHaveLength(61);
+    expect(res.json<{ settings: unknown[] }>().settings).toHaveLength(63);
   });
 
   it.each([

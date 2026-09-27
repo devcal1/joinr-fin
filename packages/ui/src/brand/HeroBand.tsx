@@ -6,7 +6,7 @@ import { Wordmark } from './Wordmark';
 export interface HeroBandProps {
   /** KPI content (e.g. StatTiles, which sit on `--surface` cards). Laid out below the node line. */
   children?: ReactNode;
-  /** Minimum height: compact 140px, regular 180px (default). The band grows to fit its content. */
+  /** Minimum height: compact 110px (dense, D109), regular 180px (default). The band grows to fit its content. */
   height?: 'compact' | 'regular';
   /** Show the wordmark bottom-right, as in the banner. Default false (the header already has it). */
   showWordmark?: boolean;

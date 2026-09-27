@@ -22,7 +22,7 @@ import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import { errorMessage } from '../../api/client';
 import { usePrices, useRefreshPrices } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading, Missing } from '../../components/QueryStates';
+import { Missing, QueryStates } from '../../components/QueryStates';
 import { formatDateTime } from '../../formatting';
 import { ManualPriceForm } from './ManualPriceForm';
 import { PriceSourceForm } from './PriceSourceForm';
@@ -358,14 +358,12 @@ export function PricesPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Prices" subtitle="Market data for your holdings" actions={actions} />
-      {query.isPending ? <Loading label="Loading prices…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load prices"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading prices…"
+        layout="table"
+        errorTitle="Could not load prices"
+      />
       {prices ? (
         <>
           <Cluster gap={3} className="jf-app-freshness">

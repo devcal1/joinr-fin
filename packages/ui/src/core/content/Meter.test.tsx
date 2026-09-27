@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { installUiCss } from '../testing/cssHarness';
 import { METER_TONE_WORDS, Meter, meterFill, meterStatus, meterStatusText } from './Meter';
 
 const M = '−';
@@ -42,6 +43,25 @@ describe('Meter', () => {
     expect(meter.querySelector('.jf-meter__fill')).toHaveStyle({ width: '0.00%' });
     expect(container.querySelector('.jf-meter__value')).toHaveTextContent(`${M}$500.00`);
     expect(screen.getByText('Short by $1,500.00')).toBeVisible();
+  });
+
+  it('marks a negative value in the --stop tint, and only a negative one (triage STYLE-5)', () => {
+    const removeCss = installUiCss(['tokens', 'base', 'meter']);
+    try {
+      const { container, rerender } = render(
+        <Meter label="Pre-super" valueCents={-5_000_000} targetCents={100_000} />,
+      );
+      const value = () => container.querySelector('.jf-meter__value')!;
+      expect(value()).toHaveClass('jf-meter__value--negative');
+      expect(getComputedStyle(value()).color).toBe('var(--stop-tint)');
+      rerender(<Meter label="Pre-super" valueCents={0} targetCents={100_000} />);
+      expect(value()).not.toHaveClass('jf-meter__value--negative');
+      rerender(<Meter label="Pre-super" valueCents={5_000_000} targetCents={100_000} />);
+      expect(value()).not.toHaveClass('jf-meter__value--negative');
+      expect(getComputedStyle(value()).color).toBe('var(--text-bright)');
+    } finally {
+      removeCss();
+    }
   });
 
   it('renders a hint', () => {

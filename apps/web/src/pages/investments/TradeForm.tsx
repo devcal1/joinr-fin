@@ -50,6 +50,7 @@ import {
   type TradeField,
   type TradeHolding,
 } from './tradeDraft';
+import { escapeCancels } from '../../components/keyboard';
 
 export const WORKBOOK_ROW_NOTE =
   'This row came from the workbook. Saving (or deleting) it counts as an app edit: re-importing the workbook will then be blocked.';
@@ -201,6 +202,7 @@ export function TradeForm({
         ref={formRef}
         className="jf-app-form"
         onSubmit={onSubmit}
+        onKeyDown={escapeCancels(onCancel, pending)}
         noValidate
         aria-label={title}
         aria-busy={pending || undefined}

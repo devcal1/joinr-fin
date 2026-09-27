@@ -1,6 +1,6 @@
-// The frozen public API (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2, stage-5.md §2.2): the
-// `engine` value satisfies EngineApi member by member, and the functions keep their exact signatures (checked by tsc in
-// `pnpm typecheck`).
+// The frozen public API (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2, stage-5.md §2.2,
+// stage-6.md §2.2): the `engine` value satisfies EngineApi member by member, and the functions keep
+// their exact signatures (checked by tsc in `pnpm typecheck`).
 import { INSTRUMENT_KINDS, type SnapshotFiguresShape } from '@joinr/schema';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as api from '../src/index';
@@ -59,6 +59,10 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.recordableMonths).toEqualTypeOf<EngineApi['recordableMonths']>();
     expectTypeOf(api.recordingsDue).toEqualTypeOf<EngineApi['recordingsDue']>();
     expectTypeOf(api.suggestMarginalRate).toEqualTypeOf<EngineApi['suggestMarginalRate']>();
+    // Stage 6.
+    expectTypeOf(api.deriveFireInputs).toEqualTypeOf<EngineApi['deriveFireInputs']>();
+    expectTypeOf(api.projectFire).toEqualTypeOf<EngineApi['projectFire']>();
+    expectTypeOf(api.fireSheet).toEqualTypeOf<EngineApi['fireSheet']>();
 
     const members: (keyof EngineApi)[] = [
       'computeInvestments',
@@ -106,9 +110,38 @@ describe('@joinr/engine public API', () => {
       'recordableMonths',
       'recordingsDue',
       'suggestMarginalRate',
+      'deriveFireInputs',
+      'projectFire',
+      'fireSheet',
     ];
     expect(Object.keys(api.engine).sort()).toEqual([...members].sort());
     for (const name of members) expect(api.engine[name]).toBe(api[name]);
+  });
+
+  it('lands the Stage 6 functions (stage-6.md §7.3 step 7): no stub left behind the flag', () => {
+    expect(api.FIRE_ENGINE_IMPLEMENTED).toBe(true);
+    const p = api.projectFire({
+      asOf: '2030-03-15',
+      birthYear: null,
+      accessAge: 60,
+      inflationRatio: '0.02',
+      withdrawalRatio: '0.04',
+      preSuperCents: 0,
+      preSuperDebtCents: 0,
+      superCents: 0,
+      savingsPerYearCents: null,
+      extraSavingsPerYearCents: 0,
+      superContributionPerYearCents: 0,
+      yearlySpendCents: null,
+      growth: {
+        cashWeightCents: 0,
+        marketWeightCents: 0,
+        cashInterestRatio: null,
+        marketReturnRatio: '0.07',
+      },
+    });
+    expect(p.status).toBe('needs_input');
+    expect(p.missing).toEqual(['birthYear']);
   });
 
   it('has the FIFO matching seam and the implementation flags', () => {
@@ -117,6 +150,7 @@ describe('@joinr/engine public API', () => {
     expectTypeOf(api.CASHFLOW_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
     expectTypeOf(api.ASSETS_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
     expectTypeOf(api.HISTORY_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
+    expectTypeOf(api.FIRE_ENGINE_IMPLEMENTED).toEqualTypeOf<boolean>();
   });
 
   it('declares SnapshotFigures as the schema SnapshotFiguresShape (both directions, stage-5.md §3.2)', () => {

@@ -299,6 +299,17 @@
     min-width: 0;
   }
 
+  /*
+   * The table view (Stage 6, STYLE-11): in a half-width card the header labels may wrap between
+   * words, so more tables fit; a table that still does not fit scrolls inside its own box with the
+   * sticky first column under the header row (ColumnTable's stacking, table.css).
+   */
+  .jf-chart-card__panel[data-view='table'] .jf-table__th {
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .jf-chart__host {
       transition: none;

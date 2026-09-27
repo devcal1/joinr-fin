@@ -8,7 +8,7 @@ import { ListPlus, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { useInvestmentPage, useInvestmentTrades } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { AllocationCard } from './AllocationCard';
 import {
   firstTradeDates,
@@ -97,14 +97,12 @@ export function InvestmentPage({ kind }: { kind: InstrumentKind }): JSX.Element 
   return (
     <>
       <PageHeader title={meta.title} subtitle="Investments" actions={actions} />
-      {query.isPending ? <Loading label={loadingText(kind)} /> : null}
-      {query.isError ? (
-        <LoadError
-          title={loadErrorTitle(kind)}
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading={loadingText(kind)}
+        layout="dashboard"
+        errorTitle={loadErrorTitle(kind)}
+      />
       {page ? (
         <>
           <Cluster gap={3} className="jf-app-freshness">
@@ -174,14 +172,12 @@ export function InvestmentPage({ kind }: { kind: InstrumentKind }): JSX.Element 
               </section>
               <section className="jf-app-block" aria-labelledby={tradesHeadingId}>
                 <SectionBar id={tradesHeadingId} title="Trades" role="reference" />
-                {tradesQuery.isPending ? <Loading label="Loading trades…" /> : null}
-                {tradesQuery.isError ? (
-                  <LoadError
-                    title="Could not load the trades"
-                    error={tradesQuery.error}
-                    onRetry={() => void tradesQuery.refetch()}
-                  />
-                ) : null}
+                <QueryStates
+                  query={tradesQuery}
+                  loading="Loading trades…"
+                  layout="table"
+                  errorTitle="Could not load the trades"
+                />
                 {trades ? (
                   <TradeLedger
                     kind={kind}

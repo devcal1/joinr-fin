@@ -9,6 +9,7 @@ import { useEffect, useRef, type FormEvent, type JSX, type ReactNode } from 'rea
 import { tomorrowOf } from '../cashflow/display';
 import { FormError, NewAppDataNote, WorkbookCallout } from '../cashflow/forms';
 import type { SharedEntryState } from './sharedEntry';
+import { escapeCancels } from '../../components/keyboard';
 
 export interface SharedEntryFormProps {
   /** The form's accessible name: "Update prices". */
@@ -77,6 +78,7 @@ export function SharedEntryForm({
       ref={formRef}
       className="jf-app-form jf-app-balances-form"
       onSubmit={submit}
+      onKeyDown={escapeCancels(onCancel, pending)}
       noValidate
       aria-label={label}
       aria-busy={pending || undefined}

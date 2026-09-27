@@ -151,7 +151,7 @@ describe('Property page: properties (§6.5 item 4, D68)', () => {
     const facts = screen.getByRole('table', { name: 'Example property: facts' });
     expect(facts).toHaveTextContent('Purchased15/03/2020');
     expect(facts).toHaveTextContent(
-      'Primary residenceYesCounted in net worth; the FIRE planner (Stage 6) leaves it out',
+      'Primary residenceYesCounted in net worth; the FIRE planner leaves it out',
     );
     expect(facts).toHaveTextContent('Value$600,000.00as of 31/08/2026');
     expect(facts).toHaveTextContent('Gain$100,000.0020.0%');

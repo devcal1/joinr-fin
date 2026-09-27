@@ -65,7 +65,8 @@ Body copy is at most about 70ch wide, ragged right, never justified.
 
 ## 3. Spacing, radius, grid
 
-- **Spacing scale (4 px base ≈ 1.2 mm):** 4 inside a line · 8 between paragraphs · 12 grid gutter · 16 after a section bar · 24 between blocks · 36 after a page title.
+- **Spacing scale (4 px base ≈ 1.2 mm):** 4 inside a line · 8 between paragraphs · 12 grid gutter and card padding · 12 after a section bar · 16 between blocks · 24 after a page title.
+- **Density (owner override D109):** the app is information-dense. Table cells are 3 × 8 px (headers 6 × 8 px) at 1.35 line height, about 24 px a row; key–value rows match. Cards and stat tiles pad 12 px, callouts 8 × 12 px, section bars 6 × 12 px. From 768 px, buttons inside a table are 22 px high and stacked figures in a cell sit without a gap. Charts default to 240 px. Density never costs a sideways page scroll, and on a phone buttons keep 28 px or more.
 - **Radius:** 6 px cards and tables · 5 px callouts and section bars · pills fully round.
 - **Borders:** hairline 1 px `--hairline`; accent border 4 px.
 - **Grid:**
@@ -85,7 +86,7 @@ Body copy is at most about 70ch wide, ragged right, never justified.
 
 - **Section bar:** `--raised` fill, 4 px left accent border, radius 5, padding 8×16, H2 uppercase white. Colour coding is fixed per role, never alternated for effect: **orange** = primary page sections, **teal** = supporting sections, **violet** = reference/appendix (e.g. settings, raw data).
 - **Callout:** `--surface`, 4 px left border, radius 5. The heading is uppercase in the accent tint. Types: **Note** (teal: context), **Important** (orange: money/deadline at stake, stale prices), **Do not** (red: destructive actions, data-loss warnings). Use them sparingly.
-- **Key–value table:** label column `--raised` at 38% width (11 px bold uppercase `--text-secondary`); value column `--surface`. Hairlines between rows only; no vertical rules and no outer border; outer corners rounded.
+- **Key–value table:** label column `--raised` at 38% width (11 px bold uppercase `--text-secondary`); value column `--surface`. Hairlines between rows only; no vertical rules and no outer border; outer corners rounded. **Values are left-aligned in every row, numbers included** (Stage 6, STYLE-7): numbers stay monospaced with tabular figures, so phrase rows and number rows share one edge. Below 480 px of its own width the table stacks each label above its value.
 - **Column table:** header `--raised` with 11 px bold uppercase labels; cells `--surface`; hairline row dividers. Numeric columns are right-aligned and monospaced. **The total row is the only row with white bold text, and the total figure is the only teal cell.**
 - **Stat tile / KPI** (app addition, built from the same parts): `--surface` card, uppercase label, monospaced figure in `--text-bright`. Use teal only for the page's single key figure. Deltas use `--go`/`--stop` tints **plus** a sign or arrow and a word.
 - **Status badge:** 16% fill of the accent, 1 px border at full strength, light-tint text, 12 px bold uppercase at 0.08em. Only for real states: go / check / stop, fresh / stale / failed, recorded / pending.
@@ -129,7 +130,7 @@ Body copy is at most about 70ch wide, ragged right, never justified.
 - **Axes and gridlines** are solid `--hairline`. Axis labels are 11 px `--text-secondary`, monospaced on value axes.
 - **Tooltips** sit on `--raised` with a hairline border and no shadow. The value leads (mono, white) and the name follows. Lines use a crosshair that lists every series; bars and slices use a per-mark tooltip.
 - **Legend:** HTML above the plot, so it wraps on a phone. Text is in text tokens; the colour sits only in the key (a swatch for bars and slices, a stroke for lines). A legend is always shown for two or more series, and never for one.
-- **States:** *empty* keeps the chart's footprint and shows a plain message. *Loading* shows a status line and spinner. A *refresh* dims the previous render instead of flashing a skeleton. Animation is off under `prefers-reduced-motion`.
+- **States:** *empty* keeps the chart's footprint and shows a plain message. *Loading* shows a status line and spinner; a page's first load shows a `PageSkeleton` of `Skeleton` blocks (`--surface`, a gentle opacity pulse, none under reduced motion) in the page's layout. A *refresh* dims the previous render instead of flashing a skeleton. Animation is off under `prefers-reduced-motion`.
 - A chart never replaces the numbers: every chart sits in a `ChartCard` with a Chart | Table toggle (or next to a column table).
 
 ## 7. Brand moments (source B — the Joinr banner)
@@ -152,7 +153,7 @@ Colours sampled from `joinr_banner.webp` (2000×563):
   - Only ever on dark ground. No recolouring, stretching or effects.
 - **Hero band:** a CSS recreation of the banner (ground gradient, dot grid, node line with four glowing nodes, bottom glow), not the raster image. Used at the top of the **Net Worth dashboard** (140–200 px tall on desktop; below 1200 px it grows to fit its stacked KPI tiles, D18; KPI figures sit on `--surface` cards), and as the full background of **login, empty, loading and error** screens.
   - Text never sits directly on the glow; use a surface card.
-- **Node-line motif:** may mark milestones on a timeline, e.g. FIRE progression, or snapshot months on the History page. The nodes keep the fixed spectrum order.
+- **Node-line motif:** may mark milestones on a timeline, e.g. FIRE progression (the `MilestoneLine` component and the progression chart's markers, D101), or snapshot months on the History page. The nodes keep the fixed spectrum order, **coloured by position, not meaning**: the 1st node is teal, the 2nd violet, the 3rd fuchsia, the 4th orange. Milestones in the same year share one node. Inside a chart the node dots are flat (no glow) and sit in a lane above the plot.
 - **Glows** (soft `box-shadow`/`radial-gradient` blooms) are allowed **only** in these brand treatments. Never on cards, buttons, tables or charts.
 - **Wordmark asset:** the SVG master `reference/brand/joinr_wordmark.svg`, hand-traced from the PNG in Stage 0 (D12; IoU 0.99 against it). The `Wordmark` component inlines the same geometry, and a test keeps the two in sync. `reference/brand/joinr_wordmark.png` (228×103, cut from the banner) remains as the reference. Dark backgrounds only. Never rebuild the wordmark in another font.
 
@@ -171,7 +172,7 @@ Colours sampled from `joinr_banner.webp` (2000×563):
 ## 10. Checklist before a UI change ships
 
 - Teal is the only accent on the page; the spectrum appears only in the rules, the logo and brand moments.
-- All uppercase text is letter-spaced; numbers are monospaced and right-aligned.
+- All uppercase text is letter-spaced; numbers are monospaced and right-aligned (except key–value table values, which are left-aligned, §5).
 - No shadows or glows outside brand moments; no colours outside §1 (except the §6.1 chart steps, inside charts only).
 - It works at 375 px wide with no horizontal page scroll.
 - Status is readable in greyscale.

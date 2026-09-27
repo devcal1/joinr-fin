@@ -11,6 +11,7 @@ import {
   isLockfile,
   looksBinary,
   maskValue,
+  normaliseSeparatorRuns,
   normalizePath,
   parseTerms,
   TermMatcher,
@@ -302,6 +303,102 @@ describe('private terms', () => {
   it('merges with the pattern rules in file order', () => {
     const matches = findContentMatches(`ZZQ at ${v.PRIVATE_IP} and Examplecorp`, matcher);
     expect(matches.map((m) => m.rule)).toEqual(['private-term', 'ipv4', 'private-term']);
+  });
+});
+
+describe('private terms written with separators (stage-6.md §8.2)', () => {
+  // Generic terms only: a digits-only integer, a digits-only decimal, a negative, a term that
+  // itself contains a separator, and a word.
+  const matcher = TermMatcher.fromText(
+    ['12345678', '123456.78', '-7654321', '4,321', '98_765', 'Examplecorp', '2468'].join('\n'),
+  );
+  const found = (text: string) => matcher.find(text).map((m) => [m.value, m.termLine, m.index]);
+  const lines = (text: string) => matcher.find(text).map((m) => m.termLine);
+
+  it('catches a digits-only term written with thousands commas or digit separators', () => {
+    expect(found('total 12,345,678 here')).toEqual([['12,345,678', 1, 6]]);
+    expect(found('const x = 12_345_678;')).toEqual([['12_345_678', 1, 10]]);
+    expect(found('$12,345,678.00')).toEqual([['12,345,678', 1, 1]]);
+    expect(found('(12,345,678)')).toEqual([['12,345,678', 1, 1]]);
+    expect(lines('12_34_5678')).toEqual([1]);
+  });
+
+  it('catches a digits-only decimal term written with separators', () => {
+    expect(found('$123,456.78 left')).toEqual([['123,456.78', 2, 1]]);
+    expect(found('amount: 123_456.78,')).toEqual([['123_456.78', 2, 8]]);
+    expect(found('123,456.789')).toEqual([]);
+  });
+
+  it('catches a negative term with its sign', () => {
+    expect(found('balance -7,654,321')).toEqual([['-7,654,321', 3, 8]]);
+    expect(found('-7_654_321')).toEqual([['-7_654_321', 3, 0]]);
+    // The plain digits are not the negative term (as the exact matcher).
+    expect(found('7,654,321')).toEqual([]);
+  });
+
+  it('keeps reporting plain, exact matches once (no duplicate from the normalised text)', () => {
+    expect(found('12345678 and 12,345,678')).toEqual([
+      ['12345678', 1, 0],
+      ['12,345,678', 1, 13],
+    ]);
+    expect(found('Examplecorp 2468 1,234')).toEqual([
+      ['Examplecorp', 6, 0],
+      ['2468', 7, 12],
+    ]);
+  });
+
+  it('matches a comma-written term in its separator forms, never its plain digits (CODE-4)', () => {
+    expect(found('4,321')).toEqual([['4,321', 4, 0]]);
+    expect(found('PORT=4321 in 4321')).toEqual([]);
+    expect(found('4_321')).toEqual([['4_321', 4, 0]]);
+    expect(found('98_765 and 98765 and 98,765')).toEqual([['98_765', 5, 0]]);
+  });
+
+  it('catches an underscore run next to a list or CSV comma (triage CODE-4)', () => {
+    expect(found('[1,12_345_678]')).toEqual([['12_345_678', 1, 3]]);
+    expect(found('[12_345_678,1]')).toEqual([['12_345_678', 1, 1]]);
+    expect(found('id,amount\n7,12_345_678')).toEqual([['12_345_678', 1, 12]]);
+    expect(found('7,12_345_678')).toEqual([['12_345_678', 1, 2]]);
+    // Hex literals and longer numbers stay safe.
+    expect(found('0x12_34')).toEqual([]);
+    expect(found('9_12_345_678')).toEqual([]);
+  });
+
+  it('never makes a digits-only term match inside a longer number', () => {
+    expect(found('112,345,678')).toEqual([]);
+    expect(found('12,345,6789')).toEqual([]);
+    expect(found('12,345,678,901')).toEqual([]);
+    expect(found('9_12_345_678')).toEqual([]);
+    expect(found('12,345,678px')).toEqual([]);
+  });
+
+  it('leaves lists, versions, hex literals, dates and non-grouping commas alone', () => {
+    // Each text below would hit one of these terms if its separators were wrongly removed.
+    const plain = TermMatcher.fromText(
+      ['1234567', '123456', '12345', '1234.5', '123', '20260927'].join('\n'),
+    );
+    const hits = (text: string) => plain.find(text).map((m) => m.value);
+    // A list with a space after the comma.
+    expect(hits('[12, 345] f(1, 23)')).toEqual([]);
+    // Versions and dotted numbers have no separator run.
+    expect(hits('v1.2.3 and 1.23.4')).toEqual([]);
+    // Hex, binary and other prefixed digit-separator runs.
+    expect(hits('0x12_345 0b1_2345 0x1_234_567')).toEqual([]);
+    // Dates.
+    expect(hits('2026-09-27 27/09/2026 27 Sep 2026 2026_09_27x')).toEqual([]);
+    // Commas inside a longer number that do not group by thousands.
+    expect(hits('12,34,567 1,2345 1234,567 12,345,6 1,234.5.6')).toEqual([]);
+    // Identifiers with digit runs.
+    expect(hits('id_12_345 row12_345 _12_345')).toEqual([]);
+    // A grouped number is still matched when it is one.
+    expect(hits('1,234,567 and 12_345')).toEqual(['1,234,567', '12_345']);
+  });
+
+  it('exposes the normalised text with an offset map back to the original', () => {
+    expect(normaliseSeparatorRuns('no runs 1234 here')).toBeUndefined();
+    const n = normaliseSeparatorRuns('a 1,234 b 5_6');
+    expect(n?.text).toBe('a 1234 b 56');
+    expect(n?.offsets).toEqual([0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 12, 13]);
   });
 });
 

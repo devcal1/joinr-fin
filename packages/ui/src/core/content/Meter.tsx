@@ -176,7 +176,9 @@ export function Meter({
         ) : null}
       </div>
       <p className="jf-meter__figures">
-        <span className="jf-meter__value">{money(valueCents)}</span>
+        <span className={cx('jf-meter__value', valueCents < 0 && 'jf-meter__value--negative')}>
+          {money(valueCents)}
+        </span>
         {valueLabel ? <span className="jf-meter__of"> {valueLabel}</span> : null}
         <span className="jf-meter__of"> of </span>
         <span className="jf-meter__target">{money(targetCents)}</span>

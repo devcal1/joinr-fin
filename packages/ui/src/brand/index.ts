@@ -16,3 +16,9 @@ export {
   type BrandScreenProps,
   type BrandScreenVariant,
 } from './BrandScreen';
+export {
+  MilestoneLine,
+  type MilestoneLineNode,
+  type MilestoneLineProps,
+  type MilestoneLineSegment,
+} from './MilestoneLine';

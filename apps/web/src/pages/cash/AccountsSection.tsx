@@ -39,6 +39,7 @@ import { FormError, NewAppDataNote, WorkbookCallout } from '../cashflow/forms';
 import { formErrorsOf, orderColumns } from '../cashflow/formState';
 import { BalanceHistory } from './BalanceHistory';
 import { accountActionKey, olderNote } from './cashText';
+import { escapeCancels } from '../../components/keyboard';
 
 export const NO_ACCOUNTS = 'No cash accounts yet. Add one, or import the workbook on the';
 export const NOT_IN_FUND = 'Not in the emergency fund';
@@ -368,6 +369,7 @@ function BalancesForm({ page, renderTables, onDone, onCancel }: BalancesFormProp
       ref={formRef}
       className="jf-app-form jf-app-balances-form"
       onSubmit={onSubmit}
+      onKeyDown={escapeCancels(onCancel, pending)}
       noValidate
       aria-label="Update balances"
       aria-busy={pending || undefined}

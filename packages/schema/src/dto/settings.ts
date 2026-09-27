@@ -28,6 +28,11 @@ export interface SettingDto {
   preference: boolean;
   /** Page ids that read it (the web links back, §6.5; [] for the unused keys). */
   usedOn: string[];
+  /**
+   * Stage 6 (stage-6.md §4.5, additive): a muted line under the field (the D98 access-age note, the
+   * workbook super contribution note); null otherwise.
+   */
+  notice: string | null;
 }
 
 /** = the engine's MarginalRateSuggestion (Cents → number) plus the server's fields. */

@@ -132,8 +132,8 @@
 
   @media (max-width: 767.98px) {
     html {
-      /* The phone header has a second row for the freshness line. */
-      scroll-padding-top: calc(var(--spectrum-h) + 96px);
+      /* The phone header has a second row for the freshness line (--shell-header-h is 88px). */
+      scroll-padding-top: calc(var(--spectrum-h) + var(--shell-header-h) + var(--space-2));
     }
   }
 

@@ -166,6 +166,8 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `DELETE /api/history/snapshots/:periodMonth` | Deletes the latest month recorded in the app. |
 | `GET /api/settings` | The Settings page: every setting with its group, value, where it came from, whether saving it blocks a re-import, the pages that use it, a suggested marginal tax rate for the gross salary, the allocation targets' sum and the recorder's status. |
 | `PATCH /api/settings` | Changes settings (`{ "values": { "savings.yearBasis": "calendar" } }`; every setting but the server-written cap year); the answer holds the settings of every page the change named, plus the named settings themselves. |
+| `GET /api/fire` | The FIRE planner: each input with where its value comes from (a what-if, your setting, the figure derived from your records, the default, or missing), the derived figures (pre-super net worth and the debts in it, the yearly spend and savings from the recorded months, the super contribution a year, the growth weights), the projection (status, FIRE year, KPIs, milestones and the year-by-year path in today's dollars) and, during a what-if, the saved plan's summary. `?spend=&withdrawalRate=&inflationRate=&marketReturn=&accessAge=&extraSavings=` is a what-if for this answer only; nothing is saved. |
+| `POST /api/fire/use-workbook-contribution` | Makes the workbook's super contribution a year your setting (same value, now yours); no body. Answers like `PATCH /api/settings`. |
 
 ```http
 GET /api/health
@@ -255,6 +257,15 @@ Every figure on the Net Worth and History pages comes from the engine, in the sa
 
 **What blocks a re-import (D34).** A recorded month is app data, and so is a correction of an imported month: a re-import is then refused until the recorded months are deleted (latest first) or the CLI replaces them (`--yes --replace-app-data`, which keeps the audit trail). The audit trail, the auto-record switch and the display choices (the chart grouping and the page switches) never count, and a re-import keeps the display choices.
 
+### FIRE
+
+Every FIRE figure comes from the engine, in the same request context as the other pages. The page's inputs are the settings in the Settings page's FIRE group; the yearly spend and the super contribution are derived from your records unless you set a figure.
+
+- **Spend and savings** average the recorded months of the last 12 (the months the Cash page averages), times 12. A month with negative spend (a sale or a deposit counted as saving) counts as $0 of spend, and its savings are capped at its income. Voluntary super contributions count in super, not in pre-super savings.
+- **Super contribution a year** is the employer SG and your contributions, as the fund receives them, over the 12 whole months before this month. A figure set in the app overrides it. A figure imported from the workbook is shown beside it as the workbook's figure; `POST /api/fire/use-workbook-contribution` adopts it (a settings `PATCH` of the same value would not change where it came from).
+- **What-if** (`GET /api/fire?…`) recomputes with the given values and saves nothing; "Save as my settings" on the page is a `PATCH /api/settings` of the FIRE keys. Every FIRE setting is a display preference: saving one never blocks a re-import, and a re-import keeps it.
+- **The access age** defaults to 60. Once per database, an access age of 65 imported from the workbook is replaced by 60 (saved as your setting, with a note on the FIRE and Settings pages). This runs when the server starts and after every committed import (never a dry run); a marker in `app_meta` stops it from running again, and the log has one line. Set 65 in the app and it stays.
+
 ### Upload import
 
 **`POST /api/import`** takes the `.xlsx` file as the raw request body with `Content-Type: application/octet-stream` (or the xlsx MIME type) and an optional `X-File-Name` header (URI-encoded; only the base name is kept). The body limit is 25 MiB (26,214,400 bytes). Query: `dryRun=true` imports inside a transaction that is rolled back (the report is still recorded); `confirmReplace=true` is required when data has been imported before. A real import is refused while the database holds data entered in the app (any row with `origin = 'app'`, or a deleted workbook row; see [Investments](#investments)); a dry run is still allowed, and only the CLI can override (see below).
@@ -296,7 +307,7 @@ An import **replaces** the imported investments, cash, budget, income, assets an
 
 - **Unit and component tests** use Vitest. Each app, package and tool is a Vitest project, and `pnpm test` runs them all. Server tests use Fastify's `inject` against a temporary `DATA_DIR`.
 - **End-to-end tests** use Playwright, at desktop and phone widths, against the installed Chrome. Screenshots go to `artifacts/screenshots/`.
-- **Golden tests** compare the importer (Stage 1), the engine and the APIs (Stage 2 on: import → database → API; the investment pages, then the cash-flow pages in Stage 3, the other assets, super and property pages in Stage 4, and History and Net Worth in Stage 5, where a month is also recorded) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
+- **Golden tests** compare the importer (Stage 1), the engine and the APIs (Stage 2 on: import → database → API; the investment pages, then the cash-flow pages in Stage 3, the other assets, super and property pages in Stage 4, History and Net Worth in Stage 5, where a month is also recorded, and FIRE in Stage 6, where the template's formulas are reproduced and the imported access age is upgraded) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
 - **Synthetic workbook.** `buildSyntheticWorkbook()` (`@joinr/importer/testing`) builds a generic workbook in the template's layout, so the importer, the upload route and the e2e specs are tested without the private file. Synthetic imports always run with corrections off.
 - **No network in unit tests.** A setup file makes `fetch` fail; price providers are tested with mocked responses.
 

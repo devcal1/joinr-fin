@@ -4,7 +4,10 @@ import { cx } from '../cx';
 export interface KeyValueItem {
   label: string;
   value: ReactNode;
-  /** Monospaced, tabular, right-aligned value. */
+  /**
+   * A figure: monospaced, tabular. Left-aligned like every KV value (Stage 6, STYLE-7), so phrase
+   * rows and number rows share one edge.
+   */
   numeric?: boolean;
 }
 
@@ -19,6 +22,10 @@ export interface KeyValueTableProps {
  * hairlines between rows only, rounded outer corners. The column widths are set on a `<colgroup>`:
  * with `table-layout: fixed`, a visually hidden (absolutely positioned) caption otherwise stops
  * the label cell's 38% from applying, and the columns split 50/50.
+ *
+ * Stage 6 (stage-6.md §6.9 D, E): labels wrap between words only (STYLE-6); below 480 px of the
+ * table's own width each row stacks, label above value (a container query, so a half-width card
+ * stacks on a desktop too); values are left-aligned, figures monospaced (STYLE-7).
  */
 export function KeyValueTable({ items, caption }: KeyValueTableProps): JSX.Element {
   return (

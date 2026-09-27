@@ -191,11 +191,44 @@ describe('Settings: callouts (§6.5 item 2, D34, D95)', () => {
     expect(within(pages).getByRole('switch', { name: 'Show the Cash page' })).toBeChecked();
   });
 
-  it('FIRE: editable with its note', async () => {
+  it('FIRE: editable with its note, in present tense (stage-6.md §6.7–6.8)', async () => {
     await openPage();
-    expect(form('FIRE (used from Stage 6)')).toHaveTextContent(
-      'Used by the FIRE planner (Stage 6).',
+    const fire = form('FIRE');
+    expect(fire).toHaveTextContent(
+      'Used by the FIRE planner; its what-if panel can save them too.',
     );
+    expect(fire).not.toHaveTextContent('Stage 6');
+    // Every fire.* key is a preference: the import-safe note, never the workbook callout (D103).
+    expect(within(fire).getByRole('note', { name: 'Import-safe' })).toHaveTextContent(
+      'Kept when you re-import.',
+    );
+    expect(within(fire).queryByRole('note', { name: 'From the workbook' })).toBeNull();
+  });
+
+  it("FIRE: a setting's notice is a muted line under its field, with used-on links to FIRE (§6.7)", async () => {
+    const notice =
+      'Access age changed from 65 (the workbook) to 60 on 27 September 2026: 60 is the preservation age for anyone born after 30 June 1964.';
+    const fixture: SettingsPageResponse = {
+      ...populated,
+      settings: populated.settings.map((s) =>
+        s.key === 'fire.preservationAge'
+          ? { ...s, notice, usedOn: ['fire'] }
+          : s.group === 'fire'
+            ? { ...s, usedOn: ['fire'] }
+            : s,
+      ),
+    };
+    await openPage(fixture);
+    const fire = form('FIRE');
+    const line = within(fire).getByTestId('notice-fire.preservationAge');
+    expect(line).toHaveTextContent(notice);
+    expect(line).toHaveClass('jf-app-meta');
+    // Under the field: after the input in the setting's block.
+    const input = within(fire).getByRole('textbox', { name: /Access age/ });
+    expect(input.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(fire).queryAllByTestId(/^notice-/)).toHaveLength(1);
+    const usedOn = within(fire).getByTestId('used-on-fire.preservationAge');
+    expect(within(usedOn).getByRole('link', { name: 'FIRE' })).toHaveAttribute('href', '/fire');
   });
 });
 

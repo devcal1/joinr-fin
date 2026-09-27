@@ -34,10 +34,10 @@ import {
   notFound,
   sameDecimal,
   saleOversell,
-  sumDecimal,
   validation,
 } from './common';
 import { HttpError } from '../../errors';
+import { sumValidDecimals } from '../../lib/sums';
 
 /** What the other-asset mutations need: the database, the clock and the price service. */
 export type OtherAssetsDeps = Pick<FinanceDeps, 'database' | 'market' | 'now'>;
@@ -130,7 +130,7 @@ export function syncAssetPrice(tx: Tx, assetId: number): void {
 
 /** Σ the asset's recorded sales' units, leaving out `exceptSaleId`. */
 function soldUnits(tx: Tx, assetId: number, exceptSaleId: number | null = null): DecimalValue {
-  return sumDecimal(
+  return sumValidDecimals(
     tx
       .select({ id: otherAssetSales.id, units: otherAssetSales.units })
       .from(otherAssetSales)

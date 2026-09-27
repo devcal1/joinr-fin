@@ -4,6 +4,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Config } from './config';
 import { closeDatabase, type AppDatabase } from './db/database';
 import { registerErrorHandler } from './errors';
+import { applySettingUpgrades, logSettingUpgrades } from './fire/upgrade';
 import { createSnapshotRecorder, type SnapshotRecorder } from './history/recorder';
 import {
   createDividendEventsService,
@@ -17,6 +18,7 @@ import type { MarketDataService } from './market/types';
 import { budgetRoutes } from './routes/budget';
 import { cashRoutes } from './routes/cash';
 import { dividendsRoutes } from './routes/dividends';
+import { fireRoutes } from './routes/fire';
 import { healthRoutes } from './routes/health';
 import { historyRoutes } from './routes/history';
 import { importRoutes } from './routes/import';
@@ -176,6 +178,10 @@ export async function buildApp({
     closeDatabase(db);
   });
 
+  // Stage 6 (stage-6.md §3.4): the D98 one-off, once the database is ready (a CLI import made while
+  // the server was down is upgraded at the next start).
+  logSettingUpgrades(app.log, applySettingUpgrades(db, (now ?? (() => new Date()))()));
+
   registerErrorHandler(app);
   await app.register(healthRoutes, { prefix: '/api', database: db, version, now });
   await app.register(recordsRoutes, { prefix: '/api', database: db, config, market });
@@ -204,6 +210,8 @@ export async function buildApp({
   // Stage 5 (stage-5.md §4.2): the same options object (`GET /settings` is in settingsRoutes).
   await app.register(netWorthRoutes, cashflow);
   await app.register(historyRoutes, cashflow);
+  // Stage 6 (stage-6.md §4.2): the same options object.
+  await app.register(fireRoutes, cashflow);
   if (config.serveWeb) await registerWebApp(app, config.webDistDir);
   app.setNotFoundHandler(createNotFoundHandler(config.serveWeb));
 

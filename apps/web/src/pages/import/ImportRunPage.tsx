@@ -23,7 +23,7 @@ import { ArrowLeft, ChevronDown, ChevronUp, CircleAlert } from 'lucide-react';
 import { useMemo, useState, type JSX, type ReactNode } from 'react';
 import { isApiError } from '../../api/client';
 import { useImportRun } from '../../api/hooks';
-import { LoadError, Loading, Missing } from '../../components/QueryStates';
+import { Missing, QueryStates } from '../../components/QueryStates';
 import { formatDateTime, formatFileSize } from '../../formatting';
 import { flagLabel } from '../records/cells';
 import {
@@ -408,7 +408,6 @@ export function ImportRunPage({ runId }: { runId: number }): JSX.Element {
           </Link>
         }
       />
-      {query.isPending ? <Loading label={`Loading run #${runId}…`} /> : null}
       {query.isError && isApiError(query.error) && query.error.status === 404 ? (
         // A missing run: retrying cannot help, so no retry button.
         <Callout kind="note" title="Run not found">
@@ -416,13 +415,14 @@ export function ImportRunPage({ runId }: { runId: number }): JSX.Element {
             There is no run #{runId}. <Link to="/import">See all imports</Link>.
           </p>
         </Callout>
-      ) : query.isError ? (
-        <LoadError
-          title={`Could not load run #${runId}`}
-          error={query.error}
-          onRetry={() => void query.refetch()}
+      ) : (
+        <QueryStates
+          query={query}
+          loading={`Loading run #${runId}…`}
+          layout="table"
+          errorTitle={`Could not load run #${runId}`}
         />
-      ) : null}
+      )}
       {run ? (
         <>
           {run.status === 'running' ? (

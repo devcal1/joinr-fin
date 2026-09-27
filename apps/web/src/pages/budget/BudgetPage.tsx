@@ -7,7 +7,7 @@ import { CalendarPlus, Plus } from 'lucide-react';
 import type { JSX } from 'react';
 import { useBudgetPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { missingInputLabel } from '../investments/display';
 import { transfersHeading } from '../cashflow/display';
 import { SettingsSection } from '../cashflow/SettingsSection';
@@ -79,14 +79,12 @@ export function BudgetPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Budget" subtitle="Cash flow" actions={actions} />
-      {query.isPending ? <Loading label="Loading the budget…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load the budget"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading the budget…"
+        layout="dashboard"
+        errorTitle="Could not load the budget"
+      />
       {page ? (
         <>
           <LiveRegion kind="status" label="Save result">

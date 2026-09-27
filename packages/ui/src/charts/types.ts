@@ -2,6 +2,7 @@
 // dollars before charting and pass a formatMoney-based ValueFormatter for display.
 import type { ReactNode } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
+import type { HeroNodeTone } from '../brand/HeroBackground';
 
 /** Formats one chart value for tooltips and axis labels. */
 export type ValueFormatter = (v: number) => string;
@@ -23,6 +24,11 @@ export interface Series {
   data: (number | null)[];
   /** Overrides the palette slot. Must be a hex or rgb(a) colour; anything else falls back to "Other". */
   color?: string;
+  /**
+   * Line and area charts only (Stage 6, additive): a 2px dashed stroke for a reference or target
+   * line; its legend key is dashed. Bar charts ignore it (their overlays have their own `dashed`).
+   */
+  dashed?: boolean;
 }
 
 /** Shared optional state props (additions to the frozen contract, all optional). */
@@ -115,6 +121,26 @@ export interface BarChartProps extends ChartStateProps {
   totalLabel?: string;
 }
 
+/**
+ * A milestone on a line or area chart (Stage 6, stage-6.md §5, §6.5; additive): a vertical dashed
+ * line at the category `index` with a node dot in `tone` above the plot and a label. The caller
+ * passes the tones in the fixed spectrum order by position.
+ */
+export interface LineChartMarker {
+  /** The category index the marker sits on. */
+  index: number;
+  /** The words beside the node, e.g. "FIRE 2031" (two milestones in one year share one marker). */
+  label: string;
+  tone: HeroNodeTone;
+  /**
+   * Draw the dot only, without the label (Stage 6, additive): the caller sets it below 768 px or
+   * when two labels would sit closer than 64 px, and shows the words elsewhere.
+   */
+  labelHidden?: boolean;
+  /** The crosshair tooltip's words for this category, e.g. "FIRE starts". Default `label`. */
+  tooltip?: string;
+}
+
 export interface LineChartProps extends ChartStateProps {
   ariaLabel: string;
   categories: string[];
@@ -123,6 +149,8 @@ export interface LineChartProps extends ChartStateProps {
   /** Value-axis tick formatter. Defaults to `valueFormatter`. */
   axisFormatter?: ValueFormatter;
   height?: number;
+  /** Milestone markers (ECharts markLines; Stage 6, additive). */
+  markers?: LineChartMarker[];
 }
 
 export interface AreaChartProps extends LineChartProps {

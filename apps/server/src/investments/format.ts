@@ -2,11 +2,8 @@
 // ratio formatting (12 significant digits, the engine's boundary rule, stage-2.md §2.1).
 import { JoinrDecimal, normaliseDecimal, type DecimalString, type IsoDate } from '@joinr/schema';
 
-/** The server-local calendar date of `d` (`asOf`, stage-2.md §4.5; Stage 7 sets TZ). */
-export function localIsoDate(d: Date): IsoDate {
-  const p = (n: number, w: number) => String(n).padStart(w, '0');
-  return `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1, 2)}-${p(d.getDate(), 2)}`;
-}
+/** The server-local calendar date of `d` (`asOf`, stage-2.md §4.5; Stage 7 sets TZ; CODE-9). */
+export { localIsoDate } from '../lib/dates';
 
 /** `2025-11-15` → `15/11/2025` (STYLE_GUIDE §8). */
 export function displayDate(iso: IsoDate): string {

@@ -4,13 +4,13 @@
 // the rolling net worth. The view switch is a view-only query override: the previous response
 // stays on screen while the new view loads, so the page never unmounts (§6.2).
 import type { NetWorthPageResponse } from '@joinr/schema';
-import { BrandScreen, Grid, GridItem, PageHeader, SectionBar } from '@joinr/ui';
+import { BrandScreen, Grid, GridItem, PageHeader, SectionBar, Stack } from '@joinr/ui';
 import { Link } from '@tanstack/react-router';
 import { CalendarPlus, History } from 'lucide-react';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { useNetWorthPage, type ChartView } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { LinkButton } from '../history/LinkButton';
 import { ViewSwitch } from '../history/ViewSwitch';
 import { viewAnnouncement } from '../history/display';
@@ -43,14 +43,12 @@ export function NetWorthPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Net worth" subtitle="Overview" actions={actions} />
-      {query.isPending ? <Loading label="Loading net worth…" /> : null}
-      {query.isError && !page ? (
-        <LoadError
-          title="Could not load net worth"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading net worth…"
+        layout="dashboard"
+        errorTitle="Could not load net worth"
+      />
       {page ? (
         <NetWorthContent page={page} switching={query.isPlaceholderData} onView={setView} />
       ) : null}
@@ -108,18 +106,24 @@ function NetWorthContent({
 
       <section className="jf-app-block" aria-labelledby="networth-stands-heading">
         <SectionBar id="networth-stands-heading" title="Where it stands" role="primary" />
+        {/* Dense (D109): the assets table on the left; the allocation, the donut and the gauge
+            share the right half, so the whole position fits in about one screen at 1440 px. */}
         <Grid>
           <GridItem span={6} spanTablet={6}>
             <AssetsCard page={page} />
           </GridItem>
-          <GridItem span={6} spanTablet={3}>
-            <DistributionCard page={page} loading={switching} />
-          </GridItem>
-          <GridItem span={6} spanTablet={3}>
-            <SavingsRateCard page={page} />
-          </GridItem>
           <GridItem span={6} spanTablet={6}>
-            <AllocationTable page={page} />
+            <Stack gap={3}>
+              <AllocationTable page={page} />
+              <Grid>
+                <GridItem span={6} spanTablet={3}>
+                  <DistributionCard page={page} loading={switching} />
+                </GridItem>
+                <GridItem span={6} spanTablet={3}>
+                  <SavingsRateCard page={page} />
+                </GridItem>
+              </Grid>
+            </Stack>
           </GridItem>
         </Grid>
       </section>

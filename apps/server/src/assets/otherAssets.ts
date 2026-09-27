@@ -9,7 +9,6 @@ import type {
   OtherAssetsResult,
 } from '@joinr/engine';
 import {
-  JoinrDecimal,
   normaliseDecimal,
   type FxRateDto,
   type MarketQuoteItem,
@@ -24,6 +23,7 @@ import {
 import type { FinanceContext } from '../cashflow/context';
 import { settingsSliceDto } from '../cashflow/settings';
 import type { OtherAssetPriceRow, OtherAssetRow, OtherAssetSaleRow } from '../investments/load';
+import { sumValidDecimalStrings } from '../lib/sums';
 import { OTHER_ASSETS_PAGE_SETTING_KEYS, SPOT_METALS, SPOT_SERIES_BY_METAL } from './constants';
 import {
   chartOf,
@@ -34,19 +34,6 @@ import {
   metalsInUse,
   seriesById,
 } from './inputs';
-
-/** Σ of decimal strings, normalised ('0' for none; a malformed stored value is left out). */
-export function sumDecimals(values: readonly string[]): string {
-  let sum = new JoinrDecimal(0);
-  for (const v of values) {
-    try {
-      sum = sum.plus(v);
-    } catch {
-      // A malformed stored decimal cannot be summed; the engine flags the row instead.
-    }
-  }
-  return normaliseDecimal(sum);
-}
 
 /** A stored decimal normalised for the DTO (a malformed value is passed through unchanged). */
 function norm(v: string): string {
@@ -82,7 +69,7 @@ export function otherAssetDto(
     heldDays: r.heldDays,
     units: norm(a.units),
     legacySoldUnits: norm(a.soldUnits),
-    soldUnits: sumDecimals(o.sales.map((s) => s.units)),
+    soldUnits: sumValidDecimalStrings(o.sales.map((s) => s.units)),
     remainingUnits: r.remainingUnits,
     currency: a.currency,
     unitCost: normOrNull(a.unitCost),

@@ -25,14 +25,32 @@ import type {
   SuperFlag,
   YearBasis,
 } from '../enums';
+import type { FireInputsDto } from '../dto/fire';
+import type { FireInputSource, FireMilestoneKind, FirePhase, FireStatus } from '../fire';
 import type { SettingGroupId } from '../settings';
 import { otherAssetsPages, propertyPages, superPages } from './assets';
 import { cashPages, dividendsPages } from './cashflow';
+import { firePages } from './fire';
 import { historyPages, netWorthPages, settingsPages } from './history';
 import { allInvestmentPageFixtures } from './investments';
 import { importRunDetails, priceItems } from './sampleDtos';
 
 const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
+
+/** Every FIRE input's source, in FireInputsDto order. */
+export function fireInputSourcesOf(i: FireInputsDto): FireInputSource[] {
+  return [
+    i.birthYear.source,
+    i.accessAge.source,
+    i.inflationRate.source,
+    i.withdrawalRate.source,
+    i.marketReturn.source,
+    i.cashInterestRate.source,
+    i.yearlySpend.source,
+    i.superContribution.source,
+    i.extraSavings.source,
+  ];
+}
 
 /**
  * Every PriceStatus appears in `priceItems`; every RunStatus in `importRunDetails`; every
@@ -43,7 +61,8 @@ const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
  * Assets fixtures, every super flag and cap status in the Super fixtures, and every loan and
  * loan-entry flag in the Property fixtures (stage-4.md §3.6); every snapshot source, audit action
  * and record trigger in the History fixtures, every net-worth class and liability in the Net Worth
- * fixtures, and every setting group in the Settings fixtures (stage-5.md §3.6).
+ * fixtures, and every setting group in the Settings fixtures (stage-5.md §3.6); every FIRE status,
+ * phase, milestone kind and input source in the FIRE fixtures (stage-6.md §3.6).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -71,6 +90,10 @@ export const FIXTURE_COVERAGE: {
   snapshotAuditActions: SnapshotAuditAction[];
   recordTriggers: RecordTrigger[];
   settingGroups: SettingGroupId[];
+  fireStatuses: FireStatus[];
+  firePhases: FirePhase[];
+  fireMilestoneKinds: FireMilestoneKind[];
+  fireInputSources: FireInputSource[];
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -136,4 +159,12 @@ export const FIXTURE_COVERAGE: {
   ),
   recordTriggers: unique(Object.values(historyPages).flatMap((p) => p.audit.map((a) => a.trigger))),
   settingGroups: unique(Object.values(settingsPages).flatMap((p) => p.groups.map((g) => g.id))),
+  fireStatuses: unique(Object.values(firePages).map((p) => p.projection.status)),
+  firePhases: unique(
+    Object.values(firePages).flatMap((p) => p.projection.rows.map((r) => r.phase)),
+  ),
+  fireMilestoneKinds: unique(
+    Object.values(firePages).flatMap((p) => p.projection.milestones.map((m) => m.kind)),
+  ),
+  fireInputSources: unique(Object.values(firePages).flatMap((p) => fireInputSourcesOf(p.inputs))),
 };

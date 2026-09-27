@@ -18,6 +18,7 @@ import type {
 import type { FastifyBaseLogger } from 'fastify';
 import { createFinanceContext, type FinanceContext, type FinanceDeps } from '../cashflow/context';
 import { HttpError } from '../errors';
+import { monthEndOf } from '../lib/dates';
 import { otherAssetDtos } from './otherAssets';
 import { loanDtos, offsetAccountDtos, propertyDtos } from './property';
 import { sgMonthDtos, superContributionDtos, superFundDtos } from './super';
@@ -87,13 +88,6 @@ export function superContributionResponse(
   return { contribution };
 }
 
-/** The last day of a month (`2026-02` → `2026-02-28`). */
-function monthEnd(month: IsoMonth): string {
-  const [y, m] = month.split('-').map(Number) as [number, number];
-  const day = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return `${month}-${String(day).padStart(2, '0')}`;
-}
-
 /**
  * The SG month of a statement (§4.2). The page lists the months the two cap years count; for an
  * older month the engine is asked again as of that month's end, so its figures still come from the
@@ -107,7 +101,7 @@ export function sgOverrideResponse(
   const ctx = context(deps, log);
   let found = sgMonthDtos(ctx.data, ctx.superResult()).find((m) => m.month === month);
   if (!found) {
-    const earlier = ctx.engine.computeSuper({ ...ctx.superInput(), asOf: monthEnd(month) });
+    const earlier = ctx.engine.computeSuper({ ...ctx.superInput(), asOf: monthEndOf(month) });
     found = sgMonthDtos(ctx.data, earlier).find((m) => m.month === month);
   }
   if (!found) throw gone('SG month', month);

@@ -2,7 +2,9 @@
 // stored value and origin, its group, whether it is editable and whether a save of it blocks a
 // re-import, the pages that read it (SETTING_READERS), the marginal-rate suggestion for the gross
 // salary (the engine's, D85, D90), the allocation targets' sum and the recorder's status. Only the
-// settings rows are read (one read transaction); nothing here needs the finance context.
+// settings rows (and the D98 app_meta marker) are read (one read transaction); nothing here needs
+// the finance context. Stage 6 (stage-6.md §4.5): `notice` on the FIRE fields (the D98 note, the
+// workbook's super contribution).
 import type { EngineApi, MarginalRateSuggestion } from '@joinr/engine';
 import {
   EDITABLE_SETTING_KEYS,
@@ -14,6 +16,7 @@ import {
   settingGroupOf,
   TAX_RATES_CHECKED_ON,
   type DecimalString,
+  type FireAccessAgeReplacedDto,
   type MarginalRateSuggestionDto,
   type Origin,
   type RecorderStatusDto,
@@ -32,6 +35,8 @@ import {
   type SettingsLog,
   type SettingsValues,
 } from '../db/queries/settings';
+import { fireSettingNotice } from '../fire/notices';
+import { accessAgeReplaced, readAccessAgeMarker } from '../fire/upgrade';
 import { marginalRateSuggestionFields } from '../history/dto';
 import { allocationSumRatio } from '../history/inputs';
 import { localIsoDate } from '../investments/format';
@@ -61,9 +66,12 @@ export function settingDto(
     values: SettingsValues;
     origins: ReadonlyMap<string, Origin>;
     config: Pick<Config, 'autoRecord'>;
+    /** The D98 note's data while it applies (`accessAgeReplaced`); null otherwise. */
+    replaced?: FireAccessAgeReplacedDto | null;
   },
 ): SettingDto {
   const preference = isPreferenceSettingKey(def.key);
+  const origin = o.origins.get(def.key) ?? null;
   return {
     key: def.key,
     label: def.label,
@@ -74,12 +82,14 @@ export function settingDto(
     max: def.max ?? null,
     defaultValue: def.defaultValue,
     value: o.values[def.key],
-    origin: o.origins.get(def.key) ?? null,
+    origin,
     workbook: isWorkbookSetting(def.key) && !preference,
     editable: EDITABLE.has(def.key),
     lockedBy: lockedByOf(def.key, o.config),
     preference,
     usedOn: settingReaders(def.key),
+    // Stage 6 (stage-6.md §4.5): the D98 and workbook-contribution notices; null otherwise.
+    notice: fireSettingNotice(def.key, { origin, replaced: o.replaced ?? null }),
   };
 }
 
@@ -129,10 +139,12 @@ export function buildSettingsPage(
           .map((r) => [r.key, r.origin] as const),
       ),
       hasAppData: hasAppData(tx),
+      marker: readAccessAgeMarker(tx),
     }),
     { behavior: 'deferred' },
   );
   const { values } = read;
+  const replaced = accessAgeReplaced(read.marker, numberSetting(values, 'fire.preservationAge'));
   // No gross salary → no suggestion (the engine answers null too; it is not asked).
   const incomeCents = numberSetting(values, 'pay.grossAnnualSalaryCents');
   const suggestion =
@@ -142,7 +154,9 @@ export function buildSettingsPage(
     generatedAt: now.toISOString(),
     hasAppData: read.hasAppData,
     groups: SETTING_GROUPS.map((g) => ({ id: g.id, label: g.label, keys: [...g.keys] })),
-    settings: SETTINGS.map((def) => settingDto(def, { values, origins: read.origins, config })),
+    settings: SETTINGS.map((def) =>
+      settingDto(def, { values, origins: read.origins, config, replaced }),
+    ),
     taxSuggestion:
       suggestion === null
         ? null

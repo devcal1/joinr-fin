@@ -1,3 +1,4 @@
+@import './milestone.css'; /* the FIRE milestone line (stage-6.md §6.5) */
 /*
  * Brand treatments (STYLE_GUIDE §7, source B): the wordmark, the header lockup, the banner artwork
  * (hero band, brand screens). `jf-brand-*` classes only. Glows and the banner's own colours
@@ -225,10 +226,11 @@
     min-height: 180px;
   }
 
+  /* Compact (the Net Worth band; dense, D109): a short node line so the KPI cards sit high. */
   .jf-brand-hero--compact .jf-brand-hero__bg {
-    --jf-hero-line-y: 55px;
+    --jf-hero-line-y: 26px;
 
-    min-height: 140px;
+    min-height: 110px;
   }
 
   .jf-brand-hero__content {
@@ -244,6 +246,10 @@
 
   .jf-brand-hero--has-content .jf-brand-hero__content {
     padding: calc(var(--jf-hero-line-y) + 18px) var(--space-4) var(--space-4);
+  }
+
+  .jf-brand-hero--compact.jf-brand-hero--has-content .jf-brand-hero__content {
+    padding: calc(var(--jf-hero-line-y) + 12px) var(--space-3) var(--space-3);
   }
 
   /*

@@ -7,7 +7,7 @@
 // other-assets class value taken from them. Stage 5 (stage-5.md §4.5): the snapshots in run-date
 // order, the live snapshot composed at asOf, the net-worth dashboard, the rolling table and the
 // snapshot checks; the D88 figures (stored offsets, measured-through dates) reach the savings and
-// super engines through their inputs.
+// super engines through their inputs. Stage 6 (stage-6.md §4.5): the FIRE derivation (`fireDerived`).
 import { engine as defaultEngine } from '@joinr/engine';
 import type {
   AssetsSnapshotColumns,
@@ -28,6 +28,7 @@ import type {
   DividendsResult,
   EngineApi,
   EnginePrice,
+  FireDerived,
   InvestmentsResult,
   OtherAssetsInput,
   OtherAssetsResult,
@@ -191,6 +192,12 @@ export interface FinanceContext {
   rolling(): RollingNetWorthRow[];
   /** `checkSnapshots` over every snapshot and every trade. */
   check(): SnapshotCheckResult;
+  // ─── Stage 6 (stage-6.md §4.5; computed once per request) ───
+  /**
+   * `deriveFireInputs` of dashboardFigures(), netWorth().classes and .liabilities, property(),
+   * savings().periods, kpis() and superResult().
+   */
+  fireDerived(): FireDerived;
 }
 
 /** The finance deps a route plugin builds from its options (the real engine and clock by default). */
@@ -515,6 +522,20 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
 
   const check = once(() => engine.checkSnapshots({ snapshots: snapshots(), trades: trades() }));
 
+  // ─── Stage 6 (stage-6.md §4.5) ───
+  const fireDerived = once((): FireDerived =>
+    engine.deriveFireInputs({
+      asOf,
+      figures: dashboardFigures(),
+      classes: netWorth().classes,
+      liabilities: netWorth().liabilities,
+      property: property(),
+      savings: savings().periods,
+      kpis: kpis(),
+      superResult: superResult(),
+    }),
+  );
+
   return {
     engine,
     now,
@@ -558,5 +579,6 @@ export function createFinanceContext(deps: FinanceDeps, log?: FastifyBaseLogger)
     netWorth,
     rolling,
     check,
+    fireDerived,
   };
 }

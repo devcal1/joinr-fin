@@ -52,6 +52,13 @@ describe('scanFile', () => {
     expect(formatFinding(finding!)).toBe('README.md:1:10  private-term #2');
   });
 
+  it('reports a digits-only term written with separators at its original location', () => {
+    const terms = TermMatcher.fromText('# header\n12345678\n4,321\n');
+    const text = 'const a = 1;\nconst total = 12_345_678; // $12,345,678.00\nport 4321';
+    const found = scanFile(file('src/a.ts', text), terms).findings.map(formatFinding);
+    expect(found).toEqual(['src/a.ts:2:15  private-term #2', 'src/a.ts:2:31  private-term #2']);
+  });
+
   it('skips binary content, the lockfile and unreadable files', () => {
     const leaky = `${v.PRIVATE_IP} ${v.EMAIL}`;
     const bytes = (path: string, head: Buffer): FileToScan => {

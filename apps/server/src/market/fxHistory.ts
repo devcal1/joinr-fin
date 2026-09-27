@@ -18,6 +18,7 @@ import {
 import { marketQuoteHistory, otherAssets, type JoinrDb } from '@joinr/schema/db';
 import { and, asc, eq, isNotNull, isNull, ne, or } from 'drizzle-orm';
 import type { Tx } from '../db/queries/domain';
+import { addDaysIso, localIsoDate } from '../lib/dates';
 import { fxNeedFor, fxSeriesId } from './fx';
 import { truncateError } from './providers/http';
 import { FxClosesError, type FxClosesClient } from './providers/types';
@@ -52,20 +53,9 @@ export function emptyFxBackfillCounts(): FxBackfillCounts {
 
 // ─── Small pure helpers ─────────────────────────────────────────────────────────────────────────
 
-const pad = (n: number, width: number): string => String(n).padStart(width, '0');
-
-/** The server-local calendar date of `d` (the series history's date rule). */
-export function localIsoDate(d: Date): IsoDate {
-  return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}`;
-}
-
-/** `date` + `days` calendar days (UTC arithmetic on the date string). */
-export function addDaysIso(date: IsoDate, days: number): IsoDate {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!m || !Number.isInteger(days)) throw new RangeError(`addDaysIso: bad input ${date}`);
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
-  return `${pad(d.getUTCFullYear(), 4)}-${pad(d.getUTCMonth() + 1, 2)}-${pad(d.getUTCDate(), 2)}`;
-}
+// The server-local calendar date (the series history's date rule) and the day arithmetic are the
+// shared server helpers (CODE-9); re-exported for the callers and tests that import them here.
+export { addDaysIso, localIsoDate };
 
 /**
  * The currency whose `<CCY>AUD=X` closes an asset's purchase rate needs: `GBX` → `GBP`, a 3-letter

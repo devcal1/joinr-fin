@@ -30,7 +30,7 @@ import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from '
 import { errorMessage, isApiError } from '../../api/client';
 import { useDeleteInstrument, useHoldingDetail, useInvestmentPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading, Missing } from '../../components/QueryStates';
+import { Missing, QueryStates } from '../../components/QueryStates';
 import { NotFoundPage } from '../NotFoundPage';
 import { IMPORT_RUNNING_MESSAGE } from './apiErrors';
 import { HoldingFlagBadges, MoneyCell, PriceCell, RatioCell } from './cells';
@@ -390,14 +390,12 @@ export function HoldingDetailPage({
         subtitle={detail?.instrument.name ?? meta.title}
         actions={actions}
       />
-      {query.isPending ? <Loading label="Loading the holding…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load the holding"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading the holding…"
+        layout="dashboard"
+        errorTitle="Could not load the holding"
+      />
       {detail ? (
         <>
           <LiveRegion kind="status" label="Save result">

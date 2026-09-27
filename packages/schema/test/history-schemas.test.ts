@@ -229,9 +229,9 @@ describe('snapshotCorrectionSchema (§4.3)', () => {
 
 describe('settings registry: Stage 5 (stage-5.md §3.3)', () => {
   it('holds 61 keys: history.autoRecord appended, app-only, default off', () => {
-    expect(SETTING_KEYS).toHaveLength(61);
+    // Stage 6 (stage-6.md §3.3) appends two more keys after it (63).
+    expect(SETTING_KEYS.indexOf('history.autoRecord')).toBe(60);
     expect(SETTINGS.map((s) => s.key)).toEqual([...SETTING_KEYS]);
-    expect(SETTING_KEYS.at(-1)).toBe('history.autoRecord');
     expect(settingDef('history.autoRecord')).toMatchObject({
       label: 'Record each month automatically on its last day',
       category: 'history',
@@ -243,8 +243,9 @@ describe('settings registry: Stage 5 (stage-5.md §3.3)', () => {
   });
 
   it('makes 60 keys editable: every key but super.concessionalCapFy, the Stage 3–4 order kept', () => {
-    expect(EDITABLE_SETTING_KEYS).toHaveLength(60);
-    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(60);
+    // Stage 6 (stage-6.md §3.3) appends its two app-only keys (62).
+    expect(EDITABLE_SETTING_KEYS).toHaveLength(62);
+    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(62);
     expect(
       SETTING_KEYS.filter((k) => !(EDITABLE_SETTING_KEYS as readonly string[]).includes(k)),
     ).toEqual(['super.concessionalCapFy']);
@@ -272,11 +273,11 @@ describe('settings registry: Stage 5 (stage-5.md §3.3)', () => {
       'super.concessionalCapCents',
       'super.importedContributionType',
     ]);
-    // The rest in registry order, then the auto-record switch last.
-    const rest = EDITABLE_SETTING_KEYS.slice(22, -1);
+    // The rest in registry order, then the auto-record switch (and the two Stage 6 keys).
+    const rest = EDITABLE_SETTING_KEYS.slice(22, -3);
     const order = (k: string) => SETTING_KEYS.indexOf(k as SettingKey);
     expect([...rest].sort((a, b) => order(a) - order(b))).toEqual(rest);
-    expect(EDITABLE_SETTING_KEYS.at(-1)).toBe('history.autoRecord');
+    expect(EDITABLE_SETTING_KEYS.at(-3)).toBe('history.autoRecord');
   });
 
   it('partitions every key into the eleven groups (the cap FY in Super)', () => {
@@ -290,11 +291,11 @@ describe('settings registry: Stage 5 (stage-5.md §3.3)', () => {
       ['assets', 1],
       ['history', 3],
       ['features', 11],
-      ['fire', 6],
+      ['fire', 8],
       ['unused', 6],
     ]);
     const all = SETTING_GROUPS.flatMap((g) => [...g.keys]);
-    expect(all).toHaveLength(61);
+    expect(all).toHaveLength(63);
     expect(new Set(all)).toEqual(new Set(SETTING_KEYS));
     expect(settingGroupOf('super.concessionalCapFy')).toBe('super');
     expect(settingGroupOf('history.autoRecord')).toBe('history');
@@ -318,20 +319,22 @@ describe('settings registry: Stage 5 (stage-5.md §3.3)', () => {
   });
 
   it('lists the 13 preference keys (D95): the two chart keys and the eleven page switches', () => {
-    expect(PREFERENCE_SETTING_KEYS).toHaveLength(13);
-    expect([...PREFERENCE_SETTING_KEYS].sort()).toEqual(
+    // Stage 6 (D103, stage-6.md §3.3) adds the eight fire.* keys (21).
+    expect(PREFERENCE_SETTING_KEYS.slice(0, 13)).toHaveLength(13);
+    expect([...PREFERENCE_SETTING_KEYS.slice(0, 13)].sort()).toEqual(
       SETTING_KEYS.filter((k) => k.startsWith('charts.') || k.startsWith('features.')).sort(),
     );
     expect(isPreferenceSettingKey('features.crypto')).toBe(true);
     expect(isPreferenceSettingKey('history.autoRecord')).toBe(false);
-    // Every preference key is a workbook key (so the rule is needed).
-    for (const k of PREFERENCE_SETTING_KEYS) expect(isWorkbookSetting(k), k).toBe(true);
+    // Every Stage 5 preference key is a workbook key (so the rule is needed).
+    for (const k of PREFERENCE_SETTING_KEYS.slice(0, 13))
+      expect(isWorkbookSetting(k), k).toBe(true);
   });
 
   it('holds every editable key in one PATCH (60 ≤ 64)', () => {
     expect(EDITABLE_SETTING_KEYS.length).toBeLessThanOrEqual(SETTINGS_PATCH_MAX_KEYS);
     const all = Object.fromEntries(EDITABLE_SETTING_KEYS.map((k) => [k, null]));
-    expect(Object.keys(settingsPatchSchema.parse({ values: all }).values)).toHaveLength(60);
+    expect(Object.keys(settingsPatchSchema.parse({ values: all }).values)).toHaveLength(62);
   });
 
   const patchIssues = (key: EditableSettingKey, value: SettingValue) =>
@@ -344,6 +347,10 @@ describe('settings registry: Stage 5 (stage-5.md §3.3)', () => {
       'returns.marketReturn': { min: -1, max: 1 },
       'fire.inflationRate': { min: -1, max: 1 },
       'fire.withdrawalRate': { min: 0, max: 1 },
+      'fire.preservationAge': { min: 0, max: 99 },
+      // Stage 6 (stage-6.md §3.3).
+      'fire.marketReturn': { min: -1, max: 1 },
+      'fire.extraSavingsPerYearCents': { min: -1_000_000_000, max: 1_000_000_000 },
     });
     expect(patchIssues('charts.unitCount', 240)).toEqual([]);
     expect(patchIssues('charts.unitCount', 241)).toEqual([

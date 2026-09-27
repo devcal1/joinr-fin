@@ -1,0 +1,241 @@
+/*
+ * The milestone line (stage-6.md §6.5, STYLE_GUIDE §7.2): `jf-milestone-*` rules only. A data
+ * display, so no glow: a 1 px --hairline rule, 10 px dots in the full-strength brand colours,
+ * labels in the text tokens. Horizontal by default; vertical when forced, or ('auto') when the
+ * line's own container is narrower than 768 px (a container query).
+ */
+@layer brand {
+  .jf-milestone-line {
+    container: jf-milestone / inline-size;
+    min-width: 0;
+  }
+
+  /* ── Horizontal: nodes placed by --jf-ml-pos (0–1), labels under the line ─────────────────── */
+  .jf-milestone-line__body {
+    --jf-ml-inset: 5px;
+    --jf-ml-rule-y: 26px;
+
+    position: relative;
+    min-height: 80px;
+    font-size: var(--fs-small);
+    line-height: 1.35;
+  }
+
+  .jf-milestone-line__body--stacked {
+    min-height: 112px;
+  }
+
+  .jf-milestone-line__rule {
+    position: absolute;
+    top: var(--jf-ml-rule-y);
+    right: var(--jf-ml-inset);
+    left: var(--jf-ml-inset);
+    height: 1px;
+    background: var(--hairline);
+  }
+
+  .jf-milestone-line__segment {
+    position: absolute;
+    top: 4px;
+    left: calc(var(--jf-ml-inset) + var(--jf-ml-from) * (100% - 2 * var(--jf-ml-inset)));
+    width: calc((var(--jf-ml-to) - var(--jf-ml-from)) * (100% - 2 * var(--jf-ml-inset)));
+    overflow: hidden;
+    padding: 0 var(--space-3);
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* Words that do not fit their span are hidden whole, never cut mid-word (the hidden list keeps
+     them for screen readers; triage STYLE-7). */
+  .jf-milestone-line__segment[data-fits='false'] {
+    visibility: hidden;
+  }
+
+  .jf-milestone-line__node {
+    position: absolute;
+    top: calc(var(--jf-ml-rule-y) - 5px);
+    left: calc(var(--jf-ml-inset) + var(--jf-ml-pos) * (100% - 2 * var(--jf-ml-inset)));
+    width: 0;
+    height: 10px;
+  }
+
+  .jf-milestone-line__dot {
+    position: absolute;
+    top: 0;
+    left: -5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+
+  .jf-milestone-line__dot--teal {
+    background: var(--teal);
+  }
+
+  .jf-milestone-line__dot--violet {
+    background: var(--violet);
+  }
+
+  .jf-milestone-line__dot--fuchsia {
+    background: var(--fuchsia);
+  }
+
+  .jf-milestone-line__dot--orange {
+    background: var(--orange);
+  }
+
+  .jf-milestone-line__text {
+    position: absolute;
+    top: 18px;
+    display: flex;
+    flex-direction: column;
+    white-space: nowrap;
+  }
+
+  .jf-milestone-line__node[data-row='1'] .jf-milestone-line__text {
+    top: 50px;
+  }
+
+  .jf-milestone-line__node[data-anchor='start'] .jf-milestone-line__text {
+    left: -5px;
+  }
+
+  .jf-milestone-line__node[data-anchor='middle'] .jf-milestone-line__text {
+    left: 0;
+    align-items: center;
+    transform: translateX(-50%);
+  }
+
+  .jf-milestone-line__node[data-anchor='end'] .jf-milestone-line__text {
+    right: -5px;
+    align-items: flex-end;
+  }
+
+  .jf-milestone-line__label {
+    color: var(--text);
+  }
+
+  .jf-milestone-line__sublabel {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Vertical: nodes top to bottom, each phase's words between its nodes ──────────────────── */
+  .jf-milestone-line--vertical .jf-milestone-line__body {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .jf-milestone-line--vertical .jf-milestone-line__rule {
+    top: 5px;
+    right: auto;
+    bottom: 5px;
+    left: 4.5px;
+    width: 1px;
+    height: auto;
+  }
+
+  .jf-milestone-line--vertical .jf-milestone-line__segment {
+    position: static;
+    width: auto;
+    padding: 0 0 0 22px;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .jf-milestone-line--vertical .jf-milestone-line__node {
+    position: relative;
+    top: auto;
+    left: auto;
+    display: flex;
+    width: auto;
+    height: auto;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+
+  .jf-milestone-line--vertical .jf-milestone-line__dot {
+    position: relative;
+    top: auto;
+    left: auto;
+    flex: none;
+    margin-top: 3px;
+  }
+
+  .jf-milestone-line--vertical .jf-milestone-line__text,
+  .jf-milestone-line--vertical .jf-milestone-line__node[data-row='1'] .jf-milestone-line__text,
+  .jf-milestone-line--vertical .jf-milestone-line__node[data-anchor] .jf-milestone-line__text {
+    position: static;
+    top: auto;
+    right: auto;
+    left: auto;
+    flex-flow: row wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    transform: none;
+    white-space: normal;
+  }
+
+  @container jf-milestone (max-width: 767.98px) {
+    .jf-milestone-line--auto .jf-milestone-line__body {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .jf-milestone-line--auto .jf-milestone-line__rule {
+      top: 5px;
+      right: auto;
+      bottom: 5px;
+      left: 4.5px;
+      width: 1px;
+      height: auto;
+    }
+
+    .jf-milestone-line--auto .jf-milestone-line__segment {
+      position: static;
+      width: auto;
+      padding: 0 0 0 22px;
+      text-align: left;
+      white-space: normal;
+    }
+
+    .jf-milestone-line--auto .jf-milestone-line__node {
+      position: relative;
+      top: auto;
+      left: auto;
+      display: flex;
+      width: auto;
+      height: auto;
+      align-items: flex-start;
+      gap: var(--space-3);
+    }
+
+    .jf-milestone-line--auto .jf-milestone-line__dot {
+      position: relative;
+      top: auto;
+      left: auto;
+      flex: none;
+      margin-top: 3px;
+    }
+
+    .jf-milestone-line--auto .jf-milestone-line__text,
+    .jf-milestone-line--auto .jf-milestone-line__node[data-row='1'] .jf-milestone-line__text,
+    .jf-milestone-line--auto .jf-milestone-line__node[data-anchor] .jf-milestone-line__text {
+      position: static;
+      top: auto;
+      right: auto;
+      left: auto;
+      flex-flow: row wrap;
+      align-items: baseline;
+      gap: 0 var(--space-2);
+      transform: none;
+      white-space: normal;
+    }
+  }
+}

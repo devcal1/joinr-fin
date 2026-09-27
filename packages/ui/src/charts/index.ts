@@ -12,6 +12,7 @@ export type {
   DonutChartProps,
   EChartProps,
   GaugeChartProps,
+  LineChartMarker,
   LineChartProps,
   Series,
   ValueFormatter,
@@ -28,6 +29,7 @@ export {
 } from './palette';
 export { JOINR_CHART_THEME } from './theme';
 export {
+  compactAxisFormatter,
   compactMoneyFormatter,
   formatChartNumber,
   moneyFormatter,

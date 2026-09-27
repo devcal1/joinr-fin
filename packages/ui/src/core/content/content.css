@@ -8,7 +8,7 @@
     justify-content: space-between;
     gap: var(--space-2) var(--space-3);
     min-width: 0;
-    padding: var(--space-2) var(--space-4);
+    padding: 6px var(--space-3);
     border-left: 4px solid var(--orange);
     border-radius: var(--radius-bar);
     background: var(--raised);
@@ -43,7 +43,7 @@
   /* ── Card ── */
   .jf-card {
     min-width: 0;
-    padding: var(--space-4);
+    padding: var(--space-3);
     border-radius: var(--radius-card);
     background: var(--surface);
   }
@@ -59,12 +59,12 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-2) var(--space-3);
-    margin-bottom: var(--space-3);
+    margin-bottom: var(--space-2);
   }
 
   .jf-card--flush > .jf-card__head {
     margin-bottom: 0;
-    padding: var(--space-4) var(--space-4) var(--space-3);
+    padding: var(--space-3) var(--space-3) var(--space-2);
   }
 
   .jf-card__heading {
@@ -100,7 +100,7 @@
   /* ── Callout ── */
   .jf-callout {
     min-width: 0;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-2) var(--space-3);
     border-left: 4px solid var(--teal);
     border-radius: var(--radius-bar);
     background: var(--surface);
@@ -139,17 +139,26 @@
     color: var(--text);
   }
 
-  /* ── Key–value table ── */
+  /*
+   * ── Key–value table ──
+   * Stage 6 (§6.9 D, E): labels never split a word (STYLE-6) and, below 480 px of the table's own
+   * width (a container query), each row stacks: the label strip above the value, both full width.
+   * Every value is left-aligned; figures stay monospaced (STYLE-7, an exception to the "numbers
+   * right-aligned" rule recorded in STYLE_GUIDE §5/§10), so phrase and number rows share one edge.
+   */
   .jf-kv {
     min-width: 0;
     overflow: hidden;
     border-radius: var(--radius-card);
+    container-type: inline-size;
   }
 
   .jf-kv__table {
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
+    /* What a figure's `text-align: inherit` resolves to, whatever the surrounding alignment. */
+    text-align: left;
   }
 
   /* The label column's share, on the column itself (see KeyValueTable). */
@@ -159,7 +168,7 @@
 
   .jf-kv__label,
   .jf-kv__value {
-    padding: var(--space-2) var(--space-3);
+    padding: 3px var(--space-2);
     vertical-align: baseline;
     text-align: left;
   }
@@ -173,25 +182,64 @@
     letter-spacing: 0.14em;
     line-height: 1.5;
     text-transform: uppercase;
-    overflow-wrap: anywhere;
+    /* Whole words only (STYLE-6): a long label wraps between words, never inside one. */
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: manual;
   }
 
   .jf-kv__value {
     background: var(--surface);
     color: var(--text);
     font-size: var(--fs-dense);
-    line-height: 1.5;
+    line-height: 1.35;
     overflow-wrap: anywhere;
   }
 
+  /* Figures: monospaced and tabular, on the same left edge as the phrase rows (STYLE-7). */
   .jf-kv__value--num {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-    text-align: right;
+    text-align: inherit;
+  }
+
+  /* A `.jf-num` (right-aligned elsewhere) inside a value keeps the value's left edge. */
+  .jf-kv__value .jf-num {
+    text-align: inherit;
   }
 
   .jf-kv__row + .jf-kv__row > * {
     border-top: 1px solid var(--hairline);
+  }
+
+  @container (max-width: 479.98px) {
+    .jf-kv__table,
+    .jf-kv__table > tbody,
+    .jf-kv__row {
+      display: block;
+      width: 100%;
+    }
+
+    /* The column widths mean nothing once rows stack (and would make an anonymous table box). */
+    .jf-kv__table > colgroup {
+      display: none;
+    }
+
+    .jf-kv__label,
+    .jf-kv__value {
+      display: block;
+      width: 100%;
+    }
+
+    .jf-kv__label {
+      padding-top: 3px;
+      padding-bottom: 3px;
+    }
+
+    /* Stacked, the label strip itself separates a value from the next row's label. */
+    .jf-kv__row + .jf-kv__row > .jf-kv__value {
+      border-top: 0;
+    }
   }
 
   /* ── Stat tile ── */
@@ -201,7 +249,7 @@
     gap: var(--space-1);
     min-width: 0;
     height: 100%;
-    padding: var(--space-4);
+    padding: var(--space-3);
     border-radius: var(--radius-card);
     background: var(--surface);
   }
@@ -262,18 +310,34 @@
     line-height: 1.4;
   }
 
+  /*
+   * Footer (Stage 6, §6.5): a meter and a muted "Saved: …" line under the hint. It sits at the
+   * tile's foot, so meters line up across a row of tiles of different heights.
+   */
+  .jf-stat-tile__footer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+    margin-top: auto;
+    padding-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
   /* ── Status badge: 16% fill, full-strength border, light-tint text, 12px uppercase 0.08em ── */
   .jf-badge {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 1px var(--space-2);
+    padding: 0 6px;
     border: 1px solid;
     border-radius: var(--radius-bar);
     font-size: var(--fs-badge);
     font-weight: 700;
     letter-spacing: 0.08em;
-    line-height: 1.5;
+    line-height: 1.35;
     text-transform: uppercase;
     white-space: nowrap;
     vertical-align: middle;
@@ -420,5 +484,131 @@
 
   .jf-amount--negative {
     color: var(--stop-tint);
+  }
+
+  /*
+   * ── Skeleton (Stage 6, §6.9 A): first-load placeholders. `--surface` blocks on the page (their
+   * inner bars one step up, `--raised`), a 1.2 s opacity pulse, none under reduced motion. ──
+   */
+  .jf-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+    animation: jf-skeleton-pulse 1.2s ease-in-out infinite;
+  }
+
+  .jf-skeleton__bar {
+    display: block;
+    flex: none;
+    width: var(--jf-skeleton-w, 100%);
+    max-width: 100%;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--surface);
+  }
+
+  /* A text skeleton inside a card (on --surface) steps up so it stays visible. */
+  .jf-card .jf-skeleton--text .jf-skeleton__bar {
+    background: var(--raised);
+  }
+
+  .jf-skeleton--tile,
+  .jf-skeleton--card,
+  .jf-skeleton--chart,
+  .jf-skeleton--table {
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .jf-skeleton--tile,
+  .jf-skeleton--card,
+  .jf-skeleton--chart {
+    padding: var(--space-4);
+  }
+
+  .jf-skeleton--tile .jf-skeleton__bar,
+  .jf-skeleton--card .jf-skeleton__bar,
+  .jf-skeleton--chart .jf-skeleton__bar,
+  .jf-skeleton--table .jf-skeleton__bar {
+    background: var(--raised);
+  }
+
+  /* A KPI tile's footprint: label, figure, hint. */
+  .jf-skeleton--tile {
+    justify-content: flex-start;
+    min-height: 104px;
+  }
+
+  .jf-skeleton__label {
+    height: 10px;
+  }
+
+  .jf-skeleton__figure {
+    height: 26px;
+  }
+
+  .jf-skeleton--card {
+    height: var(--jf-skeleton-h, 160px);
+  }
+
+  .jf-skeleton__title {
+    height: 14px;
+  }
+
+  .jf-skeleton--chart {
+    gap: var(--space-3);
+  }
+
+  .jf-skeleton__plot {
+    display: block;
+    height: var(--jf-skeleton-h, 280px);
+    border-radius: var(--radius-bar);
+    background: color-mix(in srgb, var(--raised) 55%, transparent);
+  }
+
+  .jf-skeleton--table {
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .jf-skeleton__head {
+    display: block;
+    height: 34px;
+    background: var(--raised);
+  }
+
+  .jf-skeleton__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 38px;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .jf-skeleton__row + .jf-skeleton__row {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .jf-skeleton__row .jf-skeleton__bar {
+    height: 10px;
+  }
+
+  @keyframes jf-skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jf-skeleton {
+      animation: none;
+    }
   }
 }

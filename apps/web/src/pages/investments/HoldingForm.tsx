@@ -43,6 +43,7 @@ import {
   type HoldingField,
 } from './holdingDraft';
 import { KIND_META } from './kinds';
+import { escapeCancels } from '../../components/keyboard';
 
 export const WORKBOOK_HOLDING_NOTE =
   'This holding came from the workbook. Saving a change other than the default fee counts as an app edit: re-importing the workbook will then be blocked.';
@@ -175,6 +176,7 @@ export function HoldingForm({
         ref={formRef}
         className="jf-app-form"
         onSubmit={onSubmit}
+        onKeyDown={escapeCancels(cancel, pending || (!onCancel && pristine))}
         noValidate
         aria-label={create ? `Add ${meta.noun}` : `Holding settings for ${instrument.symbol}`}
         aria-busy={pending || undefined}

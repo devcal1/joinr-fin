@@ -67,4 +67,12 @@
     --control-h: 36px;
     --control-h-sm: 28px;
   }
+
+  /* The phone header's two rows (56 px + the freshness line) are never taller than this; sticky
+     offsets and scroll padding read it (triage STYLE-2). */
+  @media (max-width: 767.98px) {
+    :root {
+      --shell-header-h: 88px;
+    }
+  }
 }

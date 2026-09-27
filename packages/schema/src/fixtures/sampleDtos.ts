@@ -630,4 +630,6 @@ export const apiErrors = {
   snapshotNotDeletable: { error: { code: 'SNAPSHOT_NOT_DELETABLE', message: 'Imported months can be corrected but not deleted' } },
   recordInProgress: { error: { code: 'RECORD_IN_PROGRESS', message: 'A month is being recorded; try again in a moment' } },
   historyValidation: { error: { code: 'VALIDATION_ERROR', message: 'values.mortgageBalanceCents: must not be positive; note: say why' } },
+  // Stage 6 (stage-6.md §3.6): an out-of-range what-if query.
+  fireValidation: { error: { code: 'VALIDATION_ERROR', message: 'withdrawalRate: must be above 0; accessAge: Too big: expected number to be <=99' } },
 } satisfies Record<string, ApiErrorBody>;

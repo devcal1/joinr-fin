@@ -28,6 +28,7 @@ import { FlowCell, PeriodCell } from '../cashflow/cells';
 import { dateSpan, periodLabel, toDollars } from '../cashflow/display';
 import { InlineForm, NewAppDataNote, WorkbookCallout } from '../cashflow/forms';
 import { formErrorsOf, orderColumns, type EditorState } from '../cashflow/formState';
+import { chartEmptyMessage } from './periodsText';
 import { sideNoteActionKey, type SideIncomeEditor } from './sideIncomeEditor';
 
 export const NO_PERIODS = 'Periods start with the first recorded month.';
@@ -52,6 +53,7 @@ export function PeriodsSection({ page, editor }: PeriodsSectionProps): JSX.Eleme
   const phone = useMediaQuery(MEDIA.phone);
   const points = page.charts.points;
   const live = points.some((p) => p.live);
+  const emptyMessage = chartEmptyMessage(page);
   const open = editor.editor;
   const notePeriod =
     open?.form === 'note'
@@ -190,7 +192,7 @@ export function PeriodsSection({ page, editor }: PeriodsSectionProps): JSX.Eleme
             stacked
             valueFormatter={dollarFormatter}
             axisFormatter={compactMoneyFormatter}
-            emptyMessage="No side income yet"
+            emptyMessage={emptyMessage}
           />,
         )}
         table={withLive(
@@ -199,7 +201,7 @@ export function PeriodsSection({ page, editor }: PeriodsSectionProps): JSX.Eleme
             rows={points}
             getRowId={(p) => p.period}
             caption="Side income by period"
-            emptyMessage="No side income yet"
+            emptyMessage={emptyMessage}
           />,
         )}
       />

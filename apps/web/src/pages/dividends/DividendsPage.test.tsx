@@ -72,7 +72,19 @@ describe('Dividends page: states', () => {
   it('empty: no dividends yet, nothing to add a dividend to', async () => {
     await openDividends(dividendsPages.empty);
     expect(tableNamed('Dividends: 0 payments')).toHaveTextContent('No dividends yet.');
-    expect(screen.queryByRole('button', { name: 'Add dividend' })).toBeNull();
+    // STYLE-13 (stage-6.md §6.9 C): visible but disabled, with the reason and the pages beside it.
+    const add = screen.getByRole('button', { name: 'Add dividend' });
+    expect(add).toBeDisabled();
+    expect(add).toHaveAccessibleDescription(
+      'Add a holding on the ETFs, Stocks or Managed Funds page first; each dividend belongs to a holding.',
+    );
+    const reason = document.getElementById(add.getAttribute('aria-describedby')!)!;
+    expect(within(reason).getByRole('link', { name: 'ETFs' })).toHaveAttribute('href', '/etfs');
+    expect(within(reason).getByRole('link', { name: 'Stocks' })).toHaveAttribute('href', '/stocks');
+    expect(within(reason).getByRole('link', { name: 'Managed Funds' })).toHaveAttribute(
+      'href',
+      '/managed-funds',
+    );
     expect(tableNamed('This FY by holding')).toHaveTextContent('No dividends this FY yet.');
   });
 });

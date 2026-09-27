@@ -4,6 +4,7 @@ export {
   clearSeededTables,
   SEED_META_KEY,
   SEED_WORKBOOK_AS_OF,
+  seedFireReplacedAge,
   seedGenericData,
   seedRecordedMonth,
   type SeedOptions,

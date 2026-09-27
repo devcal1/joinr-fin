@@ -21,7 +21,7 @@ import {
 } from '@joinr/ui';
 import type { JSX, ReactNode } from 'react';
 import { Missing } from '../../components/QueryStates';
-import { formatCount, formatDateTime } from '../../formatting';
+import { RATE_DP_PLACE, formatCount, formatDateTime } from '../../formatting';
 import { KIND_LABELS } from '../prices/priceDisplay';
 
 /** Readable words for the review flags (D26). */
@@ -109,7 +109,12 @@ export function renderSettingValue(
     case 'money':
       return renderMoney(value);
     case 'ratio':
-      return inlineFigure(safe(() => formatPercent(Number(value), { dp: 2 }), value));
+      // The stored value at two decimals (raw data, a documented two-decimal place).
+      return (
+        <span {...RATE_DP_PLACE}>
+          {inlineFigure(safe(() => formatPercent(Number(value), { dp: 2 }), value))}
+        </span>
+      );
     case 'integer':
       // Small counts and years (a birth year reads 1990, not 1,990); U+2212 for negatives.
       return inlineFigure(String(value).replace(/^-/, MINUS));
@@ -137,7 +142,9 @@ export function renderCell(type: RecordColumnType, value: RecordCell, row?: Reco
     case 'price':
       return safe(() => formatPrice(value as string | number, { maxDp: 8 }), value);
     case 'ratio':
-      return safe(() => formatPercent(Number(value), { dp: 2 }), value);
+      return (
+        <span {...RATE_DP_PLACE}>{safe(() => formatPercent(Number(value), { dp: 2 }), value)}</span>
+      );
     case 'integer':
       return formatInteger(value);
     case 'date':

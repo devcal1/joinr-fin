@@ -76,7 +76,7 @@
   .jf-app-form {
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-3);
     min-width: 0;
   }
 
@@ -144,6 +144,22 @@
     .jf-app-loading__icon {
       animation: none;
     }
+  }
+
+  /* The reason beside a disabled page action (Dividends with no holdings, STYLE-13). */
+  .jf-app-action-reason {
+    max-width: 44ch;
+  }
+
+  /* A page's first-load skeleton (stage-6.md §6.9 A): the page's blocks, 24px apart. */
+  .jf-app-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .jf-app-skeleton__header {
+    max-width: 320px;
   }
 
   .jf-app-error {
@@ -434,11 +450,18 @@
     margin-top: 0;
   }
 
-  /* KPI tiles: two across on a phone, one row on wider screens (equal columns, 12px gutters). */
+  /* KPI tiles: one row on wider screens (equal columns, 12px gutters); on a phone one per row, on
+     the fields' left edge, like every Grid of tiles (stage-6.md §6.9 D). */
   .jf-app-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: var(--space-3);
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-app-tiles {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   /* A key figure that needs review: an orange alert icon beside it (the hint says it in words). */
@@ -494,6 +517,27 @@
      word ("unrealised", "realised") in the body face. */
   .jf-app-result-cell {
     white-space: nowrap;
+  }
+
+  /* Dense (D109): from tablet width a cell's stacked figures sit tight (no gap, 1.25 lines), and
+     in-table buttons are compact. Phones keep the roomier cells and the 28 px buttons. The figures
+     stay stacked: one line would push the wide tables past the content area. */
+  @media (min-width: 768px) {
+    .jf-app-price-cell,
+    .jf-app-result-cell,
+    .jf-app-fee-cell {
+      gap: 0;
+      line-height: 1.25;
+    }
+
+    .jf-table__cell .jf-button--sm {
+      min-height: 22px;
+      padding: 0 6px;
+    }
+
+    .jf-table__cell .jf-button--sm.jf-button--icon {
+      width: 22px;
+    }
   }
 
   .jf-app-result-line {
@@ -673,6 +717,11 @@
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-1) var(--space-2);
+  }
+
+  /* The rolling net worth has room for the rate and its Check badge on one line (D109). */
+  .jf-app-rolling-table .jf-app-rate-cell {
+    flex-wrap: nowrap;
   }
 
   /* Free-text notes in a table wrap instead of widening it. */

@@ -8,6 +8,7 @@ import {
   HeroBand,
   Icon,
   KeyValueTable,
+  MilestoneLine,
   SectionBar,
   StatTile,
   WORDMARK_ASPECT,
@@ -90,6 +91,23 @@ const TRACE_FACTS = [
   { label: 'Fidelity vs PNG', value: 'IoU 0.994 · 48 of 23,484 px differ' },
   { label: 'Geometry', value: '5 letter paths + 1 circle, 213.55 × 87.46 viewBox' },
   { label: 'Full stop', value: 'True circle, #6E78E2 → #E44FB5 at 45°' },
+];
+
+/**
+ * Sample milestones for the MilestoneLine demo (the generic hand-worked example of stage-6.md
+ * §10.1): colours by position in the fixed spectrum order, never by kind.
+ */
+const MILESTONES = [
+  { key: 'today', tone: 'teal', position: 0, label: 'Today', sublabel: '2030 · 55' },
+  { key: 'fire', tone: 'violet', position: 0.2, label: 'FIRE', sublabel: '2031 · 56' },
+  { key: 'topUpsEnd', tone: 'fuchsia', position: 0.8, label: 'Top-ups end', sublabel: '2034 · 59' },
+  { key: 'access', tone: 'orange', position: 1, label: 'Access', sublabel: '2035 · 60' },
+] as const;
+
+const MILESTONE_SEGMENTS = [
+  { from: 0, to: 0.2, label: 'Saving' },
+  { from: 0.2, to: 0.8, label: 'Drawing down, topping up super' },
+  { from: 0.8, to: 1, label: 'Drawing down' },
 ];
 
 /** Sample KPI tiles for the hero demos (generic figures only). */
@@ -204,6 +222,33 @@ export function BrandSection(): JSX.Element {
           <GridItem span={6}>
             <Card title="Compact · 140 px · with wordmark">
               <HeroBand height="compact" showWordmark />
+            </Card>
+          </GridItem>
+        </Grid>
+      </GalleryItem>
+
+      <GalleryItem
+        name="MilestoneLine"
+        note="The node-line motif as data (FIRE): 10 px dots in spectrum order by position, no glow; vertical below 768 px of its container"
+      >
+        <Grid>
+          <GridItem span={12}>
+            <Card title="Horizontal">
+              <MilestoneLine
+                ariaLabel="Example milestones: today, FIRE, top-ups end, access"
+                nodes={[...MILESTONES]}
+                segments={MILESTONE_SEGMENTS}
+                orientation="horizontal"
+              />
+            </Card>
+          </GridItem>
+          <GridItem span={4} spanTablet={6}>
+            <Card title="Auto (a narrow container)">
+              <MilestoneLine
+                ariaLabel="Example milestones in a narrow container"
+                nodes={[...MILESTONES]}
+                segments={MILESTONE_SEGMENTS}
+              />
             </Card>
           </GridItem>
         </Grid>

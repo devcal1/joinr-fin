@@ -3,6 +3,7 @@
 // export into DATA_DIR with the same importWorkbook() the upload route uses. A real import over
 // app-entered data (origin 'app') needs --yes --replace-app-data (D34); the upload route
 // refuses it.
+// Stage 6 (stage-6.md §3.4): a committed import runs the D98 one-off (`applySettingUpgrades`).
 //
 // Exit codes: 0 succeeded with 0 unexplained · 4 succeeded with unexplained > 0 · 1 failed ·
 // 2 usage/config/corrections error · 3 confirmation required.
@@ -27,6 +28,7 @@ import { ConfigError, loadConfig } from '../config';
 import { backupBeforeImport } from '../db/backup';
 import { closeDatabase, openDatabase, runMigrations } from '../db/database';
 import { clearAppEditMarker, hasAppData, hasDomainData } from '../db/queries/domain';
+import { applySettingUpgrades, type SettingUpgrade } from '../fire/upgrade';
 
 export interface CliIo {
   stdout: { write(text: string): unknown };
@@ -311,7 +313,17 @@ export async function main(argv: string[], io: CliIo = defaultIo()): Promise<num
       dryRun: args.dryRun,
     });
     // A committed import replaced every app edit, so the D34 deletion marker goes too (§3.3).
-    if (result.status === 'succeeded' && !result.dryRun) clearAppEditMarker(database.db);
+    // Stage 6 (stage-6.md §3.4): then the D98 one-off on the freshly imported settings.
+    let upgrades: SettingUpgrade[] = [];
+    if (result.status === 'succeeded' && !result.dryRun) {
+      clearAppEditMarker(database.db);
+      try {
+        upgrades = applySettingUpgrades(database, new Date());
+      } catch {
+        // The import has committed: the upgrade runs again at the next server start (CODE-3).
+        io.stderr.write('Access-age upgrade deferred to the next server start.\n');
+      }
+    }
     if (args.json) io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else
       printSummary(
@@ -322,6 +334,12 @@ export async function main(argv: string[], io: CliIo = defaultIo()): Promise<num
           ? { name: source.name, entries: corrections.corrections.length }
           : null,
       );
+    // One line per upgrade (the key and the ages only); stdout stays pure JSON with --json.
+    for (const u of upgrades) {
+      (args.json ? io.stderr : io.stdout).write(
+        `Access age changed from ${u.from} (the workbook) to ${u.to} (D98, once)\n`,
+      );
+    }
     if (result.status === 'failed') return EXIT.failed;
     return (result.report?.totals.unexplained ?? 0) > 0 ? EXIT.unexplained : EXIT.ok;
   } finally {

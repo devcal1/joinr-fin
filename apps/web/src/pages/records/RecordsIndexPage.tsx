@@ -4,7 +4,7 @@ import { Callout, Card, Grid, GridItem, KeyValueTable, PageHeader, SectionBar } 
 import { Link } from '@tanstack/react-router';
 import type { JSX } from 'react';
 import { useRecordsIndex } from '../../api/hooks';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { plural } from '../../formatting';
 
 export const RECORDS_SUBTITLE = 'Imported data, read-only';
@@ -26,19 +26,17 @@ function EntityLink({ entity }: { entity: RecordEntitySummary }): JSX.Element {
 export function RecordsIndexPage(): JSX.Element {
   const query = useRecordsIndex();
   const entities = query.data?.entities ?? [];
-  const empty = query.isSuccess && entities.every((entity) => entity.count === 0);
+  const empty = query.data !== undefined && entities.every((entity) => entity.count === 0);
 
   return (
     <>
       <PageHeader title="Records" subtitle={RECORDS_SUBTITLE} />
-      {query.isPending ? <Loading label="Loading the record tables…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load the records"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading the record tables…"
+        layout="table"
+        errorTitle="Could not load the records"
+      />
       {empty ? (
         <Callout kind="note">
           <p>
@@ -46,7 +44,7 @@ export function RecordsIndexPage(): JSX.Element {
           </p>
         </Callout>
       ) : null}
-      {query.isSuccess ? (
+      {query.data ? (
         <Grid>
           {RECORD_GROUPS.map((group) => {
             const members = entities.filter((entity) => entity.group === group.id);

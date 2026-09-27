@@ -162,27 +162,100 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** A digits-only term (`12345678`, `-1234`, `123456.78`): these also match separator-written numbers. */
+const DIGITS_ONLY_TERM_RE = /^-?\d+(?:\.\d+)?$/;
+
+/**
+ * Runs of digits written with separators (stage-6.md §8.2): a thousands grouping
+ * (`12,345,678`, `123,456.78`) or a digit-separator run (`12_345_678`, `123_456.78`).
+ * A run never starts inside a word, a longer number or a dotted/grouped run, and never ends
+ * before more digits or another `,digit`, so a list (`1, 234`), a hex literal (`0x12_34`), a
+ * version (`v1.2.3`) and a comma that does not group by thousands (`12,34,567`, `1,2345`) are
+ * left alone. The two kinds have their own boundaries: a comma is a list separator next to an
+ * underscore run (`[1,12_345_678]`, `7,12_345_678` in a CSV row), so only the grouping excludes
+ * a neighbouring `,` / `,digit` (triage CODE-4).
+ */
+const SEPARATOR_RUN_RE =
+  /(?<![A-Za-z0-9_.,])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![A-Za-z0-9_]|[,.]\d)|(?<![A-Za-z0-9_.])\d+(?:_\d+)+(?:\.\d+)?(?![A-Za-z0-9_]|\.\d)/g;
+
+/** A term written with thousands commas (`4,321`, `12,345.67`): also matched in its other forms. */
+const COMMA_GROUPED_TERM_RE = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/;
+
+/**
+ * The text with the `,`/`_` separators of every separator run removed, and for each character
+ * of the result its offset in the original text (plus one entry for the end). Undefined when the
+ * text has no separator run.
+ */
+export function normaliseSeparatorRuns(
+  text: string,
+): { text: string; offsets: number[] } | undefined {
+  let out = '';
+  const offsets: number[] = [];
+  let last = 0;
+  let changed = false;
+  for (const m of text.matchAll(SEPARATOR_RUN_RE)) {
+    for (let i = last; i < m.index; i++) offsets.push(i);
+    out += text.slice(last, m.index);
+    for (let i = 0; i < m[0].length; i++) {
+      const c = m[0][i];
+      if (c === ',' || c === '_') continue;
+      out += c;
+      offsets.push(m.index + i);
+    }
+    last = m.index + m[0].length;
+    changed = true;
+  }
+  if (!changed) return undefined;
+  for (let i = last; i < text.length; i++) offsets.push(i);
+  out += text.slice(last);
+  offsets.push(text.length);
+  return { text: out, offsets };
+}
+
+const boundedAlternation = (terms: readonly string[]): RegExp | undefined => {
+  const alternatives = [...terms].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  return alternatives.length > 0
+    ? new RegExp(`(?<![A-Za-z0-9_])(?:${alternatives.join('|')})(?![A-Za-z0-9_])`, 'g')
+    : undefined;
+};
+
 /**
  * Case-sensitive, exact matching of private terms, bounded so a term never matches inside a
  * longer word: `(?<![A-Za-z0-9_])term(?![A-Za-z0-9_])`. Longer terms win when terms overlap.
+ *
+ * Digits-only terms also match numbers written with separators (stage-6.md §8.2): the separator
+ * runs are normalised (their `,`/`_` removed) and matched against those terms with the same
+ * boundaries; a hit is reported at its original location. A term written with thousands commas
+ * (`4,321`) also matches its other separator forms (`4_321`), never its plain digits (`4321`: a
+ * port or a year stays safe): only its comma-stripped form joins the separated pass, which keeps a
+ * hit only when a separator was removed inside it (triage CODE-4).
  */
 export class TermMatcher {
   readonly size: number;
   private readonly re: RegExp | undefined;
+  private readonly digitsRe: RegExp | undefined;
   private readonly lineOf = new Map<string, number>();
+  /** The separated pass's terms (digits-only terms, comma-stripped forms) → the term's line. */
+  private readonly separatedLineOf = new Map<string, number>();
 
   constructor(terms: readonly PrivateTerm[]) {
     for (const { term, line } of terms) {
       if (!this.lineOf.has(term)) this.lineOf.set(term, line);
     }
     this.size = this.lineOf.size;
-    const alternatives = [...this.lineOf.keys()]
-      .sort((a, b) => b.length - a.length)
-      .map(escapeRegExp);
-    this.re =
-      alternatives.length > 0
-        ? new RegExp(`(?<![A-Za-z0-9_])(?:${alternatives.join('|')})(?![A-Za-z0-9_])`, 'g')
-        : undefined;
+    const all = [...this.lineOf.keys()];
+    this.re = boundedAlternation(all);
+    for (const term of all) {
+      if (DIGITS_ONLY_TERM_RE.test(term)) this.separatedLineOf.set(term, this.lineOf.get(term)!);
+    }
+    for (const term of all) {
+      if (!COMMA_GROUPED_TERM_RE.test(term)) continue;
+      const stripped = term.replaceAll(',', '');
+      if (!this.separatedLineOf.has(stripped)) {
+        this.separatedLineOf.set(stripped, this.lineOf.get(term)!);
+      }
+    }
+    this.digitsRe = boundedAlternation([...this.separatedLineOf.keys()]);
   }
 
   static fromText(text: string): TermMatcher {
@@ -191,12 +264,42 @@ export class TermMatcher {
 
   find(text: string): ContentMatch[] {
     if (!this.re) return [];
-    return [...text.matchAll(this.re)].map((m) => ({
+    const exact = [...text.matchAll(this.re)].map((m) => ({
       rule: 'private-term' as const,
       index: m.index,
       value: m[0],
       termLine: this.lineOf.get(m[0]),
     }));
+    // A separated hit where an exact one already is (a comma-written term as written): one finding.
+    const seen = new Set(exact.map((m) => `${m.index}:${m.value.length}`));
+    const separated = this.findSeparated(text).filter(
+      (m) => !seen.has(`${m.index}:${m.value.length}`),
+    );
+    if (separated.length === 0) return exact;
+    return [...exact, ...separated].sort((a, b) => a.index - b.index);
+  }
+
+  /** Digits-only terms found only once separators are removed (never a plain, exact hit again). */
+  private findSeparated(text: string): ContentMatch[] {
+    if (!this.digitsRe) return [];
+    const normalised = normaliseSeparatorRuns(text);
+    if (!normalised) return [];
+    const { offsets } = normalised;
+    const matches: ContentMatch[] = [];
+    for (const m of normalised.text.matchAll(this.digitsRe)) {
+      const start = offsets[m.index] ?? 0;
+      const end = (offsets[m.index + m[0].length - 1] ?? start) + 1;
+      // Same length as the match: no separator was removed inside it, so the exact matcher
+      // already reported it (or it is not a term as written).
+      if (end - start === m[0].length) continue;
+      matches.push({
+        rule: 'private-term',
+        index: start,
+        value: text.slice(start, end),
+        termLine: this.separatedLineOf.get(m[0]),
+      });
+    }
+    return matches;
   }
 }
 

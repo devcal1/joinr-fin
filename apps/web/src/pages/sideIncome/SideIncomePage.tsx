@@ -18,7 +18,7 @@ import { ListPlus, Plus } from 'lucide-react';
 import type { JSX, ReactNode } from 'react';
 import { useSideIncomePage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { plural } from '../../formatting';
 import { actionSelector, useEditor } from '../cashflow/formState';
 import { DepositForm } from './DepositForm';
@@ -149,14 +149,12 @@ export function SideIncomePage(): JSX.Element {
   return (
     <>
       <PageHeader title="Side Income" subtitle="Cash flow" actions={actions} />
-      {query.isPending ? <Loading label="Loading side income…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load the side income page"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading side income…"
+        layout="dashboard"
+        errorTitle="Could not load the side income page"
+      />
       {page ? (
         <>
           <LiveRegion kind="status" label="Save result">

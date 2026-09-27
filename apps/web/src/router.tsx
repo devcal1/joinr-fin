@@ -1,47 +1,34 @@
-// Code-based TanStack Router route tree (Scaffolder; stage-0.md §1).
+// Code-based TanStack Router route tree (Scaffolder; stage-0.md §1). Stage 6 (stage-6.md §6.1,
+// §6.9 H, D104): every page route loads its component lazily (its own chunk) except the root
+// layout, NotFoundPage and ErrorPage; routes whose component needs props or route APIs load a small
+// route module under ./routes. Each lazy route shows its pending skeleton (./routes/pending) while
+// the chunk loads. A missing chunk makes `lazyRouteComponent` reload the page once before an error
+// reaches ErrorPage.
 import type { QueryClient } from '@tanstack/react-query';
 import {
   Outlet,
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   notFound,
-  useParams,
   type RouterHistory,
 } from '@tanstack/react-router';
-import { isRecordEntityId, type InstrumentKind } from '@joinr/schema';
-import type { JSX } from 'react';
+import { isRecordEntityId } from '@joinr/schema';
 import { RootLayout } from './layout/RootLayout';
-import { PAGES, STYLEGUIDE_PAGE, isScreenVariant, type PageDef } from './pages';
-import { BudgetPage } from './pages/budget/BudgetPage';
-import { CashPage } from './pages/cash/CashPage';
-import { DividendsPage } from './pages/dividends/DividendsPage';
+import { STYLEGUIDE_PAGE, isScreenVariant } from './pages';
 import { ErrorPage } from './pages/ErrorPage';
-import { HistoryPage } from './pages/history/HistoryPage';
-import { ImportPage } from './pages/import/ImportPage';
-import { ImportRunPage } from './pages/import/ImportRunPage';
-import { HoldingDetailPage } from './pages/investments/HoldingDetailPage';
-import { InvestmentPage } from './pages/investments/InvestmentPage';
-import { NetWorthPage } from './pages/netWorth/NetWorthPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { OtherAssetsPage } from './pages/otherAssets/OtherAssetsPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
-import { PricesPage } from './pages/prices/PricesPage';
-import { PropertyPage } from './pages/property/PropertyPage';
-import { RecordsEntityPage } from './pages/records/RecordsEntityPage';
-import { RecordsIndexPage } from './pages/records/RecordsIndexPage';
-import { ScreenPreviewPage } from './pages/ScreenPreviewPage';
-import { SettingsPage } from './pages/settings/SettingsPage';
-import { SideIncomePage } from './pages/sideIncome/SideIncomePage';
-import { StyleguidePage } from './pages/styleguide/StyleguidePage';
-import { SuperPage } from './pages/super/SuperPage';
+import { POSITIVE_INT_RE } from './routes/params';
+import { pendingFor } from './routes/pending';
 
 export interface RouterContext {
   queryClient: QueryClient;
 }
 
-/** A positive integer path segment or search value (`7`; not `07`, `0` or `-1`). */
-const POSITIVE_INT_RE = /^[1-9]\d{0,15}$/;
+/** The router's pending timing (stage-6.md §6.1): no skeleton flash on a fast chunk load. */
+export const PENDING_MS = 150;
+export const PENDING_MIN_MS = 300;
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: Outlet,
@@ -55,83 +42,85 @@ const appRoute = createRoute({
   component: RootLayout,
 });
 
-function placeholderFor(page: PageDef): () => JSX.Element {
-  function Placeholder(): JSX.Element {
-    return <PlaceholderPage page={page} />;
-  }
-  Placeholder.displayName = `Placeholder(${page.id})`;
-  return Placeholder;
-}
-
-// Stage 1 pages have their own typed routes (literal paths, so links to them are type-checked).
+// Stage 1: records, import, prices.
 const recordsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/records',
-  component: RecordsIndexPage,
+  component: lazyRouteComponent(
+    () => import('./pages/records/RecordsIndexPage'),
+    'RecordsIndexPage',
+  ),
+  pendingComponent: pendingFor('/records'),
 });
 
 const importRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/import',
-  component: ImportPage,
+  component: lazyRouteComponent(() => import('./pages/import/ImportPage'), 'ImportPage'),
+  pendingComponent: pendingFor('/import'),
 });
 
 const pricesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/prices',
-  component: PricesPage,
+  component: lazyRouteComponent(() => import('./pages/prices/PricesPage'), 'PricesPage'),
+  pendingComponent: pendingFor('/prices'),
 });
 
-// Stage 2: the four investment pages (stage-2.md §6.1), one component per kind.
-function investmentPageFor(kind: InstrumentKind): () => JSX.Element {
-  function Investments(): JSX.Element {
-    return <InvestmentPage kind={kind} />;
-  }
-  Investments.displayName = `InvestmentPage(${kind})`;
-  return Investments;
-}
+// Stage 2: the four investment pages (stage-2.md §6.1), one route module component per kind.
+const investments = () => import('./routes/investments');
 
 const stocksRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/stocks',
-  component: investmentPageFor('stock'),
+  component: lazyRouteComponent(investments, 'StocksRoute'),
+  pendingComponent: pendingFor('/stocks'),
 });
 
 const etfsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/etfs',
-  component: investmentPageFor('etf'),
+  component: lazyRouteComponent(investments, 'EtfsRoute'),
+  pendingComponent: pendingFor('/etfs'),
 });
 
 const managedFundsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/managed-funds',
-  component: investmentPageFor('managed_fund'),
+  component: lazyRouteComponent(investments, 'ManagedFundsRoute'),
+  pendingComponent: pendingFor('/managed-funds'),
 });
 
 const cryptoRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/crypto',
-  component: investmentPageFor('crypto'),
+  component: lazyRouteComponent(investments, 'CryptoRoute'),
+  pendingComponent: pendingFor('/crypto'),
 });
 
 // Stage 3: the four cash-flow pages (stage-3.md §6.1).
 const cashRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/cash',
-  component: CashPage,
+  component: lazyRouteComponent(() => import('./pages/cash/CashPage'), 'CashPage'),
+  pendingComponent: pendingFor('/cash'),
 });
 
 const sideIncomeRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/side-income',
-  component: SideIncomePage,
+  component: lazyRouteComponent(
+    () => import('./pages/sideIncome/SideIncomePage'),
+    'SideIncomePage',
+  ),
+  pendingComponent: pendingFor('/side-income'),
 });
 
 const budgetRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/budget',
-  component: BudgetPage,
+  component: lazyRouteComponent(() => import('./pages/budget/BudgetPage'), 'BudgetPage'),
+  pendingComponent: pendingFor('/budget'),
 });
 
 /** `/dividends?holding=<id>`: a positive-int holding filter; anything else is dropped. */
@@ -141,111 +130,68 @@ function validateDividendsSearch(search: Record<string, unknown>): { holding?: n
   return POSITIVE_INT_RE.test(text) ? { holding: Number(text) } : {};
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-function DividendsRoute(): JSX.Element {
-  const { holding } = dividendsRoute.useSearch();
-  return holding === undefined ? <DividendsPage /> : <DividendsPage holding={holding} />;
-}
-
 const dividendsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/dividends',
   validateSearch: validateDividendsSearch,
-  component: DividendsRoute,
+  component: lazyRouteComponent(() => import('./routes/dividends'), 'DividendsRoute'),
+  pendingComponent: pendingFor('/dividends'),
 });
 
 // Stage 4: the three assets pages (stage-4.md §6.1).
 const otherAssetsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/other-assets',
-  component: OtherAssetsPage,
+  component: lazyRouteComponent(
+    () => import('./pages/otherAssets/OtherAssetsPage'),
+    'OtherAssetsPage',
+  ),
+  pendingComponent: pendingFor('/other-assets'),
 });
 
 const superRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/super',
-  component: SuperPage,
+  component: lazyRouteComponent(() => import('./pages/super/SuperPage'), 'SuperPage'),
+  pendingComponent: pendingFor('/super'),
 });
 
 const propertyRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/property',
-  component: PropertyPage,
+  component: lazyRouteComponent(() => import('./pages/property/PropertyPage'), 'PropertyPage'),
+  pendingComponent: pendingFor('/property'),
 });
 
 // Stage 5: the Net Worth dashboard, History and Settings (stage-5.md §6.1).
 const netWorthRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
-  component: NetWorthPage,
+  component: lazyRouteComponent(() => import('./pages/netWorth/NetWorthPage'), 'NetWorthPage'),
+  pendingComponent: pendingFor('/'),
 });
 
 const historyRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/history',
-  component: HistoryPage,
+  component: lazyRouteComponent(() => import('./pages/history/HistoryPage'), 'HistoryPage'),
+  pendingComponent: pendingFor('/history'),
 });
 
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/settings',
-  component: SettingsPage,
+  component: lazyRouteComponent(() => import('./pages/settings/SettingsPage'), 'SettingsPage'),
+  pendingComponent: pendingFor('/settings'),
 });
 
-const BUILT_PAGE_ROUTES = [
-  recordsRoute,
-  importRoute,
-  pricesRoute,
-  stocksRoute,
-  etfsRoute,
-  managedFundsRoute,
-  cryptoRoute,
-  cashRoute,
-  sideIncomeRoute,
-  budgetRoute,
-  dividendsRoute,
-  otherAssetsRoute,
-  superRoute,
-  propertyRoute,
-  netWorthRoute,
-  historyRoute,
-  settingsRoute,
-];
-const BUILT_PATHS: ReadonlySet<string> = new Set([
-  '/records',
-  '/import',
-  '/prices',
-  '/stocks',
-  '/etfs',
-  '/managed-funds',
-  '/crypto',
-  '/cash',
-  '/side-income',
-  '/budget',
-  '/dividends',
-  '/other-assets',
-  '/super',
-  '/property',
-  '/',
-  '/history',
-  '/settings',
-]);
-
-// Every other page renders its placeholder until its stage lands.
-const pageRoutes = PAGES.filter((page) => !BUILT_PATHS.has(page.path)).map((page) =>
-  createRoute({
-    getParentRoute: () => appRoute,
-    path: page.path,
-    component: placeholderFor(page),
-  }),
-);
-
-// eslint-disable-next-line react-refresh/only-export-components
-function RecordsEntityRoute(): JSX.Element {
-  const { entity } = recordsEntityRoute.useParams();
-  // beforeLoad has already rejected unknown ids; this guard only narrows the type.
-  return isRecordEntityId(entity) ? <RecordsEntityPage entity={entity} /> : <NotFoundPage />;
-}
+// Stage 6 (stage-6.md §6.1): the FIRE page.
+const fireRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/fire',
+  component: lazyRouteComponent(() => import('./pages/fire/FirePage'), 'FirePage'),
+  pendingComponent: pendingFor('/fire'),
+});
 
 const recordsEntityRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -253,14 +199,9 @@ const recordsEntityRoute = createRoute({
   beforeLoad: ({ params }) => {
     if (!isRecordEntityId(params.entity)) throw notFound();
   },
-  component: RecordsEntityRoute,
+  component: lazyRouteComponent(() => import('./routes/recordsEntity'), 'RecordsEntityRoute'),
+  pendingComponent: pendingFor('/records/$entity'),
 });
-
-// eslint-disable-next-line react-refresh/only-export-components
-function ImportRunRoute(): JSX.Element {
-  const { runId } = importRunRoute.useParams();
-  return <ImportRunPage key={runId} runId={Number(runId)} />;
-}
 
 const importRunRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -268,23 +209,12 @@ const importRunRoute = createRoute({
   beforeLoad: ({ params }) => {
     if (!POSITIVE_INT_RE.test(params.runId)) throw notFound();
   },
-  component: ImportRunRoute,
+  component: lazyRouteComponent(() => import('./routes/importRun'), 'ImportRunRoute'),
+  pendingComponent: pendingFor('/import/runs/$runId'),
 });
 
 // A holding's detail page under each investment path; beforeLoad accepts a positive int only.
-function holdingDetailFor(kind: InstrumentKind): () => JSX.Element {
-  function HoldingDetail(): JSX.Element {
-    const { instrumentId } = useParams({ strict: false });
-    // beforeLoad has already rejected anything else; this guard only narrows the type.
-    return instrumentId !== undefined && POSITIVE_INT_RE.test(instrumentId) ? (
-      <HoldingDetailPage key={instrumentId} kind={kind} instrumentId={Number(instrumentId)} />
-    ) : (
-      <NotFoundPage />
-    );
-  }
-  HoldingDetail.displayName = `HoldingDetailPage(${kind})`;
-  return HoldingDetail;
-}
+const holdingDetail = () => import('./routes/holdingDetail');
 
 const rejectNonPositiveId = ({ params }: { params: { instrumentId: string } }): void => {
   if (!POSITIVE_INT_RE.test(params.instrumentId)) throw notFound();
@@ -294,60 +224,74 @@ const stockDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/stocks/$instrumentId',
   beforeLoad: rejectNonPositiveId,
-  component: holdingDetailFor('stock'),
+  component: lazyRouteComponent(holdingDetail, 'StockDetailRoute'),
+  pendingComponent: pendingFor('/stocks/$instrumentId'),
 });
 
 const etfDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/etfs/$instrumentId',
   beforeLoad: rejectNonPositiveId,
-  component: holdingDetailFor('etf'),
+  component: lazyRouteComponent(holdingDetail, 'EtfDetailRoute'),
+  pendingComponent: pendingFor('/etfs/$instrumentId'),
 });
 
 const managedFundDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/managed-funds/$instrumentId',
   beforeLoad: rejectNonPositiveId,
-  component: holdingDetailFor('managed_fund'),
+  component: lazyRouteComponent(holdingDetail, 'ManagedFundDetailRoute'),
+  pendingComponent: pendingFor('/managed-funds/$instrumentId'),
 });
 
 const cryptoDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/crypto/$instrumentId',
   beforeLoad: rejectNonPositiveId,
-  component: holdingDetailFor('crypto'),
+  component: lazyRouteComponent(holdingDetail, 'CryptoDetailRoute'),
+  pendingComponent: pendingFor('/crypto/$instrumentId'),
 });
 
 const styleguideRoute = createRoute({
   getParentRoute: () => appRoute,
   path: STYLEGUIDE_PAGE.path,
-  component: StyleguidePage,
+  component: lazyRouteComponent(
+    () => import('./pages/styleguide/StyleguidePage'),
+    'StyleguidePage',
+  ),
+  pendingComponent: pendingFor('/styleguide'),
 });
 
-// A route adapter, not a page: this module is the route tree and always full-reloads on edit.
-// eslint-disable-next-line react-refresh/only-export-components
-function ScreenPreviewRoute(): JSX.Element {
-  const { variant } = useParams({ strict: false });
-  // beforeLoad has already rejected unknown variants; this guard only narrows the type.
-  // pages.ts keeps its own copy of the variant union (it stays dependency-free); the typed
-  // `variant` prop of ScreenPreviewPage (BrandScreenVariant) keeps the two in sync.
-  return isScreenVariant(variant) ? <ScreenPreviewPage variant={variant} /> : <NotFoundPage />;
-}
-
-// Full-viewport brand screen preview, outside the shell.
+// Full-viewport brand screen preview, outside the shell (no pending skeleton: it has no shell).
 const screenPreviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/preview/screen/$variant',
   beforeLoad: ({ params }) => {
     if (!isScreenVariant(params.variant)) throw notFound();
   },
-  component: ScreenPreviewRoute,
+  component: lazyRouteComponent(() => import('./routes/screenPreview'), 'ScreenPreviewRoute'),
 });
 
 const routeTree = rootRoute.addChildren([
   appRoute.addChildren([
-    ...pageRoutes,
-    ...BUILT_PAGE_ROUTES,
+    recordsRoute,
+    importRoute,
+    pricesRoute,
+    stocksRoute,
+    etfsRoute,
+    managedFundsRoute,
+    cryptoRoute,
+    cashRoute,
+    sideIncomeRoute,
+    budgetRoute,
+    dividendsRoute,
+    otherAssetsRoute,
+    superRoute,
+    propertyRoute,
+    netWorthRoute,
+    historyRoute,
+    settingsRoute,
+    fireRoute,
     recordsEntityRoute,
     importRunRoute,
     stockDetailRoute,
@@ -373,6 +317,8 @@ export function createAppRouter({
     notFoundMode: 'root',
     defaultErrorComponent: ErrorPage,
     defaultPreload: 'intent',
+    defaultPendingMs: PENDING_MS,
+    defaultPendingMinMs: PENDING_MIN_MS,
     scrollRestoration: true,
   });
 }

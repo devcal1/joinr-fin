@@ -47,6 +47,7 @@ export { Pill, type PillProps, type PillTone } from './content/Pill';
 export { StepCard, type StepCardProps } from './content/StepCard';
 export { ImageFrame, type ImageFrameProps } from './content/ImageFrame';
 export { Amount, type AmountProps } from './content/Amount';
+export { Skeleton, type SkeletonProps, type SkeletonVariant } from './content/Skeleton';
 export {
   METER_TONE_WORDS,
   Meter,

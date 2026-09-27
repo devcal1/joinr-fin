@@ -107,7 +107,7 @@ describe.skipIf(!GATED)('history API with the real engine', { timeout: 60_000 },
       expect(series.groups.length).toBeGreaterThan(0);
     }
     const settingsPage = await get<SettingsPageResponse>('/api/settings');
-    expect(settingsPage.settings).toHaveLength(61);
+    expect(settingsPage.settings).toHaveLength(63);
     return { netWorth, history, settingsPage };
   }
 

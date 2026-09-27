@@ -141,6 +141,7 @@ export function SettingsGroupForm({
                     recordHour={page.recorder.recordHour}
                     onChange={(draft) => set(dto.key as EditableSettingKey, draft)}
                   />
+                  <SettingNotice dto={dto} />
                   <UsedOn dto={dto} />
                 </div>
               </GridItem>
@@ -202,6 +203,16 @@ export function SettingsGroupForm({
         </Cluster>
       </form>
     </Card>
+  );
+}
+
+/** The server's notice under a field (stage-6.md §6.7: the access-age and super contribution notes). */
+function SettingNotice({ dto }: { dto: SettingDto }): JSX.Element | null {
+  if (!dto.notice) return null;
+  return (
+    <p className="jf-app-meta" data-testid={`notice-${dto.key}`}>
+      {dto.notice}
+    </p>
   );
 }
 

@@ -2,7 +2,7 @@
 // errors of §4.1, decimal comparisons after normalising both sides, and the "latest entry" query
 // every denormalised copy follows. Every mutation runs in one synchronous `BEGIN IMMEDIATE`
 // transaction (the Stage 3 order: import lock, parse, load, cross-row rules, write, commit).
-import { JoinrDecimal, normaliseDecimal, type DecimalValue } from '@joinr/schema';
+import { normaliseDecimal } from '@joinr/schema';
 import { HttpError } from '../../errors';
 
 export {
@@ -67,19 +67,6 @@ export function normDecimal(v: string | null | undefined): string | null {
 /** True when both decimals are equal after normalising (null equals null only). */
 export function sameDecimal(a: string | null | undefined, b: string | null | undefined): boolean {
   return normDecimal(a) === normDecimal(b);
-}
-
-/** Σ of decimal strings (a malformed stored value is left out). */
-export function sumDecimal(values: readonly string[]): DecimalValue {
-  let sum = new JoinrDecimal(0);
-  for (const v of values) {
-    try {
-      sum = sum.plus(v);
-    } catch {
-      // Left out: a malformed stored decimal cannot be counted.
-    }
-  }
-  return sum;
 }
 
 /** The entry with the latest as-of (then the highest id), or null: every denormalised copy's source. */

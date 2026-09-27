@@ -34,6 +34,7 @@ import {
 } from '../primitives';
 import type { CashChartPointDto, YearWindowDto } from './cashflow';
 import { optionalText, signedCents } from './fields';
+import { intQuery } from './fire';
 import type { ConsiderNextRowDto } from './investments';
 import type { JobRunSummary } from './prices';
 
@@ -48,7 +49,7 @@ export const CHART_COUNT_MAX = 240;
  */
 export const netWorthQuerySchema = z.strictObject({
   unit: z.enum(CHART_DATE_UNITS).optional(),
-  count: z.coerce.number().int().min(1).max(CHART_COUNT_MAX).optional(),
+  count: intQuery(1, CHART_COUNT_MAX).optional(),
 });
 export type NetWorthQuery = z.output<typeof netWorthQuerySchema>;
 

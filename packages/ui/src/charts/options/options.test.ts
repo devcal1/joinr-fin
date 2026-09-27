@@ -90,7 +90,9 @@ describe('common helpers', () => {
     ]);
     expect(hasSeriesData(['a'], [{ name: 'x', data: [null] }])).toBe(false);
     expect(hasSeriesData([], [{ name: 'x', data: [1] }])).toBe(false);
-    expect(hasSeriesData(['a'], [{ name: 'x', data: [0] }])).toBe(true);
+    // Stage 6 (STYLE-5): all zero is nothing to chart; one non-zero value is.
+    expect(hasSeriesData(['a'], [{ name: 'x', data: [0] }])).toBe(false);
+    expect(hasSeriesData(['a', 'b'], [{ name: 'x', data: [0, -1] }])).toBe(true);
   });
 
   it('only builds a legend for two or more series', () => {

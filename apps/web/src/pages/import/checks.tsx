@@ -11,7 +11,7 @@ import {
 import { Amount, formatDate, formatPercent, formatQuantity, isIsoDate } from '@joinr/ui';
 import type { ReactNode } from 'react';
 import { Missing } from '../../components/QueryStates';
-import { formatCount } from '../../formatting';
+import { RATE_DP_PLACE, formatCount } from '../../formatting';
 
 export const SECTION_LABELS: Readonly<Record<ReportSection, string>> = {
   workbook: 'Workbook',
@@ -96,7 +96,11 @@ export function formatCheckValue(unit: CheckUnit, value: string | number | null)
         return formatQuantity(value, { maxDp: 8 });
       case 'ratio': {
         const ratio = asNumber(value);
-        return ratio === null ? String(value) : formatPercent(ratio, { dp: 2 });
+        return ratio === null ? (
+          String(value)
+        ) : (
+          <span {...RATE_DP_PLACE}>{formatPercent(ratio, { dp: 2 })}</span>
+        );
       }
       case 'date':
         return typeof value === 'string' && isIsoDate(value) ? formatDate(value) : String(value);

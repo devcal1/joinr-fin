@@ -11,6 +11,7 @@ import { Amount, StatusBadge } from '@joinr/ui';
 import { Link } from '@tanstack/react-router';
 import type { JSX } from 'react';
 import { Missing } from '../../components/QueryStates';
+import { RATE_DP_PLACE } from '../../formatting';
 import { flagLabel } from '../records/cells';
 import {
   HELD_UNDER_90_DAYS,
@@ -48,7 +49,10 @@ export function RatioCell({
   const text = formatRatio(ratio, { dp, signDisplay: signed ? 'always' : 'auto' });
   if (text === null) return <Missing />;
   return (
-    <span className={loss && isNegative(ratio) ? 'jf-app-negative' : undefined}>
+    <span
+      className={loss && isNegative(ratio) ? 'jf-app-negative' : undefined}
+      {...(dp !== undefined && dp >= 2 ? RATE_DP_PLACE : {})}
+    >
       {signed && Number(ratio) === 0 ? formatRatio(ratio, { dp }) : text}
     </span>
   );

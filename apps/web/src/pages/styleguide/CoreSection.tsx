@@ -17,12 +17,14 @@ import {
   ImageFrame,
   KeyValueTable,
   MONEY_INVALID_MESSAGE,
+  Meter,
   MoneyField,
   NumberField,
   PageHeader,
   Pill,
   SectionBar,
   Select,
+  Skeleton,
   Stack,
   StatTile,
   StatusBadge,
@@ -155,6 +157,10 @@ interface DemoHolding {
 
 const TOTAL_VALUE = 1_248_000;
 const TOTAL_COST = 1_240_000;
+/** Generic super figures for the tile-footer demo (integer cents). */
+const SUPER_NOW = 30_000_000;
+const SUPER_TARGET = 80_000_000;
+const SUPER_PROJECTED = 70_000_000;
 
 const HOLDINGS: DemoHolding[] = [
   {
@@ -173,7 +179,7 @@ const HOLDINGS: DemoHolding[] = [
     units: '50',
     price: '102.50',
     valueCents: 512_500,
-    costCents: 540_000,
+    costCents: 545_000,
     priceDate: '2026-08-18',
     status: 'fresh',
   },
@@ -716,6 +722,74 @@ export function CoreSection(): JSX.Element {
       </GalleryItem>
 
       <GalleryItem
+        name="StatTile/footer"
+        note="Stage 6: a meter and a muted Saved line under the hint, at the tile's foot"
+      >
+        <Grid>
+          <GridItem span={4} spanTablet={3}>
+            <StatTile
+              label="Years to go"
+              value="5 years"
+              keyFigure
+              hint="Reached in 2031 · age 56"
+              footer={<p>Saved: reached in 2033 · age 58</p>}
+            />
+          </GridItem>
+          <GridItem span={4} spanTablet={3}>
+            <StatTile
+              label="Super needed"
+              value={formatMoney(SUPER_TARGET, { wholeDollars: true })}
+              hint={`You have ${formatMoney(SUPER_NOW, { wholeDollars: true })}`}
+              footer={
+                <Meter
+                  label="Progress"
+                  valueCents={SUPER_NOW}
+                  targetCents={SUPER_TARGET}
+                  markerCents={SUPER_PROJECTED}
+                  markerLabel="Projected at 60"
+                  wholeDollars
+                />
+              }
+            />
+          </GridItem>
+          <GridItem span={4} spanTablet={6}>
+            <StatTile
+              label="Yearly spend"
+              value={formatMoney(4_000_000, { wholeDollars: true })}
+              hint="From your last 12 months"
+            />
+          </GridItem>
+        </Grid>
+      </GalleryItem>
+
+      <GalleryItem
+        name="Skeleton"
+        note="First load only (a refetch dims instead); a slow pulse, none under reduced motion; hidden from screen readers"
+      >
+        <Stack gap={3}>
+          <Skeleton variant="text" lines={2} />
+          <Grid>
+            {[0, 1, 2, 3].map((index) => (
+              <GridItem key={index} span={3} spanTablet={3}>
+                <Skeleton variant="tile" />
+              </GridItem>
+            ))}
+          </Grid>
+          <Grid>
+            <GridItem span={6}>
+              <Skeleton variant="chart" height={160} />
+            </GridItem>
+            <GridItem span={6}>
+              <Stack gap={3}>
+                <Skeleton variant="card" height={96} />
+                <Skeleton variant="table" lines={3} />
+              </Stack>
+            </GridItem>
+          </Grid>
+        </Stack>
+      </GalleryItem>
+
+      <GalleryItem
         name="ColumnTable"
         note="Sortable headers; total row white bold with one teal figure; scrolls inside its box with a sticky first column"
       >
@@ -755,7 +829,7 @@ export function CoreSection(): JSX.Element {
         <GridItem span={6}>
           <GalleryItem
             name="KeyValueTable"
-            note="Raised label column at 38%; hairlines between rows"
+            note="Raised label column at 38%; hairlines between rows; values left-aligned, figures monospaced; rows stack below 480 px of its width"
           >
             <KeyValueTable
               caption="Example account"
@@ -768,6 +842,23 @@ export function CoreSection(): JSX.Element {
                 { label: 'Prices', value: <StatusBadge status="fresh" /> },
               ]}
             />
+          </GalleryItem>
+        </GridItem>
+        <GridItem span={6}>
+          <GalleryItem
+            name="KeyValueTable/narrow"
+            note="In a 343 px box: each label strip sits above its value; words never split"
+          >
+            <div style={{ maxWidth: '343px' }}>
+              <KeyValueTable
+                caption="Example account at phone width"
+                items={[
+                  { label: 'Super contribution a year', value: 'From your contributions' },
+                  { label: 'Balance', value: <Amount cents={TOTAL_VALUE} />, numeric: true },
+                  { label: 'Interest rate', value: formatPercent(0.045), numeric: true },
+                ]}
+              />
+            </div>
           </GalleryItem>
         </GridItem>
         <GridItem span={6}>

@@ -7,6 +7,7 @@ import {
   importRunSucceeded,
   sampleReport,
 } from '@joinr/schema/fixtures';
+import { formatMoney } from '@joinr/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -274,8 +275,10 @@ describe('ImportRunPage', () => {
     );
 
     const value = screen.getByText('ETF value', { selector: 'th' }).closest('tr') as HTMLElement;
-    // Actual and diff are both $3,150.00; expected is $0.00.
-    expect(within(value).getAllByText('$3,150.00', { selector: '.jf-amount' })).toHaveLength(2);
+    // Actual and diff are the same figure; expected is $0.00.
+    const etfValue = sampleReport.checks.find((c) => c.id === 'holdings.value.etf')!;
+    const shown = formatMoney(Number(etfValue.actual));
+    expect(within(value).getAllByText(shown, { selector: '.jf-amount' })).toHaveLength(2);
     expect(within(value).getByText('$0.00', { selector: '.jf-amount' })).toBeInTheDocument();
     expect(within(value).getByText('Explained').closest('.jf-badge')).toHaveAttribute(
       'data-status',

@@ -25,8 +25,8 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 3 | Cash flow & income: Cash, Side Income, Dividends, Budget | ✅ done 2026-09-26 |
 | 4 | Other Assets, Super & Property | ✅ done 2026-09-26 |
 | 5 | History, Net Worth dashboard & Settings | ✅ done 2026-09-27 |
-| 6 | FIRE planner & polish | ⏳ next |
-| 7 | Umbrel deployment & cutover | — |
+| 6 | FIRE planner & polish | ✅ done 2026-09-27 |
+| 7 | Umbrel deployment & cutover | ⏳ next |
 
 Every stage ends with a **demo**, a **handoff update**, a **local commit** (with the owner's OK) and a **`/clear`**. Pushes happen only when the owner asks (D10). See `docs/STAGE_PROCESS.md`.
 

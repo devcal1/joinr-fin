@@ -34,55 +34,61 @@ test.describe('import', () => {
     test.skip(!SYNTHETIC_IMPORT_READY, NOT_READY_REASON);
   });
 
-  test('preview, import and read the report through the page', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'desktop', 'mutates shared data');
-    test.setTimeout(120_000);
-    const errors = trackConsoleErrors(page);
-    await page.goto('/import');
-    await expect(page.getByRole('heading', { level: 1, name: 'Import' })).toBeVisible();
+  // This test commits an import into the shared DATA_DIR inside the retried desktop project, so
+  // it never retries: a retry would repeat the write (stage-6.md §7.7 step 2).
+  test.describe('committed re-import', () => {
+    test.describe.configure({ retries: 0 });
 
-    // Preview (dry run): the clean synthetic workbook reconciles with 0 unexplained.
-    await chooseWorkbook(page);
-    await page.getByRole('button', { name: 'Preview' }).click();
-    const preview = page.getByRole('region', { name: 'Preview result' });
-    await expect(preview).toBeVisible({ timeout: 60_000 });
-    await expect(preview.getByRole('group', { name: 'Unexplained' })).toContainText(
-      /^Unexplained\s*0/,
-    );
-    await shot(page, testInfo, 'import', 'preview');
+    test('preview, import and read the report through the page', async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== 'desktop', 'mutates shared data');
+      test.setTimeout(120_000);
+      const errors = trackConsoleErrors(page);
+      await page.goto('/import');
+      await expect(page.getByRole('heading', { level: 1, name: 'Import' })).toBeVisible();
 
-    // Import: tick "Replace the imported data" when the page asks for it.
-    const replace = page.getByRole('checkbox', { name: 'Replace the imported data' });
-    if (await replace.isVisible()) await replace.check();
-    await page.getByRole('button', { name: 'Import', exact: true }).click();
-    const result = page.getByRole('region', { name: 'Import result' });
-    await expect(result).toBeVisible({ timeout: 60_000 });
-    await expect(result.getByRole('group', { name: 'Unexplained' })).toContainText(
-      /^Unexplained\s*0/,
-    );
+      // Preview (dry run): the clean synthetic workbook reconciles with 0 unexplained.
+      await chooseWorkbook(page);
+      await page.getByRole('button', { name: 'Preview' }).click();
+      const preview = page.getByRole('region', { name: 'Preview result' });
+      await expect(preview).toBeVisible({ timeout: 60_000 });
+      await expect(preview.getByRole('group', { name: 'Unexplained' })).toContainText(
+        /^Unexplained\s*0/,
+      );
+      await shot(page, testInfo, 'import', 'preview');
 
-    // The run is listed, newest first.
-    const runs = page.getByRole('table', { name: 'Import runs, newest first' });
-    const newest = runs.getByRole('row').nth(1);
-    await expect(newest).toContainText(SYNTHETIC_FILE_NAME);
-    await expect(newest).toContainText('Succeeded');
+      // Import: tick "Replace the imported data" when the page asks for it.
+      const replace = page.getByRole('checkbox', { name: 'Replace the imported data' });
+      if (await replace.isVisible()) await replace.check();
+      await page.getByRole('button', { name: 'Import', exact: true }).click();
+      const result = page.getByRole('region', { name: 'Import result' });
+      await expect(result).toBeVisible({ timeout: 60_000 });
+      await expect(result.getByRole('group', { name: 'Unexplained' })).toContainText(
+        /^Unexplained\s*0/,
+      );
 
-    // Open the report: it starts on "Needs attention" (D32); then filter to the suspect rows.
-    await result.getByRole('link', { name: /Open the full report/ }).click();
-    await expect(page).toHaveURL(/\/import\/runs\/\d+$/);
-    const filters = page.getByRole('group', { name: 'Filter checks by status' });
-    await expect(filters.getByRole('button', { name: /^Needs attention/ })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    const suspect = filters.getByRole('button', { name: /^Suspect/ });
-    await suspect.click();
-    await expect(suspect).toHaveAttribute('aria-pressed', 'true');
-    const firstCheck = checkTables(page).locator('tbody tr').first();
-    await expect(firstCheck).toContainText('Suspect');
-    await expectNoHorizontalScroll(page);
-    await shot(page, testInfo, 'import', 'report-suspects');
-    expect(errors).toEqual([]);
+      // The run is listed, newest first.
+      const runs = page.getByRole('table', { name: 'Import runs, newest first' });
+      const newest = runs.getByRole('row').nth(1);
+      await expect(newest).toContainText(SYNTHETIC_FILE_NAME);
+      await expect(newest).toContainText('Succeeded');
+
+      // Open the report: it starts on "Needs attention" (D32); then filter to the suspect rows.
+      await result.getByRole('link', { name: /Open the full report/ }).click();
+      await expect(page).toHaveURL(/\/import\/runs\/\d+$/);
+      const filters = page.getByRole('group', { name: 'Filter checks by status' });
+      await expect(filters.getByRole('button', { name: /^Needs attention/ })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      const suspect = filters.getByRole('button', { name: /^Suspect/ });
+      await suspect.click();
+      await expect(suspect).toHaveAttribute('aria-pressed', 'true');
+      const firstCheck = checkTables(page).locator('tbody tr').first();
+      await expect(firstCheck).toContainText('Suspect');
+      await expectNoHorizontalScroll(page);
+      await shot(page, testInfo, 'import', 'report-suspects');
+      expect(errors).toEqual([]);
+    });
   });
 
   test('the import page and the latest report render read-only', async ({

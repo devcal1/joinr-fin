@@ -408,11 +408,12 @@ describe('buildTiming (fake engine)', () => {
       lastPurchaseDate: '2025-06-16',
     });
 
+    // Stage 6 (stage-6.md §3.2): the seed sets the two returns (generic 7 % and 4 %).
     expect(engine.calls.parcelOptimiser[0]![0]).toEqual({
       monthlyInvestCents: null,
       brokerageCents: null,
-      growthRatio: null,
-      cashRateRatio: null,
+      growthRatio: '0.07',
+      cashRateRatio: '0.04',
     });
     expect(engine.calls.investCountdown[0]![0]).toEqual({
       asOf: AS_OF,
@@ -420,7 +421,7 @@ describe('buildTiming (fake engine)', () => {
       plan: null,
       lastPurchaseDate: '2025-06-16',
       payDayOfMonth: 15,
-      growthRatio: null,
+      growthRatio: '0.07',
       // D46: the budget switches, as sent to budgetInvestment.
       useBudgetForInvest: null,
       autoInvestSplit: null,
@@ -550,8 +551,6 @@ describe('buildTiming (fake engine)', () => {
       'allocation.managedFund',
       'allocation.otherAssets',
       'investing.defaultBrokerageCents',
-      'returns.marketReturn',
-      'returns.cashInterestRate',
     ]);
     // Stage 3 (§2.12): the cash-deficit wait is live, so nothing is deferred; the average savings
     // feed it and the countdown takes max(plan months, the wait).

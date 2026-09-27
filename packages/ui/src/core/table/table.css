@@ -31,15 +31,16 @@
     border-spacing: 0;
     color: var(--text);
     font-size: var(--fs-dense);
-    line-height: 1.5;
+    line-height: 1.35;
   }
 
   .jf-table--regular .jf-table__table {
     font-size: var(--fs-body);
   }
 
+  /* Dense (owner, D109): 6/8 px headers, 3/8 px cells, so a row is about 24 px. */
   .jf-table__th {
-    padding: var(--space-2) var(--space-3);
+    padding: 6px var(--space-2);
     background: var(--raised);
     color: var(--text-secondary);
     font-size: var(--fs-small);
@@ -96,7 +97,7 @@
   }
 
   .jf-table__cell {
-    padding: var(--space-2) var(--space-3);
+    padding: 3px var(--space-2);
     border-top: 1px solid var(--hairline);
     background: var(--surface);
     font-weight: 400;
@@ -116,7 +117,7 @@
   }
 
   .jf-table__empty {
-    padding: var(--space-4) var(--space-3);
+    padding: var(--space-3) var(--space-2);
     background: var(--surface);
     color: var(--text-secondary);
   }
@@ -136,13 +137,29 @@
     color: inherit;
   }
 
-  /* Sticky first column: keeps the row label in view; a hairline appears once scrolled. */
+  /*
+   * Sticky first column: keeps the row label in view; a hairline appears once scrolled.
+   * Stacking (Stage 6, STYLE-11): the header row stays above the body, whatever scrolls under it:
+   * body sticky cells 1, header cells 2, the sticky header cell 3 (opaque `--raised`), so a
+   * scrolled column never shows through or over the header, nor the first column over the next
+   * header cell.
+   */
+  .jf-table--sticky .jf-table__th {
+    position: relative;
+    z-index: 2;
+  }
+
   .jf-table--sticky .jf-table__th--first,
   .jf-table--sticky .jf-table__cell--first {
     position: sticky;
     left: 0;
     z-index: 1;
     border-right: 1px solid transparent;
+  }
+
+  .jf-table--sticky .jf-table__th--first {
+    z-index: 3;
+    background: var(--raised);
   }
 
   .jf-table--sticky.jf-table--scrolled .jf-table__th--first,

@@ -1,13 +1,14 @@
 // `@joinr/engine`: the pure investment, cash-flow, assets and history engine (stage-2.md §2,
 // stage-3.md §2, stage-4.md §2, stage-5.md §2). No I/O, no clock: every "today" is an `asOf`
 // input. The public API is frozen (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2, stage-5.md
-// §2.2); the implementation lives in internal modules: lots.ts (FIFO, the D36 seam), realised.ts
+// §2.2, stage-6.md §2.2); the implementation lives in internal modules: lots.ts (FIFO, the D36 seam), realised.ts
 // (the FY table), xirr.ts (the solver), investments.ts (holdings, summary, allocation, dividends),
 // history.ts, timing.ts, and for Stage 3 periods.ts (windows and years), cash.ts, savings.ts,
 // kpis.ts, goals.ts, sideIncome.ts, budget.ts, dividends.ts, suggestions.ts and charts.ts, and for
 // Stage 4 otherAssets.ts, super.ts, property.ts, amortise.ts and assetsSnapshot.ts (shared helpers
 // in assetsCommon.ts), and for Stage 5 snapshot.ts (the composer and checks), netWorth.ts,
-// aggregate.ts, trend.ts, recording.ts and tax.ts.
+// aggregate.ts, trend.ts, recording.ts and tax.ts, and for Stage 6 (stage-6.md §2.2) fire.ts (the FIRE
+// planner: deriveFireInputs, projectFire) and fireSheet.ts (the template's FIRE tab, sheet mode).
 import type { IsoDate } from '@joinr/schema';
 import { aggregateSnapshots } from './aggregate';
 import { amortise } from './amortise';
@@ -16,6 +17,8 @@ import { budgetInvestInputOf, budgetInvestment, computeBudget } from './budget';
 import { cashTotals, monthlyPayCents } from './cash';
 import { compressCashflow } from './charts';
 import { computeDividends } from './dividends';
+import { deriveFireInputs, projectFire } from './fire';
+import { fireSheet } from './fireSheet';
 import { savingsGoals } from './goals';
 import { contributionsAt, compressSeries, netPurchases, purchaseWindows } from './history';
 import { computeInvestments } from './investments';
@@ -72,7 +75,9 @@ export {
   considerNext,
   contributionsAt,
   deriveSnapshotColumns,
+  deriveFireInputs,
   dividendSuggestions,
+  fireSheet,
   investCountdown,
   linearTrend,
   monthlyPayCents,
@@ -83,6 +88,7 @@ export {
   nextRecordMonth,
   otherAssetsCostHeldAt,
   parcelOptimiser,
+  projectFire,
   purchaseWindows,
   realisedByFinancialYear,
   recordableMonths,
@@ -122,6 +128,13 @@ export const ASSETS_ENGINE_IMPLEMENTED: boolean = true;
  * real-engine server suites (§7.4 step 8); never fake it.
  */
 export const HISTORY_ENGINE_IMPLEMENTED: boolean = true;
+
+/**
+ * True once the engine's full Stage 6 unit suite (goldens included) passes (stage-6.md §7.3 step 7).
+ * It gates the server's FIRE integration, route and golden tests and the fixture-consistency test;
+ * never fake it.
+ */
+export const FIRE_ENGINE_IMPLEMENTED: boolean = true;
 
 /** Amounts in dollars; null when there is no root (§2.7). */
 export function xirr(flows: readonly { amount: number; date: IsoDate }[]): number | null {
@@ -176,4 +189,8 @@ export const engine = {
   recordableMonths,
   recordingsDue,
   suggestMarginalRate,
+  // Stage 6.
+  deriveFireInputs,
+  projectFire,
+  fireSheet,
 } satisfies EngineApi;

@@ -168,7 +168,7 @@ export function OverTimeCharts({
 
   return (
     <Grid>
-      <GridItem span={12}>
+      <GridItem span={6} spanTablet={6}>
         <ChartCard
           title={unitTitle('Net worth', unit)}
           subtitle="What you own less what you owe, by class"
@@ -183,7 +183,7 @@ export function OverTimeCharts({
               axisFormatter={compactMoneyFormatter}
               loading={loading}
               emptyMessage={NO_GROUPS}
-              height={320}
+              height={240}
             />,
             live,
             [STACK_CAPTION],
@@ -202,7 +202,7 @@ export function OverTimeCharts({
           )}
         />
       </GridItem>
-      <GridItem span={12}>
+      <GridItem span={6} spanTablet={6}>
         <ChartCard
           title="Savings and savings rate"
           subtitle="Savings (adjusted) and the savings rate on the right-hand axis"

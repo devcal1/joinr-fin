@@ -4,4 +4,5 @@ export * from './investments';
 export * from './cashflow';
 export * from './assets';
 export * from './history';
+export * from './fire';
 export * from './coverage';

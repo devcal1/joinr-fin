@@ -22,7 +22,7 @@ import { CalendarPlus } from 'lucide-react';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { useHistoryPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { LIVE_FIRST_LABEL } from '../assets/display';
 import { Marker } from '../assets/markers';
 import { actionSelector, useEditor, type EditorBase } from '../cashflow/formState';
@@ -97,14 +97,12 @@ export function HistoryPage(): JSX.Element {
   return (
     <>
       <PageHeader title="History" subtitle="Overview" actions={actions} />
-      {query.isPending ? <Loading label="Loading history…" /> : null}
-      {query.isError && !page ? (
-        <LoadError
-          title="Could not load history"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading history…"
+        layout="dashboard"
+        errorTitle="Could not load history"
+      />
       {page ? (
         <HistoryContent page={page} recordOpen={recordOpen} onRecordOpen={setRecordOpen} />
       ) : null}

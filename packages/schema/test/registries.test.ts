@@ -121,9 +121,10 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
   });
 
   it('lists the editable keys: registry keys, the nine Budget ones first', () => {
-    // Stage 4 (stage-4.md §3.3): 22 editable keys, the Stage 3 fifteen first; Stage 5 (§3.3): 60.
-    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(60);
-    expect(EDITABLE_SETTING_KEYS).toHaveLength(60);
+    // Stage 4 (stage-4.md §3.3): 22 editable keys, the Stage 3 fifteen first; Stage 5 (§3.3): 60;
+    // Stage 6 (stage-6.md §3.3): 62.
+    expect(new Set(EDITABLE_SETTING_KEYS).size).toBe(62);
+    expect(EDITABLE_SETTING_KEYS).toHaveLength(62);
     for (const key of EDITABLE_SETTING_KEYS) expect(isSettingKey(key), key).toBe(true);
     expect(EDITABLE_SETTING_KEYS.slice(0, 9).every((k) => /^(pay|budget)./.test(k))).toBe(true);
     expect(isEditableSettingKey('savings.yearBasis')).toBe(true);
@@ -154,8 +155,8 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
 });
 
 /**
- * Every app-only key (no workbook source): Stage 3's year basis, the six Stage 4 keys and the
- * Stage 5 auto-record switch.
+ * Every app-only key (no workbook source): Stage 3's year basis, the six Stage 4 keys, the Stage 5
+ * auto-record switch and the two Stage 6 FIRE keys.
  */
 const APP_ONLY_KEYS = [
   'savings.yearBasis',
@@ -166,11 +167,13 @@ const APP_ONLY_KEYS = [
   'super.concessionalCapFy',
   'super.importedContributionType',
   'history.autoRecord',
+  'fire.marketReturn',
+  'fire.extraSavingsPerYearCents',
 ] as const;
 
 describe('settings registry: Stage 4 (stage-4.md §3.3)', () => {
   it('appends six app-only keys with their defaults and bounds', () => {
-    expect(SETTING_KEYS.slice(-7, -1)).toEqual(APP_ONLY_KEYS.slice(1, 7));
+    expect(SETTING_KEYS.slice(-9, -3)).toEqual(APP_ONLY_KEYS.slice(1, 7));
     expect(settingDef('otherAssets.stalePriceDays')).toMatchObject({
       category: 'assets',
       type: 'integer',

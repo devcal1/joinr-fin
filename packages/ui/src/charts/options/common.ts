@@ -13,6 +13,7 @@ import type {
 } from 'echarts/components';
 import type { ComposeOption } from 'echarts/core';
 import { COLORS } from '../../core';
+import { compactAxisFormatter, compactMoneyFormatter } from '../format';
 import { CHART_OTHER } from '../palette';
 import type { ChartLegendItem, Series, ValueFormatter } from '../types';
 
@@ -41,12 +42,64 @@ export function alignSeries(
   return series.map((s) => categories.map((_, i) => finiteOrNull(s.data[i])));
 }
 
-/** True when at least one category has a finite value to plot. */
+/**
+ * True when at least one category has a finite, non-zero value to plot. A chart whose every value
+ * is 0 or missing shows its empty message instead of a lone $0 line (Stage 6, STYLE-5).
+ */
 export function hasSeriesData(categories: readonly string[], series: readonly Series[]): boolean {
   return (
     categories.length > 0 &&
-    alignSeries(categories, series).some((row) => row.some((v) => v !== null))
+    alignSeries(categories, series).some((row) => row.some((v) => v !== null && v !== 0))
   );
+}
+
+/**
+ * The span a value axis must cover (dollars or ratios): every finite value and zero (bars and
+ * areas start at zero). With `stacked`, the per-category sums of the positive and of the negative
+ * values (a 'samesign' stack). [0, 0] when there is nothing.
+ */
+export function valueExtent(
+  rows: readonly (readonly (number | null)[])[],
+  stacked = false,
+): [number, number] {
+  let min = 0;
+  let max = 0;
+  if (stacked) {
+    const count = Math.max(0, ...rows.map((row) => row.length));
+    for (let i = 0; i < count; i += 1) {
+      let up = 0;
+      let down = 0;
+      for (const row of rows) {
+        const v = row[i];
+        if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+        if (v > 0) up += v;
+        else down += v;
+      }
+      max = Math.max(max, up);
+      min = Math.min(min, down);
+    }
+    return [min, max];
+  }
+  for (const row of rows) {
+    for (const v of row) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+      max = Math.max(max, v);
+      min = Math.min(min, v);
+    }
+  }
+  return [min, max];
+}
+
+/**
+ * A value axis's tick formatter: the shared `compactMoneyFormatter` becomes the axis-aware
+ * `compactAxisFormatter` for that axis's extent (STYLE-5: adjacent ticks never read the same);
+ * any other formatter is used as given.
+ */
+export function axisFormatterFor(
+  formatter: ValueFormatter,
+  extent: readonly [number, number],
+): ValueFormatter {
+  return formatter === compactMoneyFormatter ? compactAxisFormatter(extent) : formatter;
 }
 
 /** Screen-reader description: ECharts writes it verbatim as the container's aria-label. */

@@ -7,7 +7,7 @@ import { Plus, Target, Wallet } from 'lucide-react';
 import type { JSX } from 'react';
 import { useCashPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { SettingsSection } from '../cashflow/SettingsSection';
 import { actionSelector, useEditor } from '../cashflow/formState';
 import { AccountForm } from './AccountForm';
@@ -78,14 +78,12 @@ export function CashPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Cash" subtitle="Cash flow" actions={actions} />
-      {query.isPending ? <Loading label="Loading cash…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load the cash page"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading cash…"
+        layout="dashboard"
+        errorTitle="Could not load the cash page"
+      />
       {page ? (
         <>
           <LiveRegion kind="status" label="Save result">

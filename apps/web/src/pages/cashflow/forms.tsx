@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useImportRuns } from '../../api/hooks';
+import { escapeCancels } from '../../components/keyboard';
 
 export const WORKBOOK_NOTE =
   'This came from the workbook. Saving (or deleting) it counts as an app edit: re-importing the workbook will then be blocked.';
@@ -132,6 +133,7 @@ export function InlineForm({
         ref={formRef}
         className="jf-app-form"
         onSubmit={submit}
+        onKeyDown={escapeCancels(onCancel, pending)}
         noValidate
         aria-label={title}
         aria-busy={pending || undefined}

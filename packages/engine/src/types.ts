@@ -1,6 +1,6 @@
-// The engine's public types (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2 and stage-5.md §2.2,
-// FROZEN). Names, fields and signatures here do not change; the engine owner adds internal modules
-// freely.
+// The engine's public types (stage-2.md §2.2, stage-3.md §2.2, stage-4.md §2.2, stage-5.md §2.2 and
+// stage-6.md §2.2, FROZEN). Names, fields and signatures here do not change; the engine owner adds
+// internal modules freely.
 // Imports: the `@joinr/schema` root only.
 import type {
   AllocationAggressiveness,
@@ -13,6 +13,11 @@ import type {
   DecimalString,
   DividendSuggestionStatus,
   DrpAdvice,
+  FireGrowthWeightKey,
+  FireMilestoneKind,
+  FireMissingInput,
+  FirePhase,
+  FireStatus,
   HoldingFlag,
   HoldingStatus,
   InstrumentKind,
@@ -1059,6 +1064,10 @@ export interface EngineApi {
   recordableMonths: RecordableMonthsFn;
   recordingsDue: RecordingsDueFn;
   suggestMarginalRate: SuggestMarginalRateFn;
+  // Stage 6 (stage-6.md §2.2).
+  deriveFireInputs: DeriveFireInputsFn;
+  projectFire: ProjectFireFn;
+  fireSheet: FireSheetFn;
 }
 
 // ═══ Stage 4: other assets, super and property (stage-4.md §2.2, FROZEN) ════════════════════════
@@ -2083,3 +2092,311 @@ export type SuggestMarginalRateFn = (i: {
   incomeCents: Cents | null;
   asOf: IsoDate;
 }) => MarginalRateSuggestion | null;
+
+// ═══ Stage 6: the FIRE planner (stage-6.md §2.2, FROZEN) ═══════════════════════════════════════
+
+// ─── Derivation (§2.4) ──────────────────────────────────────────────────────────────────────────
+
+export interface FireDeriveInput {
+  asOf: IsoDate;
+  /** ctx.dashboardFigures() (the live position). */
+  figures: SnapshotFigures;
+  /** netWorthDashboard(...).classes (the growth weights). */
+  classes: readonly NetWorthClassRow[];
+  /** netWorthDashboard(...).liabilities (the debts, §2.4 step 1). */
+  liabilities: readonly NetWorthLiabilityRow[];
+  /** computeProperty(...) (primary residence, D68; its loans' gross balances). */
+  property: PropertiesResult;
+  /** computeSavings(...).periods. */
+  savings: readonly SavingsPeriod[];
+  /** Its avgWindow is the 12-month window (§2.4 step 2). */
+  kpis: CashKpisResult;
+  /** sgMonths and contributions (D99). */
+  superResult: SuperResult;
+}
+
+/** One closed savings period in the window. */
+export interface FirePeriodRow {
+  periodMonth: IsoMonth;
+  runDate: IsoDate;
+  /** Adjusted income (D61). */
+  incomeCents: Cents;
+  /** Adjusted spend (income − adjusted savings; may be < 0). */
+  spendCents: Cents;
+  /** max(0, spend) (D97). */
+  countedSpendCents: Cents;
+  /** added.superCents (voluntary super, take-home cost, D71). */
+  superNetPayCents: Cents;
+  /** income − counted spend − superNetPay (may be < 0). */
+  countedSavingsCents: Cents;
+  /** spend < 0 (counted as $0; savings capped at income). */
+  floored: boolean;
+}
+
+export interface FireDerived {
+  preSuper: {
+    /** netWorthOf(figures).netWorthCents. */
+    netWorthCents: Cents;
+    /** netWorthOf(figures).superCents (History Q). */
+    superCents: Cents;
+    /** Σ primary residences' values (D68: excluded). */
+    primaryResidenceCents: Cents;
+    /** Σ their debt net of linked offsets (shown; kept in, §2.4 step 1). */
+    primaryResidenceDebtCents: Cents;
+    /** Σ the gross balances of the loans on a primary residence. */
+    primaryResidenceLoanGrossCents: Cents;
+    /** net worth − super − primary residence value (the sheet's E45 rule). */
+    preSuperCents: Cents;
+    /** L ≥ 0: Σ liabilities[].balanceCents (the debts inside preSuper). */
+    debtCents: Cents;
+    /** preSuper + primaryResidenceLoanGross (the alternative, shown only). */
+    preSuperExHomeLoanCents: Cents;
+  };
+  /** Closed periods used (null: none); through = the last period's run date (shown; stale note §6.3). */
+  window: { from: IsoDate; through: IsoDate; periods: number } | null;
+  /** Run-date order. */
+  rows: FirePeriodRow[];
+  /** D97 figure; raw = the sheet's E48 rule on the same periods. */
+  spend: { yearlyCents: Cents | null; flooredPeriods: number; rawYearlyCents: Cents | null };
+  /** P (§2.4 step 3); raw = the sheet's E47 rule. */
+  savings: {
+    yearlyCents: Cents | null;
+    cappedPeriods: number;
+    superExcludedCents: Cents;
+    rawYearlyCents: Cents | null;
+  };
+  /** D99. */
+  superContribution: {
+    yearlyCents: Cents;
+    sgCents: Cents;
+    memberCents: Cents;
+    /** The 12 whole months before asOf's month. */
+    fromMonth: IsoMonth;
+    toMonth: IsoMonth;
+    sgSource: 'estimate' | 'statement' | 'mixed' | 'none';
+    contributions: number;
+  };
+  /** D102 (§2.4 step 5). */
+  growth: {
+    weights: { key: FireGrowthWeightKey; valueCents: Cents; rate: 'cash' | 'market' }[];
+    cashWeightCents: Cents;
+    marketWeightCents: Cents;
+  };
+}
+
+// ─── Projection (§2.5) ──────────────────────────────────────────────────────────────────────────
+
+export interface FireProjectionInput {
+  asOf: IsoDate;
+  birthYear: number | null;
+  /** fire.preservationAge (D98) or the what-if. */
+  accessAge: number | null;
+  inflationRatio: DecimalString | null;
+  withdrawalRatio: DecimalString | null;
+  /** A0 (net: assets − debts). */
+  preSuperCents: Cents;
+  /** L ≥ 0, the debts inside A0 (held fixed in dollars, §2.5 step 3). */
+  preSuperDebtCents: Cents;
+  /** B0. */
+  superCents: Cents;
+  /** P (derived; null → 0 with a flag). */
+  savingsPerYearCents: Cents | null;
+  /** X (signed; P + X is floored at 0). */
+  extraSavingsPerYearCents: Cents;
+  /** C (derived, or the setting / what-if). */
+  superContributionPerYearCents: Cents;
+  /** S (derived, or the setting / what-if). */
+  yearlySpendCents: Cents | null;
+  growth: {
+    cashWeightCents: Cents;
+    marketWeightCents: Cents;
+    cashInterestRatio: DecimalString | null;
+    marketReturnRatio: DecimalString | null;
+  };
+  /** Default FIRE_HORIZON_AGE (100). */
+  horizonAge?: number;
+}
+
+/**
+ * preSuper.growthCents includes the debts' fall in today's dollars (§2.5 step 6); preSuper.spentCents
+ * after access is the part of S drawn from pre-super once super is exhausted.
+ */
+export interface FireRow {
+  t: number;
+  year: number;
+  age: number;
+  phase: FirePhase;
+  preSuper: {
+    startCents: Cents;
+    growthCents: Cents;
+    savedCents: Cents;
+    spentCents: Cents;
+    topUpCents: Cents;
+    endCents: Cents;
+  };
+  super: {
+    startCents: Cents;
+    growthCents: Cents;
+    contributedCents: Cents;
+    topUpCents: Cents;
+    withdrawnCents: Cents;
+    endCents: Cents;
+  };
+  /** V, W, X fixed (§2.5 step 3); null without spend. */
+  helper: { neededCents: Cents; projectedCents: Cents; gapCents: Cents } | null;
+}
+
+export interface FireMilestone {
+  kind: FireMilestoneKind;
+  t: number;
+  year: number;
+  age: number;
+}
+
+export interface FireProjection {
+  status: FireStatus;
+  /** needs_input only. */
+  missing: FireMissingInput[];
+  ageNow: number | null;
+  accessYear: number | null;
+  /** n = accessAge − ageNow (≤ 0: access age reached). */
+  yearsToAccess: number | null;
+  /** D102: real = (1+g)/(1+i) − 1; simple = g − i (shown for comparison). */
+  rates: {
+    nominalRatio: DecimalString;
+    inflationRatio: DecimalString;
+    realRatio: DecimalString;
+    simpleRealRatio: DecimalString;
+  } | null;
+  /** max(0, P + X) as used. */
+  savingsPerYearCents: Cents;
+  /** P was null (no closed period). */
+  noSavingsHistory: boolean;
+  target: {
+    /** S ÷ withdrawal rate (E60 fixed). */
+    superAtAccessCents: Cents;
+    /** The self-sustaining super at FIRE start (E62 fixed). */
+    superAtFireStartCents: Cents | null;
+  } | null;
+  fire: {
+    yearsToGo: number;
+    year: number;
+    age: number;
+    afterAccess: boolean;
+    bridgeYears: number;
+  } | null;
+  /** null: no top-up needed. */
+  topUps: {
+    years: number;
+    perYearCents: Cents;
+    lastCents: Cents;
+    totalCents: Cents;
+    level: boolean;
+    endYear: number;
+  } | null;
+  /** progressRatio: current ÷ needed, clamped 0–1. */
+  preSuper: {
+    currentCents: Cents;
+    neededAtFireCents: Cents | null;
+    projectedAtFireCents: Cents | null;
+    progressRatio: DecimalString | null;
+  };
+  /** progressRatio: current ÷ needed at access, clamped 0–1. */
+  super: {
+    currentCents: Cents;
+    neededAtAccessCents: Cents | null;
+    projectedAtAccessCents: Cents | null;
+    neededAtFireCents: Cents | null;
+    progressRatio: DecimalString | null;
+  };
+  /** In time order; kinds absent when not applicable. */
+  milestones: FireMilestone[];
+  rows: FireRow[];
+}
+
+// ─── Sheet mode (§2.6) ──────────────────────────────────────────────────────────────────────────
+
+/** '' = blank, '-' = the IFERROR text, other texts verbatim. */
+export type FireSheetValue = number | string;
+
+export interface FireSheetInput {
+  /** TODAY() (Net Worth!E52 in the goldens). */
+  today: IsoDate;
+  /** E6. */
+  birthYear: number;
+  /** E7 (dollars). */
+  superContributionPerYear: number;
+  /** E8. */
+  inflation: number;
+  /** E9. */
+  withdrawalRate: number;
+  /** E10. */
+  accessAge: number;
+  /** E45 (dollars). */
+  preSuper: number;
+  /** E46 (dollars). */
+  superBalance: number;
+  /** E47 (or its "Neg. Savings Rate" text). */
+  savings: number | string;
+  /** E48 (dollars). */
+  spend: number;
+  /** E49. */
+  growth: number;
+  /** SheetOptions!L6 (E64's PMT; the D99 bug). */
+  salary: number | null;
+  /** SheetOptions!B49 = "Yes". */
+  disclaimerAccepted: boolean;
+}
+
+export type FireSheetCell =
+  | 'D2'
+  | 'V3'
+  | 'E52'
+  | 'E53'
+  | 'E54'
+  | 'E55'
+  | 'E56'
+  | 'E57'
+  | 'E60'
+  | 'E61'
+  | 'E62'
+  | 'E63'
+  | 'E64'
+  | 'C15'
+  | 'D15'
+  | 'E15'
+  | 'C16'
+  | 'D16'
+  | 'E16';
+
+export type FireSheetColumn =
+  | 'G'
+  | 'H'
+  | 'I'
+  | 'J'
+  | 'K'
+  | 'L'
+  | 'M'
+  | 'N'
+  | 'O'
+  | 'P'
+  | 'Q'
+  | 'R'
+  | 'S'
+  | 'T'
+  | 'V'
+  | 'W'
+  | 'X';
+
+export interface FireSheetResult {
+  /** E57 and G as calendar years (numbers). */
+  cells: Record<FireSheetCell, FireSheetValue>;
+  /** Row 4 first, one per grid year. */
+  rows: Record<FireSheetColumn, FireSheetValue>[];
+}
+
+// ─── Stage 6 function signatures (FROZEN) ───────────────────────────────────────────────────────
+
+export type DeriveFireInputsFn = (input: FireDeriveInput) => FireDerived;
+export type ProjectFireFn = (input: FireProjectionInput) => FireProjection;
+export type FireSheetFn = (input: FireSheetInput) => FireSheetResult;

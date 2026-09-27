@@ -42,6 +42,7 @@ import type { ReconciliationReport } from '../dto/report';
 import { totalsOf } from '../dto/report';
 import { JoinrDecimal, normaliseDecimal } from '../decimal';
 import type { InstrumentKind } from '../enums';
+import { FIRE_REPLACED_ACCESS_AGE } from '../fire';
 import { serialiseReviewFlags } from '../rows';
 
 export interface SeedOptions {
@@ -915,6 +916,14 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
         setting('allocation.etf', '0.6'),
         setting('features.cash', true),
         setting('crypto.feeRate', '0.005'),
+        // Stage 6 (stage-6.md §3.2): generic FIRE settings and returns, so a seeded server
+        // reaches on_track.
+        setting('returns.cashInterestRate', '0.04'),
+        setting('returns.marketReturn', '0.07'),
+        setting('fire.birthYear', 1990),
+        setting('fire.preservationAge', 60),
+        setting('fire.inflationRate', '0.025'),
+        setting('fire.withdrawalRate', '0.04'),
       ])
       .run();
 
@@ -1145,4 +1154,27 @@ export function seedRecordedMonth(
       .get().id;
     return { snapshotId, auditId };
   });
+}
+
+/**
+ * Stage 6 (stage-6.md §3.2, testing only): writes an import-origin `fire.preservationAge` of
+ * FIRE_REPLACED_ACCESS_AGE (65), replacing any stored row, for the D98 one-off's tests.
+ */
+export function seedFireReplacedAge(db: JoinrDb, updatedAt = '2026-09-24T04:32:00.000Z'): void {
+  db.insert(settings)
+    .values({
+      key: 'fire.preservationAge',
+      valueJson: JSON.stringify(FIRE_REPLACED_ACCESS_AGE),
+      updatedAt,
+      origin: 'import',
+    })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: {
+        valueJson: JSON.stringify(FIRE_REPLACED_ACCESS_AGE),
+        updatedAt,
+        origin: 'import',
+      },
+    })
+    .run();
 }

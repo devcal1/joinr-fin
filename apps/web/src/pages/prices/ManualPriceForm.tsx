@@ -16,6 +16,7 @@ import { Save, Trash2 } from 'lucide-react';
 import { useState, type FormEvent, type JSX } from 'react';
 import { useClearManualPrice, useSetManualPrice } from '../../api/hooks';
 import { NOTE_MAX, splitApiErrors, validateManualPrice, type ManualPriceField } from './validation';
+import { escapeCancels } from '../../components/keyboard';
 
 /** Tomorrow's local calendar date (the API accepts as-of dates up to tomorrow). */
 function tomorrowIso(now: Date): string {
@@ -80,6 +81,7 @@ export function ManualPriceForm({ item, onDone, onCancel }: ManualPriceFormProps
       <form
         className="jf-app-form"
         onSubmit={onSubmit}
+        onKeyDown={escapeCancels(onCancel, busy)}
         noValidate
         aria-label={`Set price for ${item.symbol}`}
       >

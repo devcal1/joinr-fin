@@ -3,13 +3,8 @@
 // `<CCY>AUD=X` in AUD; search returns the symbol in lower case; asOf = the clock's now.
 // Stage 3 adds deterministic quarterly dividend events (`fakeDividendEvents`, stage-3.md §4.6).
 // Stage 4 adds the fake FX closes for the purchase-date backfill (`fakeFxClose`, stage-4.md §4.6).
-import {
-  BULLION_FEEDS,
-  JoinrDecimal,
-  normaliseDecimal,
-  type DecimalString,
-  type IsoDate,
-} from '@joinr/schema';
+import { BULLION_FEEDS, JoinrDecimal, normaliseDecimal, type DecimalString } from '@joinr/schema';
+import { isoDayBefore, localIsoDate } from '../../lib/dates';
 import {
   FxClosesError,
   type CoinIdResolver,
@@ -120,16 +115,6 @@ export function fakeFxClose(ccy: string): DecimalString {
   return normaliseDecimal(rate.toSignificantDigits(FX_SIGNIFICANT_DIGITS));
 }
 
-function localIso(d: Date): IsoDate {
-  return `${String(d.getFullYear()).padStart(4, '0')}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function isoDayBefore(date: IsoDate): IsoDate {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!m) throw new RangeError('fetchCloses: period2 must be YYYY-MM-DD');
-  return utcIso(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - 86_400_000);
-}
-
 /**
  * Mode `fake` (stage-4.md §4.6): one close, `fakeFxClose(ccy)`, dated the day before `period2`
  * (the purchase date in the backfill's request window) but never after the clock's local date or
@@ -139,7 +124,7 @@ export function createFakeFxClosesClient(o: { now: () => Date }): FxClosesClient
   return {
     async fetchCloses(ccy, period1, period2, signal) {
       if (signal.aborted) throw new FxClosesError('skipped', 'Aborted');
-      const today = localIso(o.now());
+      const today = localIsoDate(o.now());
       let date = isoDayBefore(period2);
       if (date > today) date = today;
       if (date < period1) date = period1;

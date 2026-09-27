@@ -84,7 +84,8 @@ const EVERY_KEY: Partial<Record<EditableSettingKey, SettingValue>> = {
 
 describe('the settings slice of every named page (§3.3)', () => {
   it('lists the five pages’ keys (Cash explicit); every page key is editable', () => {
-    expect(EDITABLE_SETTING_KEYS).toHaveLength(60);
+    // Stage 6 (stage-6.md §3.3): 62 with the two FIRE keys.
+    expect(EDITABLE_SETTING_KEYS).toHaveLength(62);
     expect(CASH_PAGE_SETTING_KEYS).toHaveLength(6);
     expect(SUPER_PAGE_SETTING_KEYS).toHaveLength(7);
     expect(OTHER_ASSETS_PAGE_SETTING_KEYS).toEqual(['otherAssets.stalePriceDays']);
@@ -92,7 +93,7 @@ describe('the settings slice of every named page (§3.3)', () => {
       'savings.includeMortgagePrincipal',
       'property.offsetsIncludeEmergencyFund',
     ]);
-    // The page keys are exactly the Stage 3–4 editable keys (a subset of the 60 editable keys);
+    // The page keys are exactly the Stage 3–4 editable keys (a subset of the 62 editable keys);
     // the Stage 5 keys are edited on the Settings page only.
     const onPages = new Set<string>(ALL_PAGE_KEYS);
     expect([...onPages].sort()).toEqual([...PAGE_KEYS].sort());

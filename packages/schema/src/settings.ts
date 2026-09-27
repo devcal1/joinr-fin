@@ -14,6 +14,7 @@ import {
   type PayFrequency,
   type ReasonCode,
 } from './enums';
+import { FIRE_DEFAULT_ACCESS_AGE, FIRE_EXTRA_SAVINGS_MAX_CENTS, FIRE_HORIZON_AGE } from './fire';
 import { CentsSchema, DecimalStringSchema, IsoDateSchema } from './primitives';
 
 export type SettingType = 'money' | 'ratio' | 'integer' | 'boolean' | 'enum' | 'date';
@@ -101,6 +102,9 @@ export const SETTING_KEYS = [
   'super.importedContributionType',
   // Stage 5 (stage-5.md §3.3): app-only (no workbook source).
   'history.autoRecord',
+  // Stage 6 (stage-6.md §3.3): app-only (no workbook source).
+  'fire.marketReturn',
+  'fire.extraSavingsPerYearCents',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -187,11 +191,11 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'features.sideIncome', label: 'Show the Side Income page', category: 'features', type: 'boolean', source: cell('First Time Setup', 'E32'), defaultValue: true },
   { key: 'features.retirement', label: 'Show the Super page', category: 'features', type: 'boolean', source: cell('First Time Setup', 'E33'), defaultValue: true },
   { key: 'fire.birthYear', label: 'Birth year', category: 'fire', type: 'integer', min: 1900, max: 2200, source: cell(FIRE_TAB_PREFIX, 'E6'), defaultValue: null },
-  { key: 'fire.superContributionPerYearCents', label: 'Super contribution per year', category: 'fire', type: 'money', min: 0, source: cell(FIRE_TAB_PREFIX, 'E7'), defaultValue: null },
+  { key: 'fire.superContributionPerYearCents', label: 'Super contribution a year (override)', category: 'fire', type: 'money', min: 0, source: cell(FIRE_TAB_PREFIX, 'E7'), defaultValue: null },
   { key: 'fire.inflationRate', label: 'Inflation rate', category: 'fire', type: 'ratio', source: cell(FIRE_TAB_PREFIX, 'E8'), defaultValue: null },
   { key: 'fire.withdrawalRate', label: 'Withdrawal rate', category: 'fire', type: 'ratio', source: cell(FIRE_TAB_PREFIX, 'E9'), defaultValue: null },
-  { key: 'fire.preservationAge', label: 'Preservation age', category: 'fire', type: 'integer', min: 0, max: 120, source: cell(FIRE_TAB_PREFIX, 'E10'), defaultValue: null },
-  { key: 'fire.yearlySpendOverrideCents', label: 'Yearly spend override', category: 'fire', type: 'money', min: 0, source: cell(FIRE_TAB_PREFIX, 'E48'), defaultValue: null, onlyWhenTyped: true },
+  { key: 'fire.preservationAge', label: 'Access age (preservation age)', category: 'fire', type: 'integer', min: 0, max: 120, source: cell(FIRE_TAB_PREFIX, 'E10'), defaultValue: FIRE_DEFAULT_ACCESS_AGE },
+  { key: 'fire.yearlySpendOverrideCents', label: 'Yearly spend (override)', category: 'fire', type: 'money', min: 0, source: cell(FIRE_TAB_PREFIX, 'E48'), defaultValue: null, onlyWhenTyped: true },
   { key: 'savings.yearBasis', label: 'Year basis', category: 'savings', type: 'enum', enumValues: YEAR_BASES, source: null, defaultValue: 'fy' },
   { key: 'otherAssets.stalePriceDays', label: 'A price is stale after (days)', category: 'assets', type: 'integer', min: 1, max: 3650, source: null, defaultValue: 90 },
   { key: 'super.sgRate', label: 'Your employer’s SG rate', category: 'super', type: 'ratio', min: 0, max: 1, source: null, defaultValue: null },
@@ -200,6 +204,8 @@ export const SETTINGS: readonly SettingDef[] = [
   { key: 'super.concessionalCapFy', label: 'Concessional cap override: financial year', category: 'super', type: 'integer', min: 1900, max: 2200, source: null, defaultValue: null },
   { key: 'super.importedContributionType', label: 'Imported contributions are', category: 'super', type: 'enum', enumValues: SUPER_CONTRIBUTION_TYPES, source: null, defaultValue: 'salary_sacrifice' },
   { key: 'history.autoRecord', label: 'Record each month automatically on its last day', category: 'history', type: 'boolean', source: null, defaultValue: false },
+  { key: 'fire.marketReturn', label: 'Market return for FIRE', category: 'fire', type: 'ratio', source: null, defaultValue: null },
+  { key: 'fire.extraSavingsPerYearCents', label: 'Extra savings a year', category: 'fire', type: 'money', source: null, defaultValue: null },
 ];
 
 const SETTINGS_BY_KEY: ReadonlyMap<string, SettingDef> = new Map(SETTINGS.map((s) => [s.key, s]));
@@ -230,7 +236,8 @@ export function isWorkbookSetting(key: SettingKey): boolean {
  * two workbook keys and the five editable app-only keys (`super.concessionalCapFy` is written by
  * the server with the cap, never edited). Stage 5 (stage-5.md §3.3, D86, D91) appends every other
  * key in registry order (the six workbook keys the app does not use included), then
- * `history.autoRecord`: 60 of the 61 keys.
+ * `history.autoRecord`: 60 of the 61 keys. Stage 6 (stage-6.md §3.3) appends its two app-only keys: 62
+ * of the 63 keys.
  */
 export const EDITABLE_SETTING_KEYS = [
   'pay.frequency',
@@ -295,6 +302,9 @@ export const EDITABLE_SETTING_KEYS = [
   'fire.preservationAge',
   'fire.yearlySpendOverrideCents',
   'history.autoRecord',
+  // Stage 6.
+  'fire.marketReturn',
+  'fire.extraSavingsPerYearCents',
 ] as const satisfies readonly SettingKey[];
 export type EditableSettingKey = (typeof EDITABLE_SETTING_KEYS)[number];
 
@@ -402,14 +412,16 @@ export const SETTING_GROUPS = [
   },
   {
     id: 'fire',
-    label: 'FIRE (used from Stage 6)',
+    label: 'FIRE',
     keys: [
       'fire.birthYear',
-      'fire.superContributionPerYearCents',
+      'fire.preservationAge',
       'fire.inflationRate',
       'fire.withdrawalRate',
-      'fire.preservationAge',
       'fire.yearlySpendOverrideCents',
+      'fire.superContributionPerYearCents',
+      'fire.marketReturn',
+      'fire.extraSavingsPerYearCents',
     ],
   },
   {
@@ -435,8 +447,8 @@ export function settingGroupOf(key: SettingKey): SettingGroupId {
 }
 
 /**
- * Display choices (D95, stage-5.md §3.3): an app edit of one never counts as app data, and a
- * re-import keeps the app value.
+ * Display choices (D95, stage-5.md §3.3) and, from Stage 6, every `fire.*` key (D103, stage-6.md
+ * §3.3): an app edit of one never counts as app data, and a re-import keeps the app value.
  */
 export const PREFERENCE_SETTING_KEYS = [
   'charts.dateUnit',
@@ -452,6 +464,15 @@ export const PREFERENCE_SETTING_KEYS = [
   'features.property',
   'features.sideIncome',
   'features.retirement',
+  // Stage 6 (D103).
+  'fire.birthYear',
+  'fire.superContributionPerYearCents',
+  'fire.inflationRate',
+  'fire.withdrawalRate',
+  'fire.preservationAge',
+  'fire.yearlySpendOverrideCents',
+  'fire.marketReturn',
+  'fire.extraSavingsPerYearCents',
 ] as const satisfies readonly SettingKey[];
 export type PreferenceSettingKey = (typeof PREFERENCE_SETTING_KEYS)[number];
 
@@ -463,7 +484,7 @@ export function isPreferenceSettingKey(key: string): key is PreferenceSettingKey
  * Write-only bounds (`PATCH /api/settings` only; stage-5.md §3.3), on top of the registry. The
  * registry and `settingValueSchema` stay unchanged, so an imported value outside them still
  * imports. `charts.unitCount` takes the `count` query's range; the four ratios have no registry
- * bounds.
+ * bounds. Stage 6 (stage-6.md §3.3) adds the FIRE market return and the signed extra savings.
  */
 export const SETTING_WRITE_BOUNDS: Readonly<
   Partial<Record<EditableSettingKey, { min: number; max: number }>>
@@ -473,6 +494,14 @@ export const SETTING_WRITE_BOUNDS: Readonly<
   'returns.marketReturn': { min: -1, max: 1 },
   'fire.inflationRate': { min: -1, max: 1 },
   'fire.withdrawalRate': { min: 0, max: 1 },
+  // The engine needs the access age before the horizon (triage SPEC-2); the registry's 0–120 stays,
+  // so an imported value still imports and shows as a missing access age.
+  'fire.preservationAge': { min: 0, max: FIRE_HORIZON_AGE - 1 },
+  'fire.marketReturn': { min: -1, max: 1 },
+  'fire.extraSavingsPerYearCents': {
+    min: -FIRE_EXTRA_SAVINGS_MAX_CENTS,
+    max: FIRE_EXTRA_SAVINGS_MAX_CENTS,
+  },
 };
 
 /** SheetOptions ID (column P) → the setting stored from it. */

@@ -5,6 +5,7 @@ import {
   AriaComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
 } from 'echarts/components';
 import { init, registerTheme, use as installModules, type EChartsType } from 'echarts/core';
@@ -25,6 +26,8 @@ export function registerJoinrCharts(): void {
     TooltipComponent,
     LegendComponent,
     AriaComponent,
+    // Stage 6 (stage-6.md §5): the FIRE chart's milestone markers.
+    MarkLineComponent,
     SVGRenderer,
   ]);
   registerTheme(CHART_THEME_NAME, JOINR_CHART_THEME);

@@ -15,11 +15,14 @@ import {
   TOOLTIP_BASE,
   alignSeries,
   ariaOption,
+  axisFormatterFor,
   changeWord,
   finiteOrNull,
   GRID,
+  hasSeriesData,
   NO_LEGEND,
   signed,
+  valueExtent,
   type ChartOption,
 } from './common';
 import { LINE_WIDTH, MARKER_SIZE } from './line';
@@ -84,6 +87,21 @@ export function barLegend(p: BarChartProps): ChartLegendItem[] {
   return [...bars, ...lines];
 }
 
+/** The span covering both extents. */
+function mergeExtents(a: [number, number], b: [number, number]): [number, number] {
+  return [Math.min(a[0], b[0]), Math.max(a[1], b[1])];
+}
+
+/**
+ * True when the chart has something to draw: a non-zero bar value or a non-zero overlay value
+ * (an all-zero chart shows its empty message, Stage 6, STYLE-5).
+ */
+export function hasBarData(p: Pick<BarChartProps, 'categories' | 'series' | 'overlays'>): boolean {
+  if (hasSeriesData(p.categories, p.series)) return true;
+  const overlays = (p.overlays ?? []).map((o) => ({ name: o.name, data: o.values }));
+  return hasSeriesData(p.categories, overlays);
+}
+
 export function barOption(p: BarChartProps): EChartsCoreOption {
   const {
     ariaLabel,
@@ -94,18 +112,28 @@ export function barOption(p: BarChartProps): EChartsCoreOption {
     signColors = false,
   } = p;
   const format = p.valueFormatter ?? formatChartNumber;
-  const axisFormat = p.axisFormatter ?? format;
   const values = alignSeries(categories, series);
   const colors = series.map((s, i) => resolveSeriesColor(i, s.color));
   const isStacked = stacked && series.length > 1;
   const ends = isStacked ? stackEnds(values) : null;
   const overlays = p.overlays ?? [];
   const secondary = !horizontal && overlays.some((o) => o.axis === 'secondary');
-  const secondaryFormat: ValueFormatter = p.secondaryAxisFormatter ?? format;
   const totalLabel = p.totalLabel ?? DEFAULT_TOTAL_LABEL;
   const overlayColors = overlays.map((o, i) => overlayColor(o, i, series.length));
   const overlayValues = overlays.map((o) => categories.map((_, i) => finiteOrNull(o.values[i])));
   const onSecondary = (o: BarOverlay): boolean => secondary && o.axis === 'secondary';
+  // Money axes get tick labels precise enough for their own extent (STYLE-5, stage-6.md §6.9 C).
+  const primaryExtent = mergeExtents(
+    valueExtent(values, isStacked),
+    valueExtent(overlayValues.filter((_, oi) => !onSecondary(overlays[oi] as BarOverlay))),
+  );
+  const secondaryExtent = valueExtent(
+    overlayValues.filter((_, oi) => onSecondary(overlays[oi] as BarOverlay)),
+  );
+  const axisFormat = axisFormatterFor(p.axisFormatter ?? format, primaryExtent);
+  // The secondary formatter also writes the overlay's tooltip figures; only its ticks are compacted.
+  const secondaryFormat: ValueFormatter = p.secondaryAxisFormatter ?? format;
+  const secondaryAxisFormat = axisFormatterFor(secondaryFormat, secondaryExtent);
 
   const barSeries: BarSeriesOption[] = series.map((s, si) => ({
     type: 'bar',
@@ -182,7 +210,7 @@ export function barOption(p: BarChartProps): EChartsCoreOption {
     name: overlays.find((o) => o.axis === 'secondary')?.name,
     nameTextStyle: { color: COLORS.textSecondary, fontSize: 11 },
     splitLine: { show: false },
-    axisLabel: { formatter: (v: number) => secondaryFormat(v), hideOverlap: true },
+    axisLabel: { formatter: (v: number) => secondaryAxisFormat(v), hideOverlap: true },
   };
 
   const barRow = (si: number, ci: number): TooltipRow | null => {

@@ -59,8 +59,7 @@ export const PAYMENT_BELOW_INTEREST_NOTE =
   'The repayment does not cover the interest, so this loan never pays off at this rate.';
 export const REPAYMENT_CHANGE_NOTE =
   'Changing the repayment re-estimates every entry without entered repayments. Enter the actual repayments on past entries to keep them.';
-export const PRIMARY_RESIDENCE_NOTE =
-  'Counted in net worth; the FIRE planner (Stage 6) leaves it out';
+export const PRIMARY_RESIDENCE_NOTE = 'Counted in net worth; the FIRE planner leaves it out';
 export const CHECK_FOOTNOTE =
   'The estimated repayments are below the principal repaid: enter the actual repayments for that period.';
 export const BALANCE_INCREASED_NOTE = 'Balance went up (a redraw or added costs)';

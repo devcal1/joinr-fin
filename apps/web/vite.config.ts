@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { CODE_SPLITTING_GROUPS } from './src/codeSplitting.ts';
 
 const rootPkg = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
@@ -28,4 +29,9 @@ export default defineConfig({
     fs: { strict: true, allow: FS_ALLOW },
   },
   preview: { port: webPort, strictPort: true },
+  build: {
+    rolldownOptions: {
+      output: { codeSplitting: { groups: CODE_SPLITTING_GROUPS } },
+    },
+  },
 });

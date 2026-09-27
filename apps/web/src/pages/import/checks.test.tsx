@@ -26,7 +26,7 @@ function text(node: ReactNode): string {
 
 describe('check values', () => {
   it('formats by unit', () => {
-    expect(text(formatCheckValue('cents', 315000))).toBe('$3,150.00');
+    expect(text(formatCheckValue('cents', 420000))).toBe('$4,200.00');
     expect(text(formatCheckValue('cents', -1))).toBe(`${MINUS}$0.01`);
     expect(text(formatCheckValue('cents', '2500'))).toBe('$25.00');
     expect(text(formatCheckValue('units', '29.5'))).toBe('29.5');

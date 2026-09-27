@@ -53,6 +53,8 @@ test.describe('app shell', () => {
   test('skip link is the first tab stop and targets main', async ({ page }) => {
     test.skip(test.info().project.name === 'phone', 'keyboard check on desktop');
     await page.goto('/stocks');
+    // The page loads lazily (stage-6.md §6.1): wait for it before the first Tab.
+    await expect(page.getByRole('heading', { level: 1, name: 'Stocks' })).toBeVisible();
     await page.keyboard.press('Tab');
     const skip = page.getByRole('link', { name: 'Skip to content' });
     await expect(skip).toBeFocused();
@@ -159,28 +161,9 @@ test.describe('app shell', () => {
     });
   }
 
-  test('desktop: a short page fits the viewport, footer included', async ({ page }) => {
-    test.skip(test.info().project.name !== 'desktop', 'desktop layout');
-    // Short pages = routes that still render PlaceholderPage. /stocks left this list when Stage 2
-    // built it, /budget when Stage 3 did, /super when Stage 4 did and /history when Stage 5 did;
-    // swap in another placeholder when a later stage builds this one (/fire stays until Stage 6).
-    for (const path of ['/fire']) {
-      await page.goto(path);
-      // Measure only once the placeholder has rendered, and fail plainly if the page is built now.
-      // (The synthetic workbook switches the FIRE page off, so the Stage 5 "Page switched off"
-      // note sits above the placeholder's own note.)
-      await expect(
-        page.getByRole('main').getByRole('note').filter({ hasText: 'arrives in Stage' }),
-        path,
-      ).toHaveCount(1);
-      const { scrollHeight, innerHeight } = await page.evaluate(() => ({
-        scrollHeight: document.documentElement.scrollHeight,
-        innerHeight: window.innerHeight,
-      }));
-      expect(scrollHeight, path).toBe(innerHeight);
-      await expect(page.getByRole('contentinfo')).toBeInViewport({ ratio: 1 });
-    }
-  });
+  // The short-page test (a placeholder page fits the viewport, footer included) was removed in
+  // Stage 6: FIRE was the last placeholder route, so no short page is left to measure
+  // (stage-6.md §6.1, §7.8 step 2).
 
   test('phone: the running header keeps to one row, freshness below', async ({ page }) => {
     test.skip(test.info().project.name !== 'phone', 'phone layout');

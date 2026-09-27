@@ -1,11 +1,12 @@
 // The chart components: each builds its option (and legend) with pure builders and renders them
-// with EChart. Pass stable data (memoised or module-level) and formatters so a chart only redraws
+// with EChart. A chart whose every value is 0 or missing shows its empty message (Stage 6,
+// STYLE-5). Pass stable data (memoised or module-level) and formatters so a chart only redraws
 // when its inputs change.
 import { useMemo, type JSX } from 'react';
 import { EChart } from './EChart';
 import { percentFormatter } from './format';
 import { hasSeriesData } from './options/common';
-import { barLegend, barOption } from './options/bar';
+import { barLegend, barOption, hasBarData } from './options/bar';
 import { DONUT_CENTER, donutLegend, donutOption, hasDonutData } from './options/donut';
 import { GAUGE_CENTER, gaugeOption } from './options/gauge';
 import { areaOption, lineLegend, lineOption } from './options/line';
@@ -115,7 +116,7 @@ export function BarChart({
       ariaLabel={ariaLabel}
       height={height}
       loading={loading}
-      empty={!hasSeriesData(categories, series)}
+      empty={!hasBarData({ categories, series, overlays })}
       emptyMessage={emptyMessage}
       legend={legend}
     />
@@ -132,10 +133,11 @@ export function LineChart({
   height,
   loading,
   emptyMessage,
+  markers,
 }: LineChartProps): JSX.Element {
   const option = useMemo(
-    () => lineOption({ ariaLabel, categories, series, valueFormatter, axisFormatter }),
-    [ariaLabel, categories, series, valueFormatter, axisFormatter],
+    () => lineOption({ ariaLabel, categories, series, valueFormatter, axisFormatter, markers }),
+    [ariaLabel, categories, series, valueFormatter, axisFormatter, markers],
   );
   const legend = useMemo(
     () => lineLegend({ ariaLabel, categories, series }),
@@ -165,10 +167,20 @@ export function AreaChart({
   height,
   loading,
   emptyMessage,
+  markers,
 }: AreaChartProps): JSX.Element {
   const option = useMemo(
-    () => areaOption({ ariaLabel, categories, series, stacked, valueFormatter, axisFormatter }),
-    [ariaLabel, categories, series, stacked, valueFormatter, axisFormatter],
+    () =>
+      areaOption({
+        ariaLabel,
+        categories,
+        series,
+        stacked,
+        valueFormatter,
+        axisFormatter,
+        markers,
+      }),
+    [ariaLabel, categories, series, stacked, valueFormatter, axisFormatter, markers],
   );
   const legend = useMemo(
     () => lineLegend({ ariaLabel, categories, series }),

@@ -24,7 +24,7 @@ import { useId, useRef, useState, type ChangeEvent, type JSX, type ReactNode } f
 import { errorMessage, isApiError } from '../../api/client';
 import { useImportRuns, useImportWorkbook } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading, Missing } from '../../components/QueryStates';
+import { Missing, QueryStates } from '../../components/QueryStates';
 import { formatDateTime, formatFileSize } from '../../formatting';
 import { NEEDS_REVIEW_LABEL, RECONCILED_HINT, RunKindPill, RunStatusBadge } from './ImportBadges';
 import { totalChecks } from './checks';
@@ -355,15 +355,13 @@ export function ImportPage(): JSX.Element {
       />
       <section className="jf-app-block" aria-labelledby="import-runs">
         <SectionBar id="import-runs" title="Runs" role="supporting" />
-        {runs.isPending ? <Loading label="Loading the import runs…" /> : null}
-        {runs.isError ? (
-          <LoadError
-            title="Could not load the import runs"
-            error={runs.error}
-            onRetry={() => void runs.refetch()}
-          />
-        ) : null}
-        {runs.isSuccess ? (
+        <QueryStates
+          query={runs}
+          loading="Loading the import runs…"
+          layout="table"
+          errorTitle="Could not load the import runs"
+        />
+        {runs.data ? (
           <ColumnTable
             columns={RUN_COLUMNS}
             rows={runs.data.runs}

@@ -310,7 +310,7 @@
   .jf-shell__main {
     grid-area: main;
     min-width: 0;
-    padding: var(--space-6) var(--space-6) var(--space-9);
+    padding: var(--space-4) var(--space-6) var(--space-6);
   }
 
   .jf-shell__main:focus {
@@ -321,9 +321,9 @@
     min-width: 0;
   }
 
-  /* Page flow: 24px between blocks (the page header adds 12px of its own, making 36). */
+  /* Page flow (dense, D109): 16px between blocks (the page header adds 8px of its own). */
   .jf-shell__content > * + * {
-    margin-top: var(--space-6);
+    margin-top: var(--space-4);
   }
 
   /* ── Footer ── */

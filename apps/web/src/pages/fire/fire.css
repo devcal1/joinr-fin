@@ -1,0 +1,354 @@
+/*
+ * The FIRE page (stage-6.md §6.1): `jf-app-fire-*` rules only (the what-if layout and result
+ * strip, the slider, the tile footers, the row highlight). Created empty by the Scaffolder; web-fire
+ * owns it.
+ */
+@layer app {
+  /* ── Layout: the results beside the what-if card at ≥ 1200 px, stacked below ─────────────── */
+  .jf-app-fire-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6) var(--space-3);
+    align-items: start;
+    min-width: 0;
+  }
+
+  .jf-app-fire-results {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-6);
+    transition: opacity 0.15s ease-out;
+  }
+
+  .jf-app-fire-side {
+    min-width: 0;
+  }
+
+  @media (min-width: 1200px) {
+    .jf-app-fire-layout {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .jf-app-fire-results {
+      grid-column: span 8;
+    }
+
+    /* The what-if card stays beside its results while a slider moves. */
+    .jf-app-fire-side {
+      position: sticky;
+      top: calc(var(--spectrum-h) + var(--shell-header-h) + var(--space-4));
+      grid-column: span 4;
+    }
+  }
+
+  /* A what-if is loading: the previous figures stay, dimmed. */
+  [data-updating].jf-app-fire-results,
+  [data-updating].jf-app-block {
+    opacity: 0.6;
+  }
+
+  /* The column already dims once to 0.6 (STYLE_GUIDE §6.2 "dims the previous render"), so the
+     chart (loading, jf-chart--refreshing) does not dim again inside it (triage STYLE-3). */
+  [data-updating].jf-app-fire-results .jf-chart--refreshing .jf-chart__host {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jf-app-fire-results {
+      transition: none;
+    }
+  }
+
+  .jf-app-fire-whatif-badge {
+    display: flex;
+  }
+
+  /* ── Tiles: 2 × 2 in the results column, one column on a phone ─────────────────────────────── */
+  .jf-app-fire-tiles {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  @media (min-width: 768px) {
+    .jf-app-fire-tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .jf-app-fire-tile-line {
+    color: var(--text-secondary);
+    font-size: var(--fs-dense);
+    line-height: 1.4;
+  }
+
+  .jf-app-fire-tiles .jf-stat-tile__footer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .jf-app-fire-saved {
+    color: var(--text-muted);
+    font-size: var(--fs-dense);
+    line-height: 1.4;
+  }
+
+  .jf-app-fire-now {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* ── The chart card ────────────────────────────────────────────────────────────────────────── */
+  .jf-app-fire-chart {
+    min-width: 0;
+  }
+
+  .jf-app-fire-view-switch {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .jf-app-fire-caption {
+    margin-top: var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    line-height: 1.45;
+  }
+
+  .jf-app-fire-pills {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  /* ── The what-if card ──────────────────────────────────────────────────────────────────────── */
+  .jf-app-fire-whatif .jf-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .jf-app-fire-strip {
+    padding: var(--space-2) var(--space-3);
+    border-left: 4px solid var(--teal);
+    border-radius: var(--radius-bar);
+    background: var(--raised);
+    color: var(--text-bright);
+    font-size: var(--fs-dense);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .jf-app-fire-strip[data-updating] {
+    color: var(--text-secondary);
+  }
+
+  /* The result strip stays in view at every width (§6.3, §6.4): it sticks within the card body,
+     so at ≥ 1200 px it stays pinned while any field below it is in view, and below that while the
+     card scrolls past (triage STYLE-1, STYLE-2). */
+  .jf-app-fire-strip {
+    position: sticky;
+    z-index: 2;
+    top: calc(var(--spectrum-h) + var(--shell-header-h) + var(--space-2));
+  }
+
+  .jf-app-fire-fields {
+    container: jf-fire-fields / inline-size;
+  }
+
+  .jf-app-fire-fields__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4) var(--space-3);
+  }
+
+  /* Two fields per row once the card is at least 768 px wide (its content box, inside the 16 px
+     padding, is then at least 736 px; below 1200 px the card is full width). */
+  @container jf-fire-fields (min-width: 736px) {
+    .jf-app-fire-fields__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .jf-app-fire-field {
+    min-width: 0;
+  }
+
+  /* The slider: a 4 px --raised track, the teal thumb, the teal focus ring. The native look is
+     reset, or Chrome ignores the track rules (triage STYLE-4). */
+  .jf-app-fire-slider {
+    width: 100%;
+    height: 24px;
+    margin: var(--space-1) 0 0;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    accent-color: var(--teal);
+    cursor: pointer;
+  }
+
+  /* A 16 px teal disc centred on the 4 px track (margin-top −6 px). */
+  .jf-app-fire-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--teal);
+  }
+
+  .jf-app-fire-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--teal);
+  }
+
+  /* No value set (a missing withdrawal rate): no thumb until one is set (triage STYLE-8). */
+  .jf-app-fire-slider[data-unset] {
+    opacity: 0.6;
+  }
+
+  .jf-app-fire-slider[data-unset]::-webkit-slider-thumb {
+    opacity: 0;
+  }
+
+  .jf-app-fire-slider[data-unset]::-moz-range-thumb {
+    opacity: 0;
+  }
+
+  .jf-app-fire-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--raised);
+  }
+
+  .jf-app-fire-slider::-moz-range-track {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--raised);
+  }
+
+  .jf-app-fire-slider:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 767.98px) {
+    /* A 44 px hit area for the thumb on a touch screen. */
+    .jf-app-fire-slider {
+      height: 44px;
+    }
+
+    .jf-app-fire-actions .jf-button {
+      flex: 1 1 100%;
+    }
+  }
+
+  .jf-app-fire-save-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--fs-dense);
+    line-height: 1.45;
+  }
+
+  .jf-app-fire-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .jf-app-fire-note {
+    font-size: var(--fs-small);
+  }
+
+  /* ── How it's worked out ───────────────────────────────────────────────────────────────────── */
+  .jf-app-fire-worked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .jf-app-fire-worked__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  @media (min-width: 1200px) {
+    .jf-app-fire-worked__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .jf-app-fire-worked__part:first-child {
+      grid-column: 1 / -1;
+    }
+  }
+
+  .jf-app-fire-worked__part {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .jf-app-fire-subhead {
+    color: var(--text-bright);
+    font-size: var(--fs-h3);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .jf-app-fire-kv-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .jf-app-fire-explain {
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+
+  .jf-app-fire-figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jf-app-fire-focus:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  .jf-app-fire-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  /* ── Year by year: the FIRE and access rows marked (the sheet's highlight) ─────────────────── */
+  .jf-app-fire-year {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .jf-app-fire-years tr:has([data-highlight]) > * {
+    background: var(--raised);
+    color: var(--text-bright);
+  }
+}

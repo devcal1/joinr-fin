@@ -9,7 +9,7 @@ import { Plus, Tags } from 'lucide-react';
 import { useRef, useState, type JSX } from 'react';
 import { useOtherAssetsPage, useSaveOtherAssetPrices } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { plural } from '../../formatting';
 import { SettingsSection } from '../cashflow/SettingsSection';
 import { FormError } from '../cashflow/forms';
@@ -81,14 +81,12 @@ export function OtherAssetsPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Other Assets" subtitle="Assets" actions={actions} />
-      {query.isPending ? <Loading label="Loading other assets…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load other assets"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading other assets…"
+        layout="dashboard"
+        errorTitle="Could not load other assets"
+      />
       {page ? <OtherAssetsContent page={page} editor={editor} /> : null}
     </>
   );

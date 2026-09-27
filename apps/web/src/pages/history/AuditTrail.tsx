@@ -5,6 +5,7 @@ import type { SnapshotAuditDto } from '@joinr/schema';
 import { Button, ColumnTable, SectionBar, type ColumnTableColumn } from '@joinr/ui';
 import { useState, type JSX } from 'react';
 import { Missing } from '../../components/QueryStates';
+import { RATE_DP_PLACE } from '../../formatting';
 import { useTableLayout } from '../assets/layout';
 import { orderColumns } from '../cashflow/formState';
 import {
@@ -28,7 +29,8 @@ function ChangesCell({ entry }: { entry: SnapshotAuditDto }): JSX.Element {
     <span className="jf-app-changes">
       {shown.map((c) => (
         <span key={c.key} className="jf-app-changes__line">
-          {changeKeyLabel(c.key)} {changePairText(c.key, c.before, c.after)}
+          {changeKeyLabel(c.key)}{' '}
+          <span {...RATE_DP_PLACE}>{changePairText(c.key, c.before, c.after)}</span>
         </span>
       ))}
       {more > 0 ? (

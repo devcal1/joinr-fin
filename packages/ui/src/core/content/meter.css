@@ -73,6 +73,11 @@
     font-weight: 700;
   }
 
+  /* A negative value in the --stop tint (STYLE_GUIDE §8). */
+  .jf-meter__value--negative {
+    color: var(--stop-tint);
+  }
+
   .jf-meter__of {
     color: var(--text-secondary);
     font-family: var(--font-sans);

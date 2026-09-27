@@ -8,7 +8,7 @@ import { Callout, MEDIA, PageHeader, SectionBar, useMediaQuery } from '@joinr/ui
 import { useState, type JSX } from 'react';
 import { useSettingsPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { useHashTarget } from '../history/useHashTarget';
 import { SettingsGroupForm, type SettingsGroup } from './SettingsGroupForm';
 
@@ -55,14 +55,12 @@ export function SettingsPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Settings" subtitle="App" />
-      {query.isPending ? <Loading label="Loading settings…" /> : null}
-      {query.isError && !page ? (
-        <LoadError
-          title="Could not load settings"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading settings…"
+        layout="form"
+        errorTitle="Could not load settings"
+      />
       {page ? (
         <>
           <GroupIndex groups={groups} />

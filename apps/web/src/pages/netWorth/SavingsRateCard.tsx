@@ -73,7 +73,7 @@ export function SavingsRateCard({ page }: { page: NetWorthPageResponse }): JSX.E
                 <span>{noRate}</span>
               </span>
             }
-            height={200}
+            height={170}
           />
           {averages}
         </div>

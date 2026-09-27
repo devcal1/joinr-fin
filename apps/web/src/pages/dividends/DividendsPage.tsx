@@ -15,12 +15,13 @@ import {
   StatTile,
   formatMoney,
 } from '@joinr/ui';
+import { Link } from '@tanstack/react-router';
 import { Plus, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, type JSX, type ReactNode } from 'react';
 import { errorMessage } from '../../api/client';
 import { useDividendsPage, useRefreshDividendEvents } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
-import { LoadError, Loading } from '../../components/QueryStates';
+import { QueryStates } from '../../components/QueryStates';
 import { plural } from '../../formatting';
 import { checkProblemText, checkSummaryText, eventsFreshnessText } from '../cashflow/display';
 import { actionSelector, useEditor } from '../cashflow/formState';
@@ -127,6 +128,9 @@ function Tiles({ page }: { page: DividendsPageResponse }): JSX.Element {
   );
 }
 
+/** The disabled Add dividend button's reason (no holdings yet). */
+const NO_HOLDINGS_REASON_ID = 'dividends-no-holdings-reason';
+
 export function DividendsPage({ holding }: DividendsPageProps): JSX.Element {
   const query = useDividendsPage();
   const refresh = useRefreshDividendEvents();
@@ -148,7 +152,19 @@ export function DividendsPage({ holding }: DividendsPageProps): JSX.Element {
         >
           Add dividend
         </Button>
-      ) : null}
+      ) : (
+        // STYLE-13 (stage-6.md §6.9 C): the action stays visible, disabled, with its reason.
+        <>
+          <Button variant="primary" icon={Plus} disabled aria-describedby={NO_HOLDINGS_REASON_ID}>
+            Add dividend
+          </Button>
+          <span className="jf-app-meta jf-app-action-reason" id={NO_HOLDINGS_REASON_ID}>
+            Add a holding on the <Link to="/etfs">ETFs</Link>, <Link to="/stocks">Stocks</Link> or{' '}
+            <Link to="/managed-funds">Managed Funds</Link> page first; each dividend belongs to a
+            holding.
+          </span>
+        </>
+      )}
       {off ? null : (
         <>
           <Button
@@ -179,14 +195,12 @@ export function DividendsPage({ holding }: DividendsPageProps): JSX.Element {
   return (
     <>
       <PageHeader title="Dividends" subtitle="Cash flow" actions={actions} />
-      {query.isPending ? <Loading label="Loading dividends…" /> : null}
-      {query.isError ? (
-        <LoadError
-          title="Could not load the dividends"
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
+      <QueryStates
+        query={query}
+        loading="Loading dividends…"
+        layout="dashboard"
+        errorTitle="Could not load the dividends"
+      />
       {page ? (
         <>
           <Cluster gap={3} className="jf-app-freshness">

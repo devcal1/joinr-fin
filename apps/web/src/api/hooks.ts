@@ -4,10 +4,12 @@
 // ['investments', kind, 'trades'], ['instruments', id]. Stage 3 (stage-3.md §6.2): ['cash'],
 // ['side-income'], ['budget'], ['dividends']. Stage 4 (stage-4.md §6.2): ['other-assets'], ['super'],
 // ['property']. Stage 5 (stage-5.md §6.2): ['net-worth', unit, count], ['history'],
-// ['history-series', unit, count], ['settings'].
+// ['history-series', unit, count], ['settings']. Stage 6 (stage-6.md §6.2): ['fire', query].
 import type {
   ChartDateUnit,
   CorrectionResponse,
+  FirePageResponse,
+  FireQuery,
   DeleteSnapshotResponse,
   HistoryPageResponse,
   HistorySeriesResponse,
@@ -139,6 +141,9 @@ export const queryKeys = {
   historySeriesPage: (view: ChartView) =>
     ['history-series', view.unit ?? null, view.count ?? null] as const,
   settings: ['settings'] as const,
+  fire: ['fire'] as const,
+  /** The FIRE page under a what-if (`{}` = the saved settings; stage-6.md §6.2). */
+  firePage: (query: FireQuery | null) => ['fire', query ?? {}] as const,
 };
 
 /**
@@ -150,14 +155,19 @@ export interface ChartView {
   count?: number;
 }
 
-/** The overview pages' keys (Net Worth, History and its series; stage-5.md §6.2). */
+/**
+ * The overview pages' keys (Net Worth, History and its series; stage-5.md §6.2), and Stage 6's FIRE
+ * page (stage-6.md §6.2): every FIRE input moves with trades, balances, super, property, recorded
+ * months and settings, so it is refreshed wherever the overview pages are.
+ */
 const OVERVIEW_PAGE_KEYS = [
   queryKeys.netWorth,
   queryKeys.history,
   queryKeys.historySeries,
+  queryKeys.fire,
 ] as const;
 
-/** Stage 5: every Stage 2–4 invalidation also refreshes the overview pages. */
+/** Stage 5: every Stage 2–4 invalidation also refreshes the overview pages (and FIRE, Stage 6). */
 function invalidateOverviewPages(queryClient: QueryClient): Promise<void>[] {
   return OVERVIEW_PAGE_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey }));
 }
@@ -195,6 +205,8 @@ export const CASHFLOW_POLL_MS = 60_000;
 export const ASSETS_POLL_MS = 60_000;
 /** Net Worth and History refetch every minute while visible: the recorder status moves (§6.2). */
 export const OVERVIEW_POLL_MS = 60_000;
+/** The FIRE page refetches every minute while visible, as Net Worth (stage-6.md §6.2). */
+export const FIRE_POLL_MS = 60_000;
 
 // ─── Queries ──────────────────────────────────────────────────────────────────────────────────
 
@@ -404,6 +416,40 @@ export function useHistorySeries(
     queryFn: () => apiGet<HistorySeriesResponse>(withQuery('/api/history/series', viewQuery(view))),
     placeholderData: keepPreviousData,
     enabled: options.enabled ?? true,
+  });
+}
+
+// Stage 6: the FIRE page (stage-6.md §4.2, §6.2).
+
+/** The query string of a what-if (undefined fields are dropped). */
+function fireQueryParams(query: FireQuery | null): Record<string, string | number | undefined> {
+  if (!query) return {};
+  return {
+    spend: query.spend,
+    withdrawalRate: query.withdrawalRate,
+    inflationRate: query.inflationRate,
+    marketReturn: query.marketReturn,
+    accessAge: query.accessAge,
+    extraSavings: query.extraSavings,
+  };
+}
+
+/**
+ * `GET /api/fire[?spend=&withdrawalRate=…]`: the FIRE page, under a what-if that is never saved
+ * (D100) when `query` has fields. A what-if keeps the previous response on screen
+ * (`isPlaceholderData`) until the new one arrives, so the page never unmounts. Refetched every
+ * minute while visible, as Net Worth.
+ */
+export function useFire(query: FireQuery | null): UseQueryResult<FirePageResponse> {
+  return useQuery({
+    queryKey: queryKeys.firePage(query),
+    queryFn: () => apiGet<FirePageResponse>(withQuery('/api/fire', fireQueryParams(query))),
+    placeholderData: keepPreviousData,
+    // Fresh for a minute: Reset (back to the saved plan) and a repeated what-if reuse the cached
+    // response instead of refetching; any change that moves an input invalidates ['fire'].
+    staleTime: FIRE_POLL_MS,
+    refetchInterval: FIRE_POLL_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -996,6 +1042,22 @@ export function usePatchSettings(): UseMutationResult<SettingsPatchResponse, Err
   return useMutation({
     mutationFn: (body: SettingsPatch) =>
       apiSend<SettingsPatchResponse>('PATCH', '/api/settings', body),
+    onSuccess: () => invalidateAfterSettingsChange(queryClient),
+  });
+}
+
+/**
+ * `POST /api/fire/use-workbook-contribution` (stage-6.md §4.2): the imported super contribution a
+ * year becomes the app's setting (its value unchanged). Invalidates as a settings save does.
+ */
+export function useUseWorkbookContribution(): UseMutationResult<
+  SettingsPatchResponse,
+  Error,
+  void
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<SettingsPatchResponse>('POST', '/api/fire/use-workbook-contribution'),
     onSuccess: () => invalidateAfterSettingsChange(queryClient),
   });
 }
