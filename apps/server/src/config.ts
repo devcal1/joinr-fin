@@ -55,6 +55,16 @@ export interface Config {
    * the setting decide (default off).
    */
   autoRecord: boolean | null;
+  /**
+   * Stage 7 (stage-7.md §5.1): `NIGHTLY_BACKUPS` (true|false|1|0|yes|no); default on, off under
+   * NODE_ENV=test. Off means no timer and no start-up catch-up; the other backups still work.
+   */
+  nightlyBackups: boolean;
+  /**
+   * Stage 7 (stage-7.md §5.1, §5.8): `PUBLIC_PORT`, the port the browser uses (the Umbrel store
+   * compose sets the manifest port); only the cross-site write guard's Origin rule reads it.
+   */
+  publicPort: number | null;
 }
 
 export const DEFAULTS = {
@@ -68,7 +78,14 @@ export const DEFAULTS = {
 } as const;
 
 /** Defaults that differ under NODE_ENV=test (no timers, no network). */
-export const TEST_DEFAULTS = { priceRefreshMinutes: 0, marketDataMode: 'off' } as const;
+export const TEST_DEFAULTS = {
+  priceRefreshMinutes: 0,
+  marketDataMode: 'off',
+  nightlyBackups: false,
+} as const;
+
+/** The nightly backup default outside NODE_ENV=test (stage-7.md §5.1). */
+export const DEFAULT_NIGHTLY_BACKUPS = true;
 
 /** The largest PRICE_REFRESH_MINUTES (one day). */
 export const MAX_PRICE_REFRESH_MINUTES = 1440;
@@ -116,6 +133,18 @@ const envSchema = z.object({
     .optional(),
   IMPORT_CORRECTIONS_FILE: z.string().optional(),
   AUTO_RECORD: booleanFlag.optional(),
+  NIGHTLY_BACKUPS: booleanFlag.optional(),
+  PUBLIC_PORT: z
+    .string()
+    .regex(/^\d{1,5}$/, { error: 'must be a whole number from 1 to 65535' })
+    .transform(Number)
+    .pipe(
+      z
+        .number()
+        .min(1, { error: 'must be a whole number from 1 to 65535' })
+        .max(65535, { error: 'must be a whole number from 1 to 65535' }),
+    )
+    .optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -207,5 +236,8 @@ export function loadConfig(
     importCorrections: correctionsSetting(e.IMPORT_CORRECTIONS_FILE, base.repoRoot),
     repoRoot: base.workspaceRoot,
     autoRecord: isTest ? null : (e.AUTO_RECORD ?? null),
+    nightlyBackups:
+      e.NIGHTLY_BACKUPS ?? (isTest ? TEST_DEFAULTS.nightlyBackups : DEFAULT_NIGHTLY_BACKUPS),
+    publicPort: e.PUBLIC_PORT ?? null,
   };
 }

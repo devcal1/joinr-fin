@@ -9,6 +9,7 @@ import type {
   FxRateSource,
   HoldingFlag,
   HoldingStatus,
+  JobStatus,
   KpiTrend,
   LoanEntryFlag,
   LoanFlag,
@@ -25,11 +26,14 @@ import type {
   SuperFlag,
   YearBasis,
 } from '../enums';
+import type { BackupKind } from '../backups';
+import type { BackupFileDto, BackupKeptAs, BackupSkipReason } from '../dto/backups';
 import type { FireInputsDto } from '../dto/fire';
 import type { FireInputSource, FireMilestoneKind, FirePhase, FireStatus } from '../fire';
 import type { SettingGroupId } from '../settings';
 import { otherAssetsPages, propertyPages, superPages } from './assets';
 import { cashPages, dividendsPages } from './cashflow';
+import { backupNowResponses, backupsPages } from './backups';
 import { firePages } from './fire';
 import { historyPages, netWorthPages, settingsPages } from './history';
 import { allInvestmentPageFixtures } from './investments';
@@ -62,7 +66,8 @@ export function fireInputSourcesOf(i: FireInputsDto): FireInputSource[] {
  * loan-entry flag in the Property fixtures (stage-4.md §3.6); every snapshot source, audit action
  * and record trigger in the History fixtures, every net-worth class and liability in the Net Worth
  * fixtures, and every setting group in the Settings fixtures (stage-5.md §3.6); every FIRE status,
- * phase, milestone kind and input source in the FIRE fixtures (stage-6.md §3.6).
+ * phase, milestone kind and input source in the FIRE fixtures (stage-6.md §3.6); every backup kind,
+ * kept-as reason, last-run status and skip reason in the Backups fixtures (stage-7.md §3.4).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -94,6 +99,10 @@ export const FIXTURE_COVERAGE: {
   firePhases: FirePhase[];
   fireMilestoneKinds: FireMilestoneKind[];
   fireInputSources: FireInputSource[];
+  backupKinds: BackupKind[];
+  backupKeptAs: BackupKeptAs[];
+  backupRunStatuses: JobStatus[];
+  backupSkipReasons: BackupSkipReason[];
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -167,4 +176,24 @@ export const FIXTURE_COVERAGE: {
     Object.values(firePages).flatMap((p) => p.projection.milestones.map((m) => m.kind)),
   ),
   fireInputSources: unique(Object.values(firePages).flatMap((p) => fireInputSourcesOf(p.inputs))),
+  backupKinds: unique(allBackupFiles().map((b) => b.kind)),
+  backupKeptAs: unique(allBackupFiles().map((b) => b.keptAs)),
+  backupRunStatuses: unique(
+    Object.values(backupsPages).flatMap((p) => (p.lastRun === null ? [] : [p.lastRun.status])),
+  ),
+  backupSkipReasons: unique(
+    Object.values(backupsPages).flatMap((p) => {
+      const skipped = (p.lastRun?.detail as { skipped?: BackupSkipReason } | null | undefined)
+        ?.skipped;
+      return skipped === undefined ? [] : [skipped];
+    }),
+  ),
 };
+
+/** Every file of every Backups fixture: the lists and the two 'Back up now' responses. */
+function allBackupFiles(): BackupFileDto[] {
+  return [
+    ...Object.values(backupsPages).flatMap((p): BackupFileDto[] => p.backups),
+    ...Object.values(backupNowResponses).map((r) => r.backup),
+  ];
+}

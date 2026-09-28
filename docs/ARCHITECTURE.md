@@ -6,7 +6,7 @@ How Joinr Finance is put together. [`PLAN.md`](../PLAN.md) gives the reasons beh
 
 ```
  Browser (any PC or phone, over the home network or a VPN)
-        │   the Umbrel app proxy adds the login when deployed (Stage 7)
+        │   the Umbrel app proxy adds the Umbrel login (deployed)
         ▼
  ┌──────────── one Docker container ─────────────────────────────┐
  │  Node 24 · Fastify                                            │
@@ -14,14 +14,15 @@ How Joinr Finance is put together. [`PLAN.md`](../PLAN.md) gives the reasons beh
  │   ├─ everything    the built React SPA (static files)         │
  │   ├─ SQLite (better-sqlite3 + Drizzle) ◄── DATA_DIR volume    │
  │   ├─ price service + cache, job scheduler (Stage 1)           │
- │   └─ later: month-end snapshots (5), backups (7)              │
+ │   └─ month-end snapshots (5), nightly backups (7)             │
  └───────────────────────────────────────────────────────────────┘
- DATA_DIR → a folder on the server's storage: finance.db, backups/ (+ exports/ later)
+ DATA_DIR → the app's data folder on the server: finance.db, backups/
 ```
 
 - The app is one process with one database file.
 - The server and the database sit on the same machine, so SQLite never runs over a network filesystem.
 - There is no auth code in the app. When deployed, the Umbrel app proxy puts the Umbrel login in front of it. In local development there is no login.
+- A cross-site write guard refuses writes that a browser sends from another site or another port (see [Security](#security)).
 
 ## Packages
 
@@ -34,6 +35,7 @@ packages/engine   ► @joinr/schema (root entry only; @joinr/importer for golden
 packages/importer ► @joinr/schema, xlsx (SheetJS)
 packages/schema   ► drizzle-orm, zod, decimal.js     (the root entry has no drizzle import)
 tools/privacy-guard  (standalone, Node built-ins only)
+tools/deploy         (not a workspace package: plain .mjs scripts, Node built-ins only)
 ```
 
 | Package | Role |
@@ -81,14 +83,14 @@ The start-up sequence is in `apps/server/src/index.ts`:
    - `foreign_keys=ON`
    - `busy_timeout=5000`
    - `synchronous=NORMAL`
-3. **Migrations.** `runMigrations` applies pending SQL migrations in one transaction. A second run is a no-op.
+3. **Migrations.** `migrateWithBackup` (`backups/migrate.ts`) refuses to start on a database a newer version migrated (more applied migrations than this build knows; exit 1, nothing written), takes a verified `pre-migrate` backup when migrations are pending on an existing database, then `runMigrations` applies them in one transaction. A second run is a no-op.
 4. **Bookkeeping.** The server records `created_at` once and `last_started_at` on every start, in `app_meta`.
 5. **Stale runs.** `markInterruptedRuns` marks import and job runs left `running` by a crash or restart as `failed` (`interrupted`).
 6. **App.** `buildApp({ config, db, services: defaultServices })` builds the Fastify instance. It has no side effects at import. Before it registers the routes it runs the one-off settings upgrades (`fire/upgrade.ts`, `applySettingUpgrades`; see [FIRE](#fire)). The services factory receives the app's own logger and builds the scheduler and the market data service; the app is decorated with both (`app.scheduler`, `app.market`). Tests omit `services` and get `offServices`: market data off, no timers.
-7. **Listen.** It logs `Joinr Finance listening on http://HOST:PORT`, then starts the scheduler.
+7. **Listen.** It logs `Joinr Finance listening on http://HOST:PORT`, then starts the scheduler, the month-end recorder and the backup service. Fastify's `onListen` hook writes the running marker (`app_meta` `server.running_since`), which the restore and import CLIs read; `onClose` deletes it.
 
 Shutdown:
-- The first `SIGINT`, `SIGTERM` or `SIGBREAK` runs `app.close()`. A `preClose` hook stops the snapshot recorder (it aborts its own price wait), then the scheduler (aborting and awaiting an in-flight price run), then an `onClose` hook closes SQLite.
+- The first `SIGINT`, `SIGTERM` or `SIGBREAK` runs `app.close()`. A `preClose` hook stops the backup service (waiting for a copy in flight), the snapshot recorder (it aborts its own price wait), then the scheduler (aborting and awaiting an in-flight price run), then an `onClose` hook deletes the running marker and closes SQLite.
 - A second signal, or a 10-second timeout, forces the exit.
 
 | Module | Responsibility |
@@ -96,7 +98,10 @@ Shutdown:
 | `config.ts`, `paths.ts` | Environment validation. Finds the repo root (the folder with `pnpm-workspace.yaml`), the migrations folder and the web build. |
 | `db/database.ts`, `db/schema.ts`, `db/meta.ts` | The connection, migrations, the `app_meta` table and its helpers. |
 | `app.ts` | Fastify setup: the services, security and `cache-control` headers, the error handler, routes, SPA serving and the not-found handling. |
-| `db/backup.ts` | Pre-import backups (`VACUUM INTO`, newest 10 kept). |
+| `db/backup.ts` | Pre-import backups, through the verified copy of `backups/copy.ts` (newest 10 kept). |
+| `backups/` | Backups (Stage 7): file names and their instants (`names.ts`), retention (`retention.ts`, pure), the verified copy (`copy.ts`), the listing (`list.ts`), the nightly service and its job (`service.ts`), start-up safety (`migrate.ts`) and restore (`restore.ts`). |
+| `security.ts` | The cross-site write guard (an `onRequest` hook, registered first). |
+| `routes/backups.ts` | `GET /api/backups`, `POST /api/backups`, `GET /api/backups/:name`. |
 | `db/queries/*` | Shared queries: held units per instrument, "has imported data" and "has app data" (with the D34 deletion marker), stale-run cleanup, import-run DTOs, and the typed settings reader (`readSettings`: each value parsed with its registry schema; an invalid one reads as null with a warning that never logs the value). |
 | `records/` | The record browser: one loader per registry entity, serialised to the registry's columns. |
 | `routes/health.ts` | `GET /api/health`. |
@@ -118,7 +123,7 @@ Shutdown:
 | `market/dividends/` | The dividend-events service: Yahoo chart events and closes cached in `dividend_events` by a daily `dividends` job. |
 | `market/` | The price service: providers (Yahoo chart, CoinGecko, fake), FX and bullion series, the refresh job, price status. The price and dividend-events services share one set of provider cool-downs. |
 | `scheduler/` | A small generic job scheduler that logs every run in `job_runs`. |
-| `cli/import.ts` | `pnpm import:workbook`. |
+| `cli/import.ts`, `cli/restore.ts` | `pnpm import:workbook` and `pnpm restore:backup`; in the image `node dist/cli/import.js` and `node dist/cli/restore.js`. |
 | `errors.ts` | The JSON error shape, `HttpError` and `parseWith` (Zod validation, `400 VALIDATION_ERROR`). |
 | `web.ts` | Static SPA serving and cache rules. |
 | `version.ts` | The app version, baked in at build time or read from the root `package.json` in development. |
@@ -353,16 +358,15 @@ scheduler ──(every PRICE_REFRESH_MINUTES, or "Refresh now")──► prices 
 - **Status** is computed, never stored: `fresh`, `stale`, `failed`, `manual` or `none`. Prices seeded from the workbook show as stale until the first refresh.
 - **Bullion** is priced from the built-in series (silver and gold per ounce in AUD), not from holdings.
 - **Other assets (Stage 4):** the job also refreshes the FX rate of every currency an other asset uses, and fills a foreign item's rate on its purchase date from the day's close (at most 10 items a run, each pair tried at most once a day, never over a rate typed in the app). The series written each run are kept as one row per series per day in `market_quote_history`, which draws the spot price charts.
-- **Scheduler:** generic and reusable (Stage 3 adds the `dividends` job, Stage 5 the month-end snapshot job, Stage 7 backups). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
+- **Scheduler:** generic and reusable (Stage 3 adds the `dividends` job, Stage 5 the month-end snapshot job, Stage 7 the `backup` job). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
 
 ## Data
 
 ```
 DATA_DIR/
   finance.db          the SQLite database (WAL mode; -wal and -shm files sit beside it while it is open)
-  backups/            pre-import-YYYYMMDD-HHmmss.db (newest 10); Stage 7 adds nightly copies
+  backups/            verified copies: <kind>-YYYYMMDD-HHmmss±HHMM.db (see Backups and restore)
   import-corrections.json   optional: the owner's import corrections (on the server)
-  exports/            later: JSON exports
 ```
 
 - **Money** is stored as integer cents. **Quantities and prices** are decimal strings, handled with decimal.js (crypto needs about 8 dp).
@@ -374,6 +378,52 @@ DATA_DIR/
   - The schema lives in `packages/schema` (Stage 1), and the migrations folder stays with the server. Later stages only add tables or nullable/defaulted columns.
 - **Provenance.** Imported rows carry `origin = 'import'` and a `sheet_ref` such as `ETFs!A31`. Rows the importer finds questionable carry review flags. Rows created or edited in the app carry `origin = 'app'` (see [Investments](#investments) for the rules).
 - **Snapshots** (imported from History in Stage 1, recorded by the app from Stage 5) are immutable rows. Corrections are explicit edits, never silent recalculation.
+
+## Backups and restore
+
+```
+BackupService (own timer on the injectable clock)
+  ├─ at 02:30 server-local (the October gap: 03:30; the April repeat: the first 02:30)
+  ├─ ~2 min after start: one catch-up if the last slot passed while the server was down
+  └─ "Back up now" (POST /api/backups)
+        └─► scheduler job "backup" (job_runs row: trigger, status, detail)
+              └─► writeVerifiedBackup: space check → VACUUM INTO .<name>.partial (bound parameter)
+                    → make the copy self-consistent → integrity_check + migration count → fsync
+                    → rename to <name> → fsync the folder → prune that kind's set
+```
+
+- **One flat folder**, `<DATA_DIR>/backups/`, of immutable, self-describing files named `<kind>-YYYYMMDD-HHmmss±HHMM.db` in server-local time with its offset, so the two 02:30s of the April change get different names and every name sorts and parses to one instant. Stage 1 pre-import names without an offset still list and prune. Anything not matching the name rule (a hand-made folder, a stray file) is never listed, pruned or deleted. A later copy to the NAS (D111) is one `rsync -a --exclude '.*'` of this folder with no `--delete`.
+- **The copy** is a consistent snapshot (`VACUUM INTO`, synchronous). On a second connection to the temporary file it is switched to `journal_mode = DELETE` (one self-contained file), the running marker is removed, its own `backup` run is marked `succeeded` and any other `running` row `failed`/`interrupted`, so a restored copy never shows its own backup as failed. It is kept only if `integrity_check` is `ok` and the migration count matches. A failed copy never prunes anything.
+- **Retention** (pure, grouped by the date written in the name, so it does not depend on the process zone): nightly, the newest copy of each of the 14 newest dates that have one, plus the newest copy of each of the last 12 calendar months; manual 10, pre-import 10, pre-restore 5, pre-migrate 5. A file dated more than a day in the future is never pruned and never settles a slot.
+- **The due rule:** a slot is settled by a nightly file dated from the slot to ten minutes after now, by a succeeded run recording that slot (the empty-database skip), or by three failed attempts. Failures retry after 15 minutes; an import in progress skips (and retries) without counting as an attempt. The job returns one of three category messages, never a path or raw SQLite text.
+- **Stale:** schedule on, domain data present, and no nightly or manual copy (or, before the first, no committed import) in 48 hours: `/api/status` `backups.stale` and a callout on every page.
+- **Restore** (`backups/restore.ts`, `cli/restore.ts`) runs with the server stopped: validate the candidate (header, integrity, a Joinr database of the same migration lineage, not newer than this build; a path candidate is validated as a temporary copy) → refuse if the running marker is set (`--force` skips it) or another process holds the database → a `pre-restore` copy of the live database (or, with `--force`, the damaged live files moved to a hidden `.unverified-pre-restore-*` folder) → stage `.finance.db.restoring` → atomic rename over `finance.db` → post-check → the `restore.last` marker. Every read before `--yes` is read-only.
+- **Start-up safety:** `migrateWithBackup` (see [Server](#server)).
+
+## Security
+
+- **No login in the app.** On the Umbrel, the app proxy puts Umbrel's login in front of every path (no `PROXY_AUTH_WHITELIST`), the backup downloads included.
+- **Cross-site write guard** (`security.ts`, an `onRequest` hook on `/api/*` for `POST`, `PUT`, `PATCH`, `DELETE`; "under `/api`" is decided on the route Fastify matched and on the percent-decoded path, never the raw URL, since the router decodes `/%61pi/…` to an `/api` route). The browser sends the Umbrel login cookie to every port of the same host, so a page served by another app could otherwise post to this one. With `Sec-Fetch-Site` present, only `same-origin` and `none` pass. **Browsers send Fetch Metadata only to trustworthy origins (HTTPS or localhost)**, and the app is reached over plain HTTP, so in production the `Origin` header decides: it must match the request's `Host`, its `X-Forwarded-Host` (and port), or `PUBLIC_PORT` (set to the manifest port, because whether the app proxy keeps `Host` could not be checked offline). On `PUBLIC_PORT` the `Origin`'s host must still be the host the browser used: `X-Forwarded-Host`'s host when the proxy sends one, else `Host`'s when `Host` is still on `PUBLIC_PORT`. Only when the proxy rewrites `Host` and sends no `X-Forwarded-Host` does the port alone decide (an accepted residual risk: a page on another host served from port 4932; the server logs this case once at start of use, with the `Host` it saw). Outside production a loopback `Origin` also passes (the Vite proxy rewrites `Host`). `Origin: null` is refused. Requests with neither header (curl, the CLIs, `app.inject`) pass. A refusal is `403 CROSS_SITE_REQUEST`, logged with the three header values only.
+- **Downloads** accept only names matching the backup rule (at most 64 characters, no separators or dot segments after decoding), `lstat` a regular file (not a symlink) whose real parent is the backups folder, and answer with `attachment`, `nosniff` and `no-store`.
+- **Network isolation on the Umbrel.** Every Umbrel app's default network is the shared `umbrel_main_network`, so any container of any installed app could otherwise call the API directly with no session. The store compose puts the app on a private `finance` bridge that only the app proxy joins (the bridge keeps internet egress for market data). If the proxy ever cannot reach the app over it (a 502 at install), the fallback is a compose-only release without the two `networks` blocks, and the risk above is then accepted and documented in the runbook.
+
+## Deployment
+
+```
+dev PC (Windows)                                    Umbrel (umbrelOS, x86_64)
+ pnpm umbrel:release                                ~/joinr-build/<version>-<tree12>/  (newest 3 kept)
+  ├─ git tree (clean HEAD, or a temporary index)    docker build → 127.0.0.1:4930/joinr-finance:<v>
+  ├─ privacy guard (the same file set)      ─ssh─►  docker push → the Joinr Registry app (loopback)
+  ├─ git archive | ssh … tar -x                     umbreld pulls it at Install / Update
+  └─ tag@digest + version: into the local           tenon-joinr-finance_app_1 on the "finance" bridge
+     store clone (never committed)                  app_proxy on :4932 (Umbrel login) → app:3001
+```
+
+- **Why a registry on the Umbrel:** umbreld pulls every compose image at install and at update, so an image that exists only after a local `docker build` cannot install. Docker treats `127.0.0.0/8` as an insecure (HTTP) registry, so a loopback registry needs no TLS and is unreachable from outside the host. It runs as its own store app (`tenon-joinr-registry`), on its own private Docker network rather than the shared `umbrel_main_network` (so other apps' containers cannot reach its unauthenticated API), because umbreld removes every non-app container at each start, and an Update clicked while the registry is down stops the app and bumps its manifest before the pull fails. A plain `joinr-registry` container (`JOINR_REGISTRY_MODE=container`) is the documented fallback.
+- **The image:** `node:24.x-bookworm-slim` pinned by index digest; labels carry the version and the git tree id; build-time checks run both CLIs and assert the `Australia/Melbourne` zone (the app would otherwise record at the wrong hour); the build stage caps Node's heap (the build shares the Umbrel with other services, and the release script refuses to build with less than 2.5 GiB free).
+- **Versions:** one source of truth, the root `package.json` `version` (`/api/health`, the footer, Settings → About, the image tag, the store manifest). The release refuses an existing tag unless the same tree built it (`--reuse-existing`), and refuses a new digest under an unchanged manifest version. Rollback is a new version that pins the older digest, plus a restore of the `pre-migrate` copy when the newer version migrated.
+- **The data folder** is `${APP_DATA_DIR}/data` on the Umbrel (D113), created as uid 1000 from the store's `data/` skeleton at install. An update never touches it; an uninstall deletes it without asking. The manifest's `backupIgnore` makes umbrelOS's own Backups skip the live database's shared-memory file and every hidden temporary.
+- **Operations** (`tools/deploy`, [`docs/deploy/RUNBOOK.md`](deploy/RUNBOOK.md)): every remote step is one `ssh -o BatchMode=yes <host> -- '<command>'`; every value placed in a command is validated and single-quoted; the remote home is resolved once and never written down; restore reads the image and `TZ` from the app-data compose with `yq` (Umbrel's Stop and Restart remove the container), runs the CLI by image ID in a one-off `--network none` container, and never starts a container umbreld stopped.
 
 ## Styling
 
@@ -410,6 +460,7 @@ DATA_DIR/
 | Components | Vitest + Testing Library, jsdom | `packages/ui`, `apps/web` |
 | Server | Vitest + Fastify `inject`, with a temp `DATA_DIR` per test | `apps/server/test` |
 | Privacy guard | Vitest; the integration tests run the real hook in a temporary git repo | `tools/privacy-guard/test` |
+| Deploy scripts | Vitest (project `deploy`, a `.mjs` config) with a fake command runner; static checks of the Dockerfile and the store folders; one real-spawn test | `tools/deploy/test` |
 | End to end | Playwright at 1440 px and 375 px, installed Chrome | `e2e/` |
 | Importer | Vitest against an in-memory database and the generic synthetic workbook (no network, corrections off) | `packages/importer`, `apps/server/test` |
 | Golden values | Vitest. Expected values are read at runtime from the local workbook, and the tests skip when it is absent. | importer (Stage 1), engine and the investments API (Stage 2 on), the cash-flow API (Stage 3), the other assets, super and property APIs (Stage 4) |
@@ -421,7 +472,7 @@ Each app, package and tool is a Vitest project, and the root `vitest.config.ts` 
 | Command | Output |
 |---|---|
 | `pnpm --filter @joinr/web build` | `apps/web/dist/`: `index.html`, hashed `assets/`, `favicon.svg` |
-| `pnpm --filter @joinr/server build` | `apps/server/dist/server.js` + source map (details below) |
+| `pnpm --filter @joinr/server build` | `apps/server/dist/server.js`, `dist/cli/import.js`, `dist/cli/restore.js` + source maps (details below) |
 | `docker build .` | `/app`, laid out below |
 
 The server bundle:
@@ -430,7 +481,7 @@ The server bundle:
 - Every third-party dependency listed in the server's `package.json` stays external and loads from `node_modules`. SheetJS (`xlsx`) is a dependency of the importer only, so it is bundled in.
 
 The image's `/app` holds:
-- `dist/server.js`
+- `dist/server.js` and the two CLIs in `dist/cli/`
 - `migrations/`
 - `web/` (the SPA)
 - `node_modules/`, with production dependencies only

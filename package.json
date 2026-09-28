@@ -1,6 +1,6 @@
 {
   "name": "joinr-finance",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Joinr Finance: a self-hosted personal-finance web app.",
@@ -24,8 +24,14 @@
     "guard:all": "tsx tools/privacy-guard/src/cli.ts --all",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "import:workbook": "tsx apps/server/src/cli/import.ts",
+    "restore:backup": "tsx apps/server/src/cli/restore.ts",
     "seed:dev": "tsx apps/server/scripts/seed-dev.ts",
-    "db:generate": "pnpm --filter @joinr/server db:generate"
+    "db:generate": "pnpm --filter @joinr/server db:generate",
+    "umbrel:registry": "node tools/deploy/registry.mjs",
+    "umbrel:release": "node tools/deploy/release.mjs",
+    "umbrel:restore": "node tools/deploy/restore-remote.mjs",
+    "umbrel:status": "node tools/deploy/status.mjs",
+    "umbrel:smoke": "node tools/deploy/smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

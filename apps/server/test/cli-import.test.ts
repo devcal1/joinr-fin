@@ -16,9 +16,11 @@ import {
   main,
   parseArgs,
   USAGE,
+  usageFor,
   type CliIo,
 } from '../src/cli/import';
 import { closeDatabase, openDatabase } from '../src/db/database';
+import { liveHashes } from './backups/helpers';
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const CLI_PATH = fileURLToPath(new URL('../src/cli/import.ts', import.meta.url));
@@ -134,7 +136,7 @@ describe('pnpm import:workbook', { timeout: 30_000 }, () => {
 
     const yes = await run([workbook, '--no-corrections', '--yes'], {}, dataDir);
     expect(yes.code).toBe(EXIT.ok);
-    expect(yes.out).toMatch(/Backup: backups\/pre-import-\d{8}-\d{6}(-\d+)?\.db/);
+    expect(yes.out).toMatch(/Backup: backups\/pre-import-\d{8}-\d{6}[+-]\d{4}(-\d+)?\.db/);
     expect(readdirSync(join(dataDir, 'backups'))).toHaveLength(1);
     expect(yes.out).toContain('Run #3.');
   });
@@ -165,7 +167,7 @@ describe('pnpm import:workbook', { timeout: 30_000 }, () => {
       dataDir,
     );
     expect(replaced.code).toBe(EXIT.ok);
-    expect(replaced.out).toMatch(/Backup: backups\/pre-import-\d{8}-\d{6}(-\d+)?\.db/);
+    expect(replaced.out).toMatch(/Backup: backups\/pre-import-\d{8}-\d{6}[+-]\d{4}(-\d+)?\.db/);
     expect(readdirSync(join(dataDir, 'backups'))).toHaveLength(1);
     expect(replaced.out).toContain('Run #3.');
   });
@@ -237,6 +239,62 @@ describe('pnpm import:workbook', { timeout: 30_000 }, () => {
     const invalid = await run([workbook, '--corrections', bad]);
     expect(invalid.code).toBe(EXIT.usage);
     expect(invalid.err).toContain('not valid JSON');
+  });
+
+  // Stage 7 (stage-7.md §5.6, §5.7).
+  it('prints the command form for how it was invoked', () => {
+    expect(USAGE).toBe(
+      'Usage: pnpm import:workbook [file.xlsx] [--dry-run] [--yes] [--replace-app-data] [--corrections <file> | --no-corrections] [--json] [--force]',
+    );
+    expect(usageFor('file:///app/dist/cli/import.js')).toMatch(
+      /^Usage: node dist\/cli\/import\.js \[file\.xlsx\]/,
+    );
+    expect(usageFor('file:///repo/apps/server/src/cli/import.ts')).toMatch(
+      /^Usage: pnpm import:workbook /,
+    );
+  });
+
+  it('refuses to run while the app runs (exit 6) unless --force; the database is untouched', async () => {
+    const dataDir = freshDataDir();
+    expect((await run([workbook, '--no-corrections'], {}, dataDir)).code).toBe(EXIT.ok);
+    const database = openDatabase(dataDir);
+    try {
+      database.sqlite
+        .prepare('INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?)')
+        .run('server.running_since', '2030-09-15T00:00:00.000Z', '2030-09-15T00:00:00.000Z');
+    } finally {
+      closeDatabase(database);
+    }
+    const before = liveHashes(dataDir);
+    for (const flags of [[], ['--dry-run'], ['--yes'], ['--yes', '--replace-app-data']]) {
+      const refused = await run([workbook, '--no-corrections', ...flags], {}, dataDir);
+      expect(refused.code).toBe(EXIT.running);
+      expect(refused.err).toBe(
+        'The app appears to be running (or did not shut down cleanly). Stop the app; if it is stopped, re-run with --force.\n',
+      );
+    }
+    expect(liveHashes(dataDir)).toEqual(before);
+    expect(existsSync(join(dataDir, 'backups'))).toBe(false);
+    const forced = await run([workbook, '--no-corrections', '--yes', '--force'], {}, dataDir);
+    expect(forced.code).toBe(EXIT.ok);
+    expect(parseArgs(['--force'])).toMatchObject({ force: true });
+  });
+
+  it('refuses a database a newer version migrated (exit 1, nothing written)', async () => {
+    const dataDir = freshDataDir();
+    expect((await run([workbook, '--no-corrections'], {}, dataDir)).code).toBe(EXIT.ok);
+    const database = openDatabase(dataDir);
+    try {
+      database.sqlite
+        .prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)')
+        .run('f'.repeat(64), 4_000_000_000_000);
+    } finally {
+      closeDatabase(database);
+    }
+    const r = await run([workbook, '--no-corrections', '--yes'], {}, dataDir);
+    expect(r.code).toBe(EXIT.failed);
+    expect(r.err).toContain('This database was updated by a newer version of Joinr Finance');
+    expect(existsSync(join(dataDir, 'backups'))).toBe(false);
   });
 
   it('runs as a script through tsx', { timeout: 60_000 }, () => {

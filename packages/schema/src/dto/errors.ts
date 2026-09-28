@@ -29,6 +29,9 @@ export const API_ERROR_CODES = [
   'SNAPSHOT_NOT_LATEST',
   'SNAPSHOT_NOT_DELETABLE',
   'RECORD_IN_PROGRESS',
+  // Stage 7 (stage-7.md §4.1): 500 (a category message, never a path) · 403 (the cross-site write guard).
+  'BACKUP_FAILED',
+  'CROSS_SITE_REQUEST',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 

@@ -1,9 +1,7 @@
-// Shared server sum helpers (CODE-9, stage-6.md §4.5): decimal strings summed with decimal.js,
-// and integer cents summed with a safe-integer check.
-import { JoinrDecimal, normaliseDecimal, sumDecimals, type DecimalValue } from '@joinr/schema';
-
-/** Σ of decimal strings, normalised ('0' for none); RangeError on a malformed value (the schema's). */
-export const sumDecimalStrings: (values: readonly string[]) => string = sumDecimals;
+// Shared server sum helpers (CODE-9, stage-6.md §4.5): stored decimal strings summed with
+// decimal.js, leaving out a malformed value. Stage 7 (CODE-7, stage-7.md §5.9) removed the two
+// unused helpers (a plain decimal sum and a cents sum).
+import { JoinrDecimal, normaliseDecimal, type DecimalValue } from '@joinr/schema';
 
 /**
  * Σ of stored decimal strings, leaving out a malformed value (a stored row the engine flags
@@ -24,18 +22,4 @@ export function sumValidDecimals(values: readonly string[]): DecimalValue {
 /** `sumValidDecimals`, normalised for a DTO ('0' for none). */
 export function sumValidDecimalStrings(values: readonly string[]): string {
   return normaliseDecimal(sumValidDecimals(values));
-}
-
-/**
- * Σ of integer cents (0 for none). RangeError when a value is not a safe integer or the running
- * total leaves the safe-integer range, so a sum never silently loses a cent.
- */
-export function sumCents(values: Iterable<number>): number {
-  let total = 0;
-  for (const v of values) {
-    if (!Number.isSafeInteger(v)) throw new RangeError(`sumCents: not integer cents: ${v}`);
-    total += v;
-    if (!Number.isSafeInteger(total)) throw new RangeError('sumCents: total out of range');
-  }
-  return total;
 }

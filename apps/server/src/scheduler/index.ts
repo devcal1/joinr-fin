@@ -136,6 +136,7 @@ export function createScheduler(o: {
           trigger,
           now: () => clock.now(),
           log: o.log,
+          jobRunId,
         });
       } catch (err) {
         o.log.error({ err, job: name }, 'job failed');

@@ -1,0 +1,73 @@
+/*
+ * The Settings Backups and About sections (stage-7.md §6.2, §6.3): `jf-app-backups-*` rules only.
+ * Dense per D109: the KV rows and the table keep the core 24 px rows; the in-table download button
+ * is the 22 px table button from 768 px (app.css) and a 32 px icon-only button on a phone.
+ */
+@layer app {
+  /* "Last run": the time, the badge, then a muted reason or the failure's category message. */
+  .jf-app-backups-run {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .jf-app-backups-error {
+    color: var(--stop-tint);
+  }
+
+  /* The retention sentence keeps the body measure (STYLE_GUIDE §2), like the callout below it. */
+  .jf-app-backups-retention {
+    max-width: var(--measure);
+  }
+
+  /* "Back up now" and its result: no gap under the button while the (always mounted) live region
+     is empty, so the table follows at the section's own 12 px; a result keeps the 12 px. */
+  .jf-app-block.jf-app-backups-now {
+    gap: 0;
+  }
+
+  .jf-app-backups-now > .jf-app-live:not(:empty) {
+    margin-top: var(--space-3);
+  }
+
+  .jf-app-backups-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  /* The Kind cell: the kind's pill, then "Monthly" or "Future date" (wrapping on a narrow table). */
+  .jf-app-backups-kind {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  /* The When cell: the time, and on a phone the size as a muted second line. */
+  .jf-app-backups-when {
+    display: inline-flex;
+    flex-direction: column;
+    white-space: nowrap;
+  }
+
+  .jf-app-backups-when__size {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jf-app-backups-more {
+    align-self: flex-start;
+  }
+
+  /* A phone keeps a roomy target: the icon-only download is 32 px square (§6.2 item 6). */
+  @media (max-width: 767.98px) {
+    .jf-table__cell .jf-app-backups-download.jf-button--icon {
+      width: 32px;
+      min-height: 32px;
+    }
+  }
+}

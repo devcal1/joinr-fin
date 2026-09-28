@@ -5,7 +5,10 @@
 // ['side-income'], ['budget'], ['dividends']. Stage 4 (stage-4.md §6.2): ['other-assets'], ['super'],
 // ['property']. Stage 5 (stage-5.md §6.2): ['net-worth', unit, count], ['history'],
 // ['history-series', unit, count], ['settings']. Stage 6 (stage-6.md §6.2): ['fire', query].
+// Stage 7 (stage-7.md §6.1): ['backups'].
 import type {
+  BackupNowResponse,
+  BackupsResponse,
   ChartDateUnit,
   CorrectionResponse,
   FirePageResponse,
@@ -144,6 +147,8 @@ export const queryKeys = {
   fire: ['fire'] as const,
   /** The FIRE page under a what-if (`{}` = the saved settings; stage-6.md §6.2). */
   firePage: (query: FireQuery | null) => ['fire', query ?? {}] as const,
+  /** The Settings Backups and About sections (stage-7.md §6.1). */
+  backups: ['backups'] as const,
 };
 
 /**
@@ -461,6 +466,18 @@ export function useSettingsPage(
     queryKey: queryKeys.settings,
     queryFn: () => apiGet<SettingsPageResponse>('/api/settings'),
     enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * `GET /api/backups` (stage-7.md §6.1): the backup files, the schedule, the last run and the About
+ * facts. Polled every 2 s while a backup runs, otherwise not at all.
+ */
+export function useBackups(): UseQueryResult<BackupsResponse> {
+  return useQuery({
+    queryKey: queryKeys.backups,
+    queryFn: () => apiGet<BackupsResponse>('/api/backups'),
+    refetchInterval: (query) => (query.state.data?.running ? BUSY_POLL_MS : false),
   });
 }
 
@@ -1059,6 +1076,24 @@ export function useUseWorkbookContribution(): UseMutationResult<
   return useMutation({
     mutationFn: () => apiSend<SettingsPatchResponse>('POST', '/api/fire/use-workbook-contribution'),
     onSuccess: () => invalidateAfterSettingsChange(queryClient),
+  });
+}
+
+// Backups
+
+/**
+ * `POST /api/backups` (stage-7.md §6.1): "Back up now". On settle, success or failure (a failed run
+ * changes the last run and the stale flag), the backups list and the header status refetch.
+ */
+export function useBackupNow(): UseMutationResult<BackupNowResponse, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<BackupNowResponse>('POST', '/api/backups'),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.backups }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+      ]),
   });
 }
 

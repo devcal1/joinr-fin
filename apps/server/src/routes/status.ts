@@ -1,10 +1,12 @@
 // GET /api/status (stage-1.md §3.2, §3.3): header freshness (prices, snapshots) and import state.
 // Stage 5 (stage-5.md §3.2, §4.5, additive): every `features.*` switch (default true; the navigation
 // hides a page that is off, §6.6) and the recorder's switch with its next month-end record time.
+// Stage 7 (stage-7.md §3.3, §5.4, additive): the stale-backup flag and the newest backup's time.
 import { SETTING_KEYS, type AppStatus, type FeatureKey, type SettingKey } from '@joinr/schema';
 import { importRuns, snapshots } from '@joinr/schema/db';
 import { count, desc, max } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
+import type { BackupService } from '../backups/service';
 import type { Config } from '../config';
 import type { AppDatabase, Db } from '../db/database';
 import { hasDomainData } from '../db/queries/domain';
@@ -39,6 +41,7 @@ export function readAppStatus(
   db: Db,
   market: MarketDataService,
   recorder?: Pick<SnapshotRecorder, 'status'>,
+  backups?: Pick<BackupService, 'staleness'>,
 ): AppStatus {
   const price = market.status();
   const snap = db
@@ -65,6 +68,7 @@ export function readAppStatus(
     const r = recorder.status();
     status.history = { autoRecord: r.autoRecord.enabled, nextRecordAt: r.nextRunAt };
   }
+  if (backups) status.backups = backups.staleness();
   return status;
 }
 
@@ -74,6 +78,7 @@ export const statusRoutes: FastifyPluginAsync<StatusRouteOptions> = async (app, 
       opts.database.db,
       opts.market,
       app.hasDecorator('recorder') ? app.recorder : undefined,
+      app.hasDecorator('backups') ? app.backups : undefined,
     ),
   );
 };

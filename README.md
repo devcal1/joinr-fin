@@ -2,7 +2,7 @@
 
 A self-hosted personal-finance web app. It tracks net worth, investments (shares, ETFs, managed funds and crypto), cash flow, super, property and a FIRE plan. It rebuilds a personal-wealth spreadsheet template as a web app that runs on a home server and opens in a browser on any PC or phone. It is styled to the Joinr brand in dark mode.
 
-**Status:** Stages 0–4 are done (foundations, data and importer, investments, cash flow and income, other assets, super and property); Stage 5 (history, the net worth dashboard and settings) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
+**Status:** Stages 0–6 are done (foundations, data and importer, investments, cash flow and income, other assets, super and property, history and the net worth dashboard, the FIRE planner); Stage 7 (backups, restore and the deployment to an Umbrel home server) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
 
 > [!IMPORTANT]
 > **This repository is public.** It holds code and generic documentation only. The owner's workbook, specs, notes and data live in git-ignored folders, and a pre-commit **privacy guard** blocks them (see [Privacy](#privacy)). Code, tests, seeds and docs use obviously generic values such as "Example Co", `$12,480.00` and `user@example.com`.
@@ -36,7 +36,7 @@ Run these from the repo root.
 | `pnpm dev` | Runs the API (`tsx watch`) and the web app (Vite) together. |
 | `pnpm build` | Builds the web app (`apps/web/dist`), then bundles the server (`apps/server/dist/server.js`). |
 | `pnpm start` | Starts the bundled server in production mode. It serves the API and the built SPA. |
-| `pnpm test` | Runs all Vitest projects: `web`, `server`, `ui`, `engine`, `schema`, `importer`, `privacy-guard`. |
+| `pnpm test` | Runs all Vitest projects: `web`, `server`, `ui`, `engine`, `schema`, `importer`, `privacy-guard`, `deploy`. |
 | `pnpm e2e` | Runs the Playwright specs at 1440 px (desktop) and 375 px (phone). The config starts `pnpm dev` itself. |
 | `pnpm lint` | Runs ESLint over the whole repo with zero warnings allowed. |
 | `pnpm typecheck` | Runs `tsc` for the root and every package. |
@@ -45,8 +45,14 @@ Run these from the repo root.
 | `pnpm guard` | Runs the privacy guard on staged files. The pre-commit hook runs the same check. |
 | `pnpm guard:all` | Runs the privacy guard on every tracked file and every untracked file that is not ignored. |
 | `pnpm import:workbook [file.xlsx] [--dry-run] [--yes] [--replace-app-data] [--corrections <file> | --no-corrections] [--json]` | Imports the workbook export into `DATA_DIR` (see [Importing the workbook](#importing-the-workbook)). |
+| `pnpm restore:backup <backup> [--yes] [--force] [--json]` | Restores a backup into `DATA_DIR` with the server stopped (see [Backups and restore](#backups-and-restore)). |
 | `pnpm seed:dev` | Replaces the data in `DATA_DIR` with a small generic data set, for UI work without a workbook. If `DATA_DIR` already holds data it asks for `--yes` (exit 3), and with `--yes` it backs the database up first. |
 | `pnpm db:generate --name <name>` | Generates a SQL migration from the schema in `packages/schema` (same as `pnpm --filter @joinr/server db:generate`). Migrations are append-only. |
+| `pnpm umbrel:release` | Builds a release on the Umbrel and writes it into the app store clone (see [Deployment](#deployment)). |
+| `pnpm umbrel:status` | Read-only: the app, the registry, and whether it is safe to click Update in Umbrel. |
+| `pnpm umbrel:restore <backup> | --from-file <file>` | Restores a backup on the Umbrel with the app stopped. |
+| `pnpm umbrel:registry ensure | status` | Checks (or, in the fallback mode, starts) the loopback image registry on the Umbrel. |
+| `pnpm umbrel:smoke start | check | remove` | A scratch run of an image on the Umbrel, on a loopback port, with checks. |
 
 To scope a run while working: `pnpm exec vitest run --project server`, or `pnpm exec eslint apps/server`.
 
@@ -70,6 +76,8 @@ Everything is set through environment variables. The server validates them at st
 | `PRICE_REFRESH_MINUTES` | server | `60` (`0` under `NODE_ENV=test`) | The scheduled price refresh interval, `0`–`1440`. `0` switches the timer off; **Refresh now** still works. |
 | `IMPORT_CORRECTIONS_FILE` | server, import CLI | unset (auto) | The corrections file for the workbook import. A path (relative to the repo root), or `none` to switch corrections off. Unset: `<DATA_DIR>/import-corrections.json`, else `reference/import-corrections.json` in a dev checkout, else none. Playwright defaults to `none`. |
 | `AUTO_RECORD` | server | unset | `true`/`false` (also `1`/`0`, `yes`/`no`). Records each month automatically on its last day at 23:00 server time, and catches up missed months at start-up. Unset: the **Record each month automatically** setting decides (off by default); set, it overrides the setting and locks it. Leave it unset while you still re-import the workbook: a recorded month blocks a re-import. Ignored under `NODE_ENV=test`. |
+| `NIGHTLY_BACKUPS` | server | on (`false` under `NODE_ENV=test`) | `true`/`false` (also `1`/`0`, `yes`/`no`). The nightly backup at 02:30 server time, with a catch-up at start-up. Off: no timer and no catch-up; **Back up now** and the backups before an import, a restore and an update still work. Playwright sets `false`. |
+| `PUBLIC_PORT` | server | unset | The port browsers use to reach the app when it sits behind a proxy (the Umbrel store compose sets `4932`). The cross-site write guard accepts a browser `Origin` on this port whose host is the one the browser used (`X-Forwarded-Host`, or `Host` when not rewritten). |
 | `PW_CHANNEL` | Playwright | `chrome` | Uses an installed browser: `chrome`, `msedge`, or `chromium` (the cached build). Browsers are never downloaded. |
 
 To use different ports (for example, a second copy running side by side):
@@ -98,9 +106,10 @@ packages/
   importer/            @joinr/importer workbook importer and reconciliation report (CLI and upload)
 tools/
   privacy-guard/       @joinr/privacy-guard  the pre-commit privacy check
+  deploy/              the Umbrel release, restore, status and smoke scripts (plain Node, run from the dev PC)
 .githooks/pre-commit   runs the guard on staged content
 e2e/                   Playwright specs
-docs/                  decisions, handoff, process, stage plans, style guide, architecture
+docs/                  decisions, handoff, process, stage plans, style guide, architecture, deploy/RUNBOOK.md
 Dockerfile, docker-compose.yml
 ```
 
@@ -115,7 +124,7 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | Route | What it does |
 |---|---|
 | `GET /api/health` | Liveness and a database check (`503` with `"status": "degraded"` if the check fails). |
-| `GET /api/status` | Header freshness: price mode and last refresh, snapshot count and latest period, last import run. |
+| `GET /api/status` | Header freshness: price mode and last refresh, snapshot count and latest period, last import run, and `backups` (`stale`, `lastBackupAt`) for the stale-backup callout. |
 | `GET /api/records` | The read-only record browser: every entity with its row count. |
 | `GET /api/records/:entity` | One entity's columns and rows (money in integer cents, quantities and prices as decimal strings; at most 5,000 rows). |
 | `POST /api/import` | Uploads a workbook (raw bytes, see below). |
@@ -168,6 +177,11 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `PATCH /api/settings` | Changes settings (`{ "values": { "savings.yearBasis": "calendar" } }`; every setting but the server-written cap year); the answer holds the settings of every page the change named, plus the named settings themselves. |
 | `GET /api/fire` | The FIRE planner: each input with where its value comes from (a what-if, your setting, the figure derived from your records, the default, or missing), the derived figures (pre-super net worth and the debts in it, the yearly spend and savings from the recorded months, the super contribution a year, the growth weights), the projection (status, FIRE year, KPIs, milestones and the year-by-year path in today's dollars) and, during a what-if, the saved plan's summary. `?spend=&withdrawalRate=&inflationRate=&marketReturn=&accessAge=&extraSavings=` is a what-if for this answer only; nothing is saved. |
 | `POST /api/fire/use-workbook-contribution` | Makes the workbook's super contribution a year your setting (same value, now yours); no body. Answers like `PATCH /api/settings`. |
+| `GET /api/backups` | Every backup file, newest first (name, kind, time with the server's offset, size, why retention keeps it), the total size and the free space, the schedule and its next run, the last run, `stale`, the retention numbers, and the app block (version, database level, the backup a restore came from). |
+| `POST /api/backups` | **Back up now**: no body (or `{}`). `201` with the new file, or the run already in flight (`joined: true`). `409 IMPORT_IN_PROGRESS` during an upload import; `500 BACKUP_FAILED` with a reason (no space, the copy failed its check, the copy could not be written). |
+| `GET /api/backups/:name` | Downloads one backup (`application/vnd.sqlite3`, saved as `joinr-finance-<name>`). The name must match the backup name rule (`400` otherwise; never a path) and be a regular file in the backups folder (`404`). |
+
+**Writes from another site are refused.** A `POST`, `PUT`, `PATCH` or `DELETE` under `/api` answers `403 CROSS_SITE_REQUEST` when the browser marks it as cross-site (`Sec-Fetch-Site` other than `same-origin` or `none`), or, over plain HTTP where browsers send no `Sec-Fetch-*` header, when its `Origin` names another host or another port (the request's `Host`, `X-Forwarded-Host`, or `PUBLIC_PORT` are accepted; a loopback origin also outside production, for the Vite proxy). Requests with neither header (curl, the CLIs) pass.
 
 ```http
 GET /api/health
@@ -176,7 +190,7 @@ GET /api/health
 ```json
 {
   "status": "ok",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
   "db": { "ok": true, "journalMode": "wal", "migrations": 6 }
@@ -291,17 +305,47 @@ The app's data comes from the spreadsheet template's `.xlsx` export. The same im
 
 1. Export the Google Sheet as `.xlsx` and put it in `reference/` (git-ignored). The CLI picks the single `.xlsx` there, or takes a path.
 2. Preview: `pnpm import:workbook --dry-run`. Nothing is written except the run record.
-3. Import: `pnpm import:workbook --yes`. `--yes` confirms replacing data imported before. A backup is taken first (`<DATA_DIR>/backups/pre-import-YYYYMMDD-HHmmss.db`; the newest 10 are kept).
+3. Import: `pnpm import:workbook --yes`. `--yes` confirms replacing data imported before. A verified backup is taken first (`<DATA_DIR>/backups/pre-import-YYYYMMDD-HHmmss+HHMM.db`, named in server time with its UTC offset; the newest 10 are kept). A copy that fails its check stops the import.
    If the database holds data entered in the app (any row with `origin = 'app'`, or a workbook row deleted in the app), a real import stops with exit 3 until you add `--replace-app-data` as well: `pnpm import:workbook --yes --replace-app-data`. The upload on the **Import** page refuses this case (`409 IMPORT_APP_DATA_EXISTS`); a dry run works either way.
 4. Open **Import** in the app for the full report. The target is **zero unexplained** checks. Suspect rows are imported as they are and flagged for review.
 
-CLI exit codes: `0` succeeded with nothing unexplained, `4` succeeded with unexplained checks, `1` failed, `2` usage, configuration or corrections error, `3` confirmation required (`--yes`, or `--yes --replace-app-data` over data entered in the app). The CLI is safe to run while the server runs; the server sees the new data on its next request.
+CLI exit codes: `0` succeeded with nothing unexplained, `4` succeeded with unexplained checks, `1` failed, `2` usage, configuration or corrections error, `3` confirmation required (`--yes`, or `--yes --replace-app-data` over data entered in the app), `6` the app looks running. **Stop the server before a CLI import:** the CLI refuses while the server's running marker is set (exit 6; `--force` overrides the marker after a crash). An upload on the **Import** page needs no stop (it runs inside the server).
 
 An import **replaces** the imported investments, cash, budget, income, assets and history. Instruments are matched by kind and symbol, so price-source edits and manual prices entered in the app are kept. The fund chosen to receive employer SG is carried over by fund name, and SG statement months are kept. Re-importing the same file gives identical data.
 
 **Corrections.** Known data fixes to the sheet (for example a mistyped trade date) live in a corrections file, never in the repo: `reference/import-corrections.json` on the development PC, `<DATA_DIR>/import-corrections.json` on the server. `IMPORT_CORRECTIONS_FILE` picks another file or `none`; the CLI takes `--corrections <file>` or `--no-corrections`. Each applied correction is listed in the report.
 
 **Prices.** After an import the price service refreshes the instruments in the background (mode `live` or `fake`). Listed securities and FX use the Yahoo chart API, crypto uses CoinGecko, and anything else takes a manual price. A price that cannot be fetched keeps its last good value and shows as stale or failed.
+
+## Backups and restore
+
+The server keeps verified copies of its database in `<DATA_DIR>/backups/`, one flat folder of self-contained SQLite files.
+
+- **Nightly** at 02:30 server time (`NIGHTLY_BACKUPS`, on by default; the server's `TZ` decides the zone). If the server was off across 02:30, one copy is taken about two minutes after it starts. A run that fails is retried after 15 minutes, up to three times.
+- **Kept:** the newest nightly copy of each of the last 14 dates it ran and of each of the last 12 calendar months, plus the newest 10 taken by hand (**Back up now**), 10 before an import, 5 before a restore and 5 before an update (a start-up that migrates the database).
+- **Names** are `<kind>-YYYYMMDD-HHmmss±HHMM.db` in server time with its offset (`nightly`, `manual`, `pre-import`, `pre-restore`, `pre-migrate`). A copy is written to a hidden `.…partial` file, checked (`PRAGMA integrity_check`, the migration count), then renamed, so a listed file is always complete; anything else in the folder is never listed or deleted.
+- **Settings → Backups** lists them with a download button, shows the last and next run, and warns when no backup has succeeded for 48 hours (also on every page).
+- **Start-up safety:** before a new version migrates the database, the server takes a `pre-migrate` copy; an older version refuses to start on a database a newer one migrated.
+
+**Restore** is a command-line step with the server stopped:
+
+```sh
+pnpm restore:backup nightly-20300315-023000+1100.db          # prints what it would do (exit 3)
+pnpm restore:backup nightly-20300315-023000+1100.db --yes    # restores
+```
+
+In the Docker image the same CLI is `node dist/cli/restore.js <backup> [--yes] [--force] [--json]`. `<backup>` is a name in `backups/` (a downloaded `joinr-finance-…` name works too) or a path to a SQLite file. The CLI checks the file (integrity, that it is a Joinr database of the same lineage, and not from a newer version), takes a `pre-restore` copy of the current database, swaps the file in atomically and marks it, so Settings → About shows where it came from. The next start applies any pending migrations.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Restored. |
+| `1` | Failed; nothing changed, or the message names the pre-restore copy to go back to. |
+| `2` | Usage or configuration. |
+| `3` | Confirmation required: add `--yes`. |
+| `5` | The backup is not valid: damaged, not a Joinr database, a different database, made by a newer version, or a live database with its `-wal` beside it. |
+| `6` | The app looks running. Stop it; after a crash, `--force` skips the running marker (never the lock check). `--force` also sets a damaged current database aside unverified instead of refusing. |
+
+On the Umbrel, `pnpm umbrel:restore` wraps this (see [`docs/deploy/RUNBOOK.md`](docs/deploy/RUNBOOK.md#restore)).
 
 ## Testing
 
@@ -310,6 +354,7 @@ An import **replaces** the imported investments, cash, budget, income, assets an
 - **Golden tests** compare the importer (Stage 1), the engine and the APIs (Stage 2 on: import → database → API; the investment pages, then the cash-flow pages in Stage 3, the other assets, super and property pages in Stage 4, History and Net Worth in Stage 5, where a month is also recorded, and FIRE in Stage 6, where the template's formulas are reproduced and the imported access age is upgraded) with values read at runtime from the owner's local workbook, and they skip when the workbook is absent. Personal values never enter the repo.
 - **Synthetic workbook.** `buildSyntheticWorkbook()` (`@joinr/importer/testing`) builds a generic workbook in the template's layout, so the importer, the upload route and the e2e specs are tested without the private file. Synthetic imports always run with corrections off.
 - **No network in unit tests.** A setup file makes `fetch` fail; price providers are tested with mocked responses.
+- **Deploy scripts** (`tools/deploy`, Vitest project `deploy`) are tested with a fake command runner: every ssh, git and docker command is asserted as an argument list and nothing reaches the Umbrel. One test spawns `node` and the privacy guard for real, to cover Windows process spawning.
 
 ## Privacy
 
@@ -345,22 +390,16 @@ The terms file is optional. Without it, the `private-term` rule is off, and ever
 
 ## Deployment
 
-The app ships as one Docker container that serves the API and the web app on port `3001`, with the database in a `/data` volume.
+The app runs on an [Umbrel](https://umbrel.com) home server as **Joinr Finance** in a community app store (`tenon-umbrel-store`, a separate public repository holding only the manifest, the compose file and the icon). The operator's step-by-step guide is [`docs/deploy/RUNBOOK.md`](docs/deploy/RUNBOOK.md).
 
-- **`Dockerfile`**, a multi-stage build on `node:24-bookworm-slim`:
-  - pnpm comes from corepack, and the install uses the frozen lockfile.
-  - The final image has production dependencies only.
-  - It runs as the non-root `node` user (uid 1000), with `VOLUME /data`.
-  - The healthcheck calls `/api/health` with Node's `fetch`.
-- **`docker-compose.yml`** runs one service. Set `JOINR_PORT` (default `3001`), `JOINR_DATA_PATH` (default `./data`) and `TZ`. The data folder must be writable by uid 1000.
-  - The port is published on **loopback only** (`127.0.0.1`). The app has no login of its own, so it must never be reachable directly on the LAN or the tailnet. On the NAS, the Umbrel app proxy (with the Umbrel login in front) is the only way in, and the Stage 7 packaging publishes no port at all.
+- **The image** (`Dockerfile`) is a two-stage build on `node:24-bookworm-slim`, pinned by tag and digest. pnpm comes from corepack with the frozen lockfile; the runtime has production dependencies only, runs as the non-root `node` user (uid 1000) with a root-owned `/app` and a `/data` volume, and checks `/api/health` with Node's `fetch`. The build fails unless both CLIs (`dist/cli/import.js`, `dist/cli/restore.js`) run and the `Australia/Melbourne` zone resolves correctly. The image sets no `TZ`; the compose file does.
+- **Where it is built:** the development PC has no Docker. `pnpm umbrel:release` ships the committed tree (or, with `--allow-dirty`, the working copy: exactly the files `pnpm guard:all` scans, after the guard passes) to the Umbrel over SSH, builds it there, and pushes it to a registry on the Umbrel's loopback (`127.0.0.1:4930`, the **Joinr Registry** store app). umbrelOS pulls every image at install and update, so the image must come from a registry; nothing leaves the Umbrel. No GitHub Actions, no ghcr.
+- **Versions:** `version` in the root `package.json` is the app version everywhere: the footer, Settings → About, `/api/health`, the image tag and label, and the store manifest's `version:`. Every release that changes the image bumps it; the scripts refuse to overwrite a tag or to pin a new image under an old version.
+- **The store compose** puts Umbrel's app proxy (and its login) in front of every path, publishes no port, runs the app as uid 1000 on a private Docker network that only the proxy joins, and sets `TZ=Australia/Melbourne` and `PUBLIC_PORT=4932`. `DATA_DIR` is the app's Umbrel data folder: **uninstalling the app deletes the database and every backup**, so download a backup first.
+- **Scripts** (`tools/deploy`, plain Node, run from the dev PC over the `umbrel` SSH alias with key auth; every one takes `--dry-run`): `pnpm umbrel:release`, `umbrel:status` (prints "Safe to click Update in Umbrel" only when the registry holds the pinned image), `umbrel:restore`, `umbrel:registry` and `umbrel:smoke`. Environment: `JOINR_DEPLOY_HOST` (default `umbrel`), `JOINR_STORE_DIR` (default `../tenon-umbrel-store`), `JOINR_REGISTRY_MODE` (`app`, or `container` for a plain registry container), `JOINR_REGISTRY_PORT`, `JOINR_APP_ID`, `JOINR_SSH` and `JOINR_GIT` (the binaries to use).
+- **`docker-compose.yml`** in this repo is a generic local run (`docker compose up -d --build`): loopback-only port (`JOINR_PORT`, default `3001`), `JOINR_DATA_PATH` (default `./data`, writable by uid 1000) and `TZ`. Never publish the port on all interfaces: the app has no login of its own.
 
 Don't run `pnpm deploy` in a development checkout; it belongs inside the image build only. It rewrites pnpm's workspace state for a production-only install, and the next `pnpm <script>` then tries to prune the dev dependencies.
-
-The development PC has no Docker. The image is built on the home server from a copy of the build context in **Stage 7**. Stage 7 also adds:
-- the Umbrel app packaging (with the Umbrel login in front);
-- backups and restore;
-- the go-live runbook.
 
 ## Documentation
 
@@ -370,3 +409,4 @@ The development PC has no Docker. The image is built on the home server from a c
 - [`docs/STAGE_PROCESS.md`](docs/STAGE_PROCESS.md): how each stage runs.
 - [`docs/style/STYLE_GUIDE.md`](docs/style/STYLE_GUIDE.md): the visual rules.
 - [`docs/stages/`](docs/stages/): the detailed plan for each stage.
+- [`docs/deploy/RUNBOOK.md`](docs/deploy/RUNBOOK.md): install, release, backups, restore and troubleshooting on the Umbrel.

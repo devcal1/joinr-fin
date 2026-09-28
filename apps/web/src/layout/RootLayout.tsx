@@ -1,11 +1,13 @@
 // The app frame for every shell page: AppShell + brand block + nav, around the routed page.
 // Stage 5 (stage-5.md §6.6): the nav leaves out the pages switched off in Settings (Pages); a
-// switched-off page opened by a link still renders, under a note that says so.
+// switched-off page opened by a link still renders, under a note that says so. Stage 7 (stage-7.md
+// §6.4): while the backups are stale, an `important` callout above every page links to Backups.
 import { AppShell, BrandBlock, Callout, MEDIA, useMediaQuery, type AppLinkProps } from '@joinr/ui';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 import { useMemo, type JSX } from 'react';
 import { useStatus } from '../api/hooks';
 import { pageForPath } from '../pages';
+import { OPEN_BACKUPS, STALE_BACKUP_TITLE, backupsStale, staleBackupText } from './backupStale';
 import { useDocumentTitle } from './documentTitle';
 import { freshnessOf } from './freshness';
 import { SECONDARY_NAV, navFor, pageSwitchedOff, titleForPath } from './nav';
@@ -20,6 +22,20 @@ function SwitchedOffNote(): JSX.Element {
         {SWITCHED_OFF_NOTE}{' '}
         <Link to="/settings" hash="features">
           Change it in Settings
+        </Link>
+      </p>
+    </Callout>
+  );
+}
+
+/** Above every page while no nightly or manual backup has succeeded for 48 hours (§6.4). */
+function StaleBackupCallout({ lastBackupAt }: { lastBackupAt: string | null }): JSX.Element {
+  return (
+    <Callout kind="important" title={STALE_BACKUP_TITLE}>
+      <p>
+        {staleBackupText(lastBackupAt)}{' '}
+        <Link to="/settings" hash="backups">
+          {OPEN_BACKUPS}
         </Link>
       </p>
     </Callout>
@@ -65,6 +81,9 @@ export function RootLayout(): JSX.Element {
       footer={{ version: __APP_VERSION__, right: freshness.footer }}
       linkComponent={RouterLink}
     >
+      {backupsStale(status) ? (
+        <StaleBackupCallout lastBackupAt={status?.backups?.lastBackupAt ?? null} />
+      ) : null}
       {switchedOff ? <SwitchedOffNote /> : null}
       <Outlet />
     </AppShell>

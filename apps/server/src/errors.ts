@@ -79,6 +79,46 @@ function statusOf(err: FastifyError): number {
 }
 
 /**
+ * Fastify's `frameworkErrors` option: errors the router raises before any route or hook runs
+ * (a path parameter over `maxParamLength`, a malformed URL) are answered in the Stage 0 shape
+ * instead of Fastify's own body, and never echo the URL. A too-long parameter is a 400
+ * `VALIDATION_ERROR`: under `/api/backups/` it is "Not a backup file name" (stage-7.md §4.1: a
+ * name over 64 characters), elsewhere a generic message.
+ */
+export function frameworkErrorHandler(
+  error: FastifyError,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): void {
+  let status = 500;
+  let code = 'INTERNAL_SERVER_ERROR';
+  let message = 'Internal server error';
+  if (error.code === 'FST_ERR_MAX_PARAM_LENGTH') {
+    status = 400;
+    code = 'VALIDATION_ERROR';
+    message = (request.raw.url ?? '').startsWith('/api/backups/')
+      ? 'Not a backup file name'
+      : 'A path parameter is too long';
+  } else if (error.code === 'FST_ERR_BAD_URL') {
+    status = 400;
+    code = 'VALIDATION_ERROR';
+    message = 'Not a valid URL';
+  } else {
+    request.log.error({ code: error.code }, 'request failed in the router');
+  }
+  void reply
+    .code(status)
+    // The app's onSend hook does not run for the router's own errors: its headers are set here.
+    .headers({
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'same-origin',
+    })
+    .type('application/json; charset=utf-8')
+    .send(errorBody(code, message));
+}
+
+/**
  * Installs the JSON error handler. 4xx errors keep their message (Fastify's own messages, e.g.
  * body validation, are written for clients); 5xx errors are logged in full and answered with a
  * generic message so no internals (paths, SQL, stack) leak, except an `HttpError` created with

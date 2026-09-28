@@ -39,7 +39,7 @@ export const FIRE_NOTE = 'Used by the FIRE planner; its what-if panel can save t
 export const UNUSED_NOTE =
   "The app does not use these; they are kept so the workbook's settings stay complete.";
 export const AUTO_RECORD_APP_DATA_NOTE =
-  'Recorded months are app data: once a month is recorded, re-importing the workbook is blocked. Leave this off until you stop using the workbook (Stage 7).';
+  'Recorded months are app data: once a month is recorded, re-importing the workbook is blocked. Switch this on when you stop using the workbook.';
 export const ENV_LOCKED_TEXT = 'Set by the server (AUTO_RECORD)';
 export const NOT_USED_TEXT = 'Not used by the app';
 export const NO_SALARY_TEXT = 'Set your gross salary to see a suggestion';

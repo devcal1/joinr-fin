@@ -37,6 +37,8 @@ export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Co
     importCorrections: { kind: 'off' },
     repoRoot: null,
     autoRecord: null,
+    nightlyBackups: false,
+    publicPort: null,
     ...overrides,
   };
 }

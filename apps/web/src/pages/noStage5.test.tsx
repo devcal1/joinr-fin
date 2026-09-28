@@ -1,6 +1,6 @@
-// stage-5.md §6.7 and stage-6.md §6.8: every user-facing "Stage 5" and "Stage 6" text is now a
-// present-tense line. This renders every data page (FIRE included) with every fixture state
-// and asserts no page shows "Stage 5" or "Stage 6" ("Stage 7" mentions stay allowed).
+// stage-5.md §6.7, stage-6.md §6.8 and stage-7.md §6.5: every user-facing "Stage 5", "Stage 6" and
+// "Stage 7" text is now a present-tense line. This renders every data page (FIRE included) with every
+// fixture state and asserts no page shows "Stage 5", "Stage 6" or "Stage 7".
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { mockApi } from '../../test/mockApi';
@@ -11,7 +11,7 @@ const CASES = PAGE_CASES.flatMap((page) =>
   Object.entries(page.states).map(([state, routes]) => [page.id, state, page, routes] as const),
 );
 
-describe('no page shows "Stage 5" or "Stage 6" (stage-5.md §6.7, stage-6.md §6.8)', () => {
+describe('no page shows "Stage 5", "Stage 6" or "Stage 7" (stage-5.md §6.7, stage-6.md §6.8, stage-7.md §6.5)', () => {
   it.each(CASES)('%s · %s', async (_id, state, page, routes) => {
     mockApi(Object.fromEntries(Object.entries(routes).map(([route, body]) => [route, { body }])));
     renderApp(page.paths?.[state] ?? page.path);
@@ -21,6 +21,7 @@ describe('no page shows "Stage 5" or "Stage 6" (stage-5.md §6.7, stage-6.md §6
     await waitFor(() => expect(main.querySelectorAll('h2, table').length).toBeGreaterThan(0));
     expect(main).not.toHaveTextContent('Stage 5');
     expect(main).not.toHaveTextContent('Stage 6');
-    expect(document.title).not.toMatch(/Stage [56]/);
+    expect(main).not.toHaveTextContent('Stage 7');
+    expect(document.title).not.toMatch(/Stage [567]/);
   });
 });

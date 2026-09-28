@@ -1,9 +1,12 @@
-// Server entry point: load config → open DB → migrate → clean up interrupted runs → build →
-// listen → start the scheduler, then the snapshot recorder (stage-5.md §4.6).
+// Server entry point: load config → open DB → migrate (a pre-update backup first; a refusal on a
+// database a newer version migrated, stage-7.md §5.7) → clean up interrupted runs → build →
+// listen → start the scheduler, the snapshot recorder (stage-5.md §4.6), then the backup service
+// (stage-7.md §5.4).
 import type { FastifyInstance } from 'fastify';
 import { buildApp, defaultServices } from './app';
 import { ConfigError, loadConfig, type Config } from './config';
-import { closeDatabase, openDatabase, runMigrations } from './db/database';
+import { migrateWithBackup, NewerDatabaseError, PreUpdateBackupError } from './backups/migrate';
+import { closeDatabase, openDatabase } from './db/database';
 import { recordStartup } from './db/meta';
 import { markInterruptedRuns } from './db/queries/domain';
 import { APP_VERSION } from './version';
@@ -59,15 +62,17 @@ async function main(): Promise<void> {
 
   const database = openDatabase(config.dataDir);
   let app: FastifyInstance;
-  let migrations: ReturnType<typeof runMigrations>;
+  let migrations: ReturnType<typeof migrateWithBackup>;
   let interrupted: ReturnType<typeof markInterruptedRuns>;
   try {
-    migrations = runMigrations(database, config.migrationsDir);
+    // The pre-update backup (if any) is logged below with both levels (no path, no figure).
+    migrations = migrateWithBackup(database, config);
     recordStartup(database.db);
     interrupted = markInterruptedRuns(database.db, new Date());
     app = await buildApp({ config, db: database, services: defaultServices });
   } catch (err) {
     closeDatabase(database);
+    if (err instanceof NewerDatabaseError || err instanceof PreUpdateBackupError) fail(err.message);
     throw err;
   }
 
@@ -78,6 +83,8 @@ async function main(): Promise<void> {
       dataDir: config.dataDir,
       migrationsApplied: migrations.applied,
       migrationsTotal: migrations.total,
+      migrationsBefore: migrations.from,
+      preUpdateBackup: migrations.backup,
       serveWeb: config.serveWeb,
       marketDataMode: config.marketDataMode,
       priceRefreshMinutes: config.priceRefreshMinutes,
@@ -103,6 +110,7 @@ async function main(): Promise<void> {
   }
   app.scheduler.start();
   app.recorder.start();
+  app.backups.start();
 }
 
 main().catch((err: unknown) => {

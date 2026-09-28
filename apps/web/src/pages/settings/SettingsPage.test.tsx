@@ -345,7 +345,7 @@ describe('Settings: allocation, history and saving (§6.5 items 4–5)', () => {
       }),
     ).toBeChecked();
     expect(history).toHaveTextContent(
-      'Recorded months are app data: once a month is recorded, re-importing the workbook is blocked. Leave this off until you stop using the workbook (Stage 7).',
+      'Recorded months are app data: once a month is recorded, re-importing the workbook is blocked. Switch this on when you stop using the workbook.',
     );
     unmount();
     await openPage(populated);

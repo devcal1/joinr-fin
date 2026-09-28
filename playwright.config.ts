@@ -18,6 +18,7 @@ const MUTATING_SPECS = [
   /assets-mutations\.spec\.ts/,
   /history-mutations\.spec\.ts/,
   /fire-mutations\.spec\.ts/,
+  /backups-mutations\.spec\.ts/,
 ];
 
 // The read-only desktop, phone and warmup projects retry a failed test twice: their flakes are
@@ -117,6 +118,15 @@ export default defineConfig({
       testMatch: /fire-mutations\.spec\.ts/,
       dependencies: ['history-mutations'],
     },
+    // "Back up now" writes backup files (not app data, but shared state the read-only Backups
+    // specs list), and the cross-site checks POST, so the backups mutations run alone after the FIRE
+    // mutations, last in the chain (stage-7.md §6.8).
+    {
+      name: 'backups-mutations',
+      use: { viewport: { width: 1440, height: 900 } },
+      testMatch: /backups-mutations\.spec\.ts/,
+      dependencies: ['fire-mutations'],
+    },
   ],
   webServer: {
     command: 'pnpm dev',
@@ -132,6 +142,8 @@ export default defineConfig({
       PRICE_REFRESH_MINUTES: process.env.PRICE_REFRESH_MINUTES ?? '0',
       // The synthetic workbook must never meet the owner's corrections file (stage-1.md §3.4).
       IMPORT_CORRECTIONS_FILE: process.env.IMPORT_CORRECTIONS_FILE ?? 'none',
+      // No nightly timer and no start-up catch-up file mid-run (stage-7.md §6.8).
+      NIGHTLY_BACKUPS: process.env.NIGHTLY_BACKUPS ?? 'false',
     },
   },
 });

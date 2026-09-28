@@ -1,7 +1,7 @@
 // `@joinr/schema` root export: enums, primitives, decimal and date helpers, pricing, the settings
 // and record registries, Zod row schemas, corrections, limits, the Stage 4 statutory tables and
-// payment grid (assets.ts), the Stage 5 history constants (history.ts) and ATO tables (tax.ts), and
-// the API DTOs.
+// payment grid (assets.ts), the Stage 5 history constants (history.ts) and ATO tables (tax.ts), the
+// Stage 7 backup constants (backups.ts), and the API DTOs.
 // The web imports this entry, so nothing here may import drizzle-orm or node modules
 // (the Drizzle tables are `@joinr/schema/db`).
 export const packageName = '@joinr/schema' as const;
@@ -16,6 +16,7 @@ export * from './assets';
 export * from './history';
 export * from './fire';
 export * from './tax';
+export * from './backups';
 export * from './settings';
 export * from './records';
 export * from './rows';
@@ -33,3 +34,4 @@ export * from './dto/assets';
 export * from './dto/history';
 export * from './dto/settings';
 export * from './dto/fire';
+export * from './dto/backups';

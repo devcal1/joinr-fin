@@ -632,4 +632,7 @@ export const apiErrors = {
   historyValidation: { error: { code: 'VALIDATION_ERROR', message: 'values.mortgageBalanceCents: must not be positive; note: say why' } },
   // Stage 6 (stage-6.md §3.6): an out-of-range what-if query.
   fireValidation: { error: { code: 'VALIDATION_ERROR', message: 'withdrawalRate: must be above 0; accessAge: Too big: expected number to be <=99' } },
+  // Stage 7 (stage-7.md §4.1): a failed 'Back up now' (a category message, never a path) and the cross-site write guard.
+  backupFailed: { error: { code: 'BACKUP_FAILED', message: 'Not enough free space on the server' } },
+  crossSiteRequest: { error: { code: 'CROSS_SITE_REQUEST', message: 'Requests from another site are refused' } },
 } satisfies Record<string, ApiErrorBody>;

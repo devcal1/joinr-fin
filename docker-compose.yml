@@ -1,6 +1,7 @@
-# Joinr Finance: a single-container compose file for building and running the image.
-# Stage 7 wraps this for Umbrel (umbrel-app.yml, app proxy auth, a DATA_DIR on NAS storage)
-# and sets the real time zone.
+# Joinr Finance: a generic single-container compose file for building and running the image
+# locally. The Umbrel deployment does NOT use this file: its compose lives in the app store
+# repository (tenon-umbrel-store/tenon-joinr-finance/docker-compose.yml) and pins the image built
+# on the Umbrel by tag and digest; see docs/deploy/RUNBOOK.md.
 #
 #   docker compose up -d --build
 #
@@ -14,12 +15,16 @@ services:
     image: joinr-finance:local
     init: true
     restart: unless-stopped
-    # Loopback only: the app has no login of its own. On the NAS (Stage 7) the Umbrel app proxy,
-    # which puts the Umbrel login in front, is the only way in, and that packaging publishes no
-    # port. Never publish this port on all interfaces (LAN or tailnet).
+    # Time for the server to finish a backup or a price write and close SQLite cleanly.
+    stop_grace_period: 30s
+    # Loopback only: the app has no login of its own. On the Umbrel the app proxy, which puts the
+    # Umbrel login in front, is the only way in, and that compose publishes no port. Never publish
+    # this port on all interfaces (LAN or tailnet).
     ports:
       - '127.0.0.1:${JOINR_PORT:-3001}:3001'
     volumes:
       - '${JOINR_DATA_PATH:-./data}:/data'
     environment:
+      # The server's time zone decides the 23:00 month-end record and the 02:30 nightly backup.
+      # The Umbrel compose sets Australia/Melbourne; set TZ in your shell or an .env file here.
       TZ: '${TZ:-UTC}'

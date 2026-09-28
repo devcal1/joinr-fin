@@ -68,6 +68,8 @@ describe('GET /api/status', () => {
       // Stage 5 (stage-5.md §3.2, §4.5): every feature on by default; the recorder off.
       features: Object.fromEntries(FEATURE_KEYS.map((k) => [k, true])),
       history: { autoRecord: false, nextRecordAt: null },
+      // Stage 7 (stage-7.md §3.3): no backup yet, and nothing to be stale about.
+      backups: { stale: false, lastBackupAt: null },
     });
   });
 
@@ -124,6 +126,38 @@ describe('GET /api/status', () => {
       lastRunAt: '2026-09-24T05:00:00.000Z',
       lastStatus: 'failed',
       hasImportedData: true,
+    });
+  });
+
+  // Stage 7 (stage-7.md §3.3, §5.4): the stale-backup flag for the callout.
+  it('reports stale backups when nightly backups are on and nothing was copied for 48 h', async () => {
+    seedGenericData(database.db, { now: NOW });
+    database.db
+      .insert(importRuns)
+      .values({
+        startedAt: new Date(NOW.getTime() - 72 * 3_600_000).toISOString(),
+        finishedAt: NOW.toISOString(),
+        status: 'succeeded',
+        dryRun: false,
+        trigger: 'upload',
+        fileName: 'first.xlsx',
+        fileSha256: 'd'.repeat(64),
+        fileSize: 1,
+        importerVersion: '1.0.0',
+      })
+      .run();
+    app = await buildApp({
+      config: { ...config, nightlyBackups: true },
+      db: database,
+      now: () => NOW,
+    });
+    expect((await getStatus(app)).backups).toEqual({ stale: true, lastBackupAt: null });
+    await app.inject({ method: 'POST', url: '/api/backups' });
+    expect((await getStatus(app)).backups).toEqual({
+      stale: false,
+      lastBackupAt: expect.stringMatching(
+        /^2026-09-2[34]T\d{2}:\d{2}:00[+-]\d{2}:\d{2}$/,
+      ) as unknown,
     });
   });
 

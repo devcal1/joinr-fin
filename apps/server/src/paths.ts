@@ -1,14 +1,52 @@
 // Where the server finds things on disk (stage-0.md §1).
 //
 // Everything is resolved relative to this module's own file. In dev that is `src/paths.ts`; in the
-// production bundle it is `dist/server.js`. Both sit one level below the server package folder,
-// so `..` is `apps/server` in the repo and `/app` in the Docker image.
-import { existsSync } from 'node:fs';
+// production bundles it is `dist/server.js` (one level below the server package folder) or
+// `dist/cli/<x>.js` (two levels below, stage-7.md §5.6). So the server folder is the nearest
+// ancestor holding `migrations/meta/_journal.json` or the `@joinr/server` package.json:
+// `apps/server` in the repo and `/app` in the Docker image.
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const SERVER_PACKAGE_NAME = '@joinr/server';
+
+function isServerPackage(dir: string, readFile: (path: string) => string): boolean {
+  try {
+    const pkg: unknown = JSON.parse(readFile(join(dir, 'package.json')));
+    return (pkg as { name?: unknown } | null)?.name === SERVER_PACKAGE_NAME;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The server package folder for a module at `moduleUrl`: the nearest ancestor of the module's
+ * folder holding `migrations/meta/_journal.json` or the `@joinr/server` package.json; the module's
+ * parent folder when there is none (the Stage 0 rule).
+ */
+export function resolveServerDir(
+  moduleUrl: string,
+  exists: (path: string) => boolean = existsSync,
+  readFile: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+): string {
+  let dir = dirname(fileURLToPath(moduleUrl));
+  for (;;) {
+    if (
+      exists(join(dir, 'migrations', 'meta', '_journal.json')) ||
+      isServerPackage(dir, readFile)
+    ) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return fileURLToPath(new URL('..', moduleUrl));
+}
+
 /** The server package folder (`apps/server` in the repo, `/app` in the image). */
-export const SERVER_DIR = fileURLToPath(new URL('..', import.meta.url));
+export const SERVER_DIR = resolveServerDir(import.meta.url);
 
 const WORKSPACE_MARKER = 'pnpm-workspace.yaml';
 

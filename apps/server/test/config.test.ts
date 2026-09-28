@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../src/config';
 import {
@@ -8,6 +8,7 @@ import {
   defaultMigrationsDir,
   defaultWebDistDir,
   findRepoRoot,
+  resolveServerDir,
   SERVER_DIR,
   type ConfigBase,
 } from '../src/paths';
@@ -43,6 +44,8 @@ describe('loadConfig', () => {
       importCorrections: { kind: 'auto' },
       repoRoot,
       autoRecord: null,
+      nightlyBackups: true,
+      publicPort: null,
     });
   });
 
@@ -61,6 +64,8 @@ describe('loadConfig', () => {
         MARKET_DATA_MODE: 'fake',
         IMPORT_CORRECTIONS_FILE: resolve('/srv/joinr-corrections.json'),
         AUTO_RECORD: 'yes',
+        NIGHTLY_BACKUPS: 'no',
+        PUBLIC_PORT: '4932',
       },
       base,
     );
@@ -79,6 +84,8 @@ describe('loadConfig', () => {
       importCorrections: { kind: 'file', path: resolve('/srv/joinr-corrections.json') },
       repoRoot,
       autoRecord: true,
+      nightlyBackups: false,
+      publicPort: 4932,
     });
   });
 
@@ -136,6 +143,41 @@ describe('loadConfig', () => {
     expect(configError({ AUTO_RECORD: 'sometimes' }).issues[0]).toMatch(
       /^AUTO_RECORD: must be one of true, 1, yes, false, 0, no/,
     );
+  });
+
+  // Stage 7 (stage-7.md §5.1).
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['yes', true],
+    ['false', false],
+    ['0', false],
+    ['no', false],
+    ['', true],
+  ])('reads NIGHTLY_BACKUPS=%j (default on)', (value, expected) => {
+    expect(loadConfig({ NIGHTLY_BACKUPS: value }, base).nightlyBackups).toBe(expected);
+  });
+
+  it('turns nightly backups off under NODE_ENV=test unless set', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }, base).nightlyBackups).toBe(false);
+    expect(loadConfig({ NODE_ENV: 'test', NIGHTLY_BACKUPS: 'true' }, base).nightlyBackups).toBe(
+      true,
+    );
+    expect(loadConfig({ NODE_ENV: 'production' }, base).nightlyBackups).toBe(true);
+    expect(configError({ NIGHTLY_BACKUPS: 'nightly' }).issues[0]).toMatch(
+      /^NIGHTLY_BACKUPS: must be one of true, 1, yes, false, 0, no/,
+    );
+  });
+
+  it('reads PUBLIC_PORT (unset by default)', () => {
+    expect(loadConfig({}, base).publicPort).toBeNull();
+    expect(loadConfig({ PUBLIC_PORT: '4932' }, base).publicPort).toBe(4932);
+    expect(loadConfig({ PUBLIC_PORT: ' ' }, base).publicPort).toBeNull();
+    for (const bad of ['0', '65536', 'abc', '49.32', '-1']) {
+      expect(configError({ PUBLIC_PORT: bad }).issues[0]).toMatch(
+        /^PUBLIC_PORT: must be a whole number from 1 to 65535/,
+      );
+    }
   });
 
   it('rejects an unknown MARKET_DATA_MODE', () => {
@@ -251,6 +293,53 @@ describe('paths', () => {
     expect(existsSync(join(detected.repoRoot, 'pnpm-workspace.yaml'))).toBe(true);
     expect(resolve(detected.repoRoot, 'apps', 'server')).toBe(resolve(SERVER_DIR));
     expect(detected.workspaceRoot).toBe(detected.repoRoot);
+  });
+
+  // Stage 7 (stage-7.md §5.6): the bundles sit at dist/server.js and dist/cli/<x>.js; both must
+  // resolve the server folder (a path seam: no build inside the tests).
+  it('resolves the server folder from dist/server.js and dist/cli/<x>.js alike', () => {
+    for (const app of [resolve('/app'), resolve('/repo/apps/server')]) {
+      const journal = join(app, 'migrations', 'meta', '_journal.json');
+      const exists = (path: string) => path === journal;
+      const noPackage = (): string => {
+        throw new Error('ENOENT');
+      };
+      expect(
+        resolveServerDir(pathToFileURL(join(app, 'dist', 'server.js')).href, exists, noPackage),
+      ).toBe(app);
+      expect(
+        resolveServerDir(
+          pathToFileURL(join(app, 'dist', 'cli', 'restore.js')).href,
+          exists,
+          noPackage,
+        ),
+      ).toBe(app);
+      expect(
+        resolveServerDir(pathToFileURL(join(app, 'src', 'paths.ts')).href, exists, noPackage),
+      ).toBe(app);
+    }
+    // The @joinr/server package.json marks the folder too (no migrations beside it).
+    const app = resolve('/srv/app');
+    const readFile = (path: string): string => {
+      if (path === join(app, 'package.json')) return JSON.stringify({ name: '@joinr/server' });
+      if (path === join(resolve('/srv'), 'package.json')) return JSON.stringify({ name: 'other' });
+      throw new Error('ENOENT');
+    };
+    expect(
+      resolveServerDir(
+        pathToFileURL(join(app, 'dist', 'cli', 'import.js')).href,
+        () => false,
+        readFile,
+      ),
+    ).toBe(app);
+    // Nothing found: the module's parent folder (the Stage 0 rule).
+    expect(
+      resolveServerDir(
+        pathToFileURL(join(resolve('/x'), 'dist', 'server.js')).href,
+        () => false,
+        () => '{}',
+      ),
+    ).toBe(join(resolve('/x'), sep));
   });
 
   it('derives the migrations and web-dist defaults from the server folder', () => {

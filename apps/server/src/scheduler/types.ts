@@ -16,6 +16,11 @@ export interface JobContext {
   trigger: JobTrigger;
   now: () => Date;
   log: FastifyBaseLogger;
+  /**
+   * Stage 7 (stage-7.md §3.3, additive): the run's own `job_runs` row, inserted as `running`
+   * before the job runs (the backup job marks it inside its copy). Other jobs ignore it.
+   */
+  jobRunId: number;
 }
 
 export interface JobResult {

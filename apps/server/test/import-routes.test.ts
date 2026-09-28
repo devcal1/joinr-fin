@@ -330,7 +330,7 @@ describe('POST /api/import', () => {
       expect(res.statusCode).toBe(201);
       const files = backups();
       expect(files).toHaveLength(1);
-      expect(files[0]).toMatch(/^pre-import-\d{8}-\d{6}\.db$/);
+      expect(files[0]).toMatch(/^pre-import-\d{8}-\d{6}[+-]\d{4}\.db$/);
     });
 
     it('allows a dry run without confirmation and takes no backup', async () => {

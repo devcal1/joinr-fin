@@ -26,7 +26,7 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 4 | Other Assets, Super & Property | ✅ done 2026-09-26 |
 | 5 | History, Net Worth dashboard & Settings | ✅ done 2026-09-27 |
 | 6 | FIRE planner & polish | ✅ done 2026-09-27 |
-| 7 | Umbrel deployment & cutover | ⏳ next |
+| 7 | Umbrel deployment & cutover | ✅ done 2026-09-27/28 |
 
 Every stage ends with a **demo**, a **handoff update**, a **local commit** (with the owner's OK) and a **`/clear`**. Pushes happen only when the owner asks (D10). See `docs/STAGE_PROCESS.md`.
 
@@ -74,7 +74,7 @@ What that means:
 | UI | React + Vite, TanStack Router + Query + Table | Mature, fast dev loop, strong tables for ledger-heavy pages. |
 | Charts | Apache ECharts | Donut, area, bar, line and gauge in one lib; solid dark theming. |
 | Icons | lucide-react | Owner override (D7). |
-| Storage | SQLite file in `DATA_DIR` on the NAS, Drizzle migrations, nightly backup + JSON export | The server runs on the NAS, so there are no network-filesystem locking issues. Single file, easy to back up. |
+| Storage | SQLite file in `DATA_DIR` on the Umbrel (D111, D113), Drizzle migrations, verified nightly backups (D115); the JSON export is deferred (D121) | The server runs on the NAS, so there are no network-filesystem locking issues. Single file, easy to back up. |
 | Money | Integer cents for amounts; decimal strings with decimal.js for quantities and prices | No float drift; crypto needs about 8 dp. |
 | Market data | Provider interface: Yahoo Finance chart API (ASX `XXX.AX`, futures `SI=F`/`GC=F`, FX `AUDUSD=X`), CoinGecko for crypto (AUD). Per-instrument manual override. Cache with timestamps and staleness badges. | Replaces GOOGLEFINANCE, Apps Script `fetchPrice` and CoinMarketCap. Yahoo is unofficial, so the cache and override are mandatory. |
 | Snapshots | Immutable `snapshots` table. The server auto-records on the configured day. Manual "record now", look-back and correction edits are also available. | Replaces the "record month" button; months are no longer missed. |

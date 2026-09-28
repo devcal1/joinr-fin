@@ -93,7 +93,7 @@ export const JOB_TRIGGERS = ['schedule', 'startup', 'manual', 'import'] as const
 export type JobTrigger = (typeof JOB_TRIGGERS)[number];
 
 /** Stage 3 adds 'dividends' (the dividend-events job); Stage 5 adds 'snapshot', Stage 7 'backup'. */
-export const JOB_NAMES = ['prices', 'dividends', 'snapshot'] as const;
+export const JOB_NAMES = ['prices', 'dividends', 'snapshot', 'backup'] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
 export const CHECK_STATUSES = ['match', 'explained', 'unexplained', 'suspect', 'info'] as const;

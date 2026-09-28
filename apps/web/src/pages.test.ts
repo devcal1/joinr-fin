@@ -3,7 +3,6 @@ import {
   NAV_GROUPS,
   PAGES,
   SCREEN_VARIANTS,
-  STAGE_TITLES,
   STYLEGUIDE_PAGE,
   isScreenVariant,
   pageForPath,
@@ -42,12 +41,6 @@ describe('page registry', () => {
     }
   });
 
-  it('gives every page a known stage', () => {
-    for (const page of PAGES) {
-      expect(STAGE_TITLES[page.stage], page.id).toBeTruthy();
-    }
-  });
-
   it('finds pages by path', () => {
     expect(pageForPath('/')?.id).toBe('net-worth');
     expect(pageForPath('/stocks')?.title).toBe('Stocks');
@@ -58,9 +51,9 @@ describe('page registry', () => {
 
   it('has the Stage 1 Records group: Records, Import, Prices', () => {
     expect(PAGES.filter((p) => p.group === 'records')).toEqual([
-      { id: 'records', path: '/records', title: 'Records', group: 'records', stage: 1 },
-      { id: 'import', path: '/import', title: 'Import', group: 'records', stage: 1 },
-      { id: 'prices', path: '/prices', title: 'Prices', group: 'records', stage: 1 },
+      { id: 'records', path: '/records', title: 'Records', group: 'records' },
+      { id: 'import', path: '/import', title: 'Import', group: 'records' },
+      { id: 'prices', path: '/prices', title: 'Prices', group: 'records' },
     ]);
   });
 

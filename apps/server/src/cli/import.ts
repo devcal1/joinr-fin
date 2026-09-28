@@ -1,12 +1,17 @@
 // `pnpm import:workbook [file.xlsx] [--dry-run] [--yes] [--replace-app-data]
-// [--corrections <file> | --no-corrections] [--json]` (stage-1.md §4.10). Imports a workbook
+// [--corrections <file> | --no-corrections] [--json] [--force]` (stage-1.md §4.10); in the image
+// `node dist/cli/import.js …` (stage-7.md §5.6). Imports a workbook
 // export into DATA_DIR with the same importWorkbook() the upload route uses. A real import over
 // app-entered data (origin 'app') needs --yes --replace-app-data (D34); the upload route
 // refuses it.
 // Stage 6 (stage-6.md §3.4): a committed import runs the D98 one-off (`applySettingUpgrades`).
+// Stage 7 (stage-7.md §5.7): migrations through `migrateWithBackup` (a pre-update backup; a
+// refusal on a newer database), and a refusal while the app runs (the `server.running_since`
+// marker, read without changing the database) unless `--force`: in a one-off container the CLI
+// would bypass the running app's import lock and leave its caches stale.
 //
 // Exit codes: 0 succeeded with 0 unexplained · 4 succeeded with unexplained > 0 · 1 failed ·
-// 2 usage/config/corrections error · 3 confirmation required.
+// 2 usage/config/corrections error · 3 confirmation required · 6 the app looks running.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
@@ -24,9 +29,12 @@ import {
   type CorrectionsSetting,
   type RecordEntityId,
 } from '@joinr/schema';
+import { BackupError } from '../backups/copy';
+import { APP_RUNNING_MESSAGE, readRunningMarker } from '../backups/live';
+import { migrateWithBackup, NewerDatabaseError, PreUpdateBackupError } from '../backups/migrate';
 import { ConfigError, loadConfig } from '../config';
 import { backupBeforeImport } from '../db/backup';
-import { closeDatabase, openDatabase, runMigrations } from '../db/database';
+import { closeDatabase, openDatabase } from '../db/database';
 import { clearAppEditMarker, hasAppData, hasDomainData } from '../db/queries/domain';
 import { applySettingUpgrades, type SettingUpgrade } from '../fire/upgrade';
 
@@ -50,10 +58,19 @@ export const EXIT = {
   usage: 2,
   confirm: 3,
   unexplained: 4,
+  running: 6,
 } as const;
 
-export const USAGE =
-  'Usage: pnpm import:workbook [file.xlsx] [--dry-run] [--yes] [--replace-app-data] [--corrections <file> | --no-corrections] [--json]';
+const USAGE_ARGS =
+  '[file.xlsx] [--dry-run] [--yes] [--replace-app-data] [--corrections <file> | --no-corrections] [--json] [--force]';
+
+/** The command as it was invoked: the bundle (`node dist/cli/import.js`) or a checkout (tsx). */
+export function usageFor(moduleUrl: string): string {
+  const bundled = moduleUrl.endsWith('.js');
+  return `Usage: ${bundled ? 'node dist/cli/import.js' : 'pnpm import:workbook'} ${USAGE_ARGS}`;
+}
+
+export const USAGE = usageFor(import.meta.url);
 
 /** The exit-3 message when app-entered data exists and the override flags are missing (D34). */
 export const APP_DATA_CONFIRM_MESSAGE =
@@ -68,6 +85,8 @@ interface CliArgs {
   noCorrections: boolean;
   json: boolean;
   help: boolean;
+  /** Stage 7: run although the running marker is set (an unclean stop). */
+  force: boolean;
 }
 
 /** Parses the arguments, or returns an error message. */
@@ -81,6 +100,7 @@ export function parseArgs(argv: readonly string[]): CliArgs | string {
     noCorrections: false,
     json: false,
     help: false,
+    force: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -100,6 +120,9 @@ export function parseArgs(argv: readonly string[]): CliArgs | string {
         break;
       case '--no-corrections':
         args.noCorrections = true;
+        break;
+      case '--force':
+        args.force = true;
         break;
       case '--help':
       case '-h':
@@ -287,9 +310,24 @@ export async function main(argv: string[], io: CliIo = defaultIo()): Promise<num
     source = { name, sha256: sha256(raw) };
   }
 
+  // Stage 7 (stage-7.md §5.7): never while the app runs (read-only check, before any write).
+  const marker = readRunningMarker(config.dbFile);
+  if (marker.state === 'set' && !args.force) {
+    err(APP_RUNNING_MESSAGE);
+    return EXIT.running;
+  }
+
   const database = openDatabase(config.dataDir);
   try {
-    runMigrations(database, config.migrationsDir);
+    try {
+      migrateWithBackup(database, config);
+    } catch (e) {
+      if (e instanceof NewerDatabaseError || e instanceof PreUpdateBackupError) {
+        err(e.message);
+        return EXIT.failed;
+      }
+      throw e;
+    }
     const appData = hasAppData(database.db);
     if (appData && !args.dryRun && !(args.yes && args.replaceAppData)) {
       err(APP_DATA_CONFIRM_MESSAGE);
@@ -301,7 +339,14 @@ export async function main(argv: string[], io: CliIo = defaultIo()): Promise<num
       return EXIT.confirm;
     }
     if ((hasData || appData) && !args.dryRun) {
-      const backup = backupBeforeImport(database, config.dataDir);
+      let backup: string;
+      try {
+        backup = backupBeforeImport(database, config.dataDir);
+      } catch (e) {
+        if (!(e instanceof BackupError)) throw e;
+        err(`The pre-import backup failed: ${e.message}. Nothing was imported.`);
+        return EXIT.failed;
+      }
       if (!args.json) io.stdout.write(`Backup: backups/${basename(backup)}\n`);
     }
     const result = importWorkbook(database.db, {

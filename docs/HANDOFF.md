@@ -1,91 +1,93 @@
 # Handoff
 
-_Last updated: 2026-09-27, end of Stage 6._
+_Last updated: end of Stage 7 (2026-09-27/28)._
 
 ## Where we are
-**Stage 6 (FIRE planner & polish) is done.** The owner approved the demo, accepted all 23 §11 fixes (D110), asked for an information-dense layout (D109, applied before the close) and gave the OK to commit locally. Nothing has been pushed (D10).
+**Stage 7 (Umbrel deployment & cutover) is done, and so is the planned build (Stages 0–7).** Joinr Finance **1.0.0** runs on the owner's Umbrel with the owner's data. **The Umbrel is now the source of truth (D125)**; the workbook is retired and the local `data/` is the pre-cutover archive.
 
-- The remote `origin` is `github.com/devcal1/joinr-fin` (**public**).
-- The plan and its outcome are in `docs/stages/stage-6.md`. See its "Scaffold notes", "Stage close notes" and "Plan review log" (with "Owner answers").
+- The plan, its live outcome and the review log are in `docs/stages/stage-7.md` (see "Stage close notes").
 - Decisions:
-  - Kickoff: D97–D104.
-  - Plan review (owner questions): D105–D108.
-  - Demo: D109 (density) and D110.
-- Owner-specific expectations, quirks, demo figures and guard terms are in `docs/private/stage-6-private.md`.
+  - Kickoff: D111–D117.
+  - Plan review: D118–D122.
+  - Cutover and demo: D123–D125.
+- Owner-specific facts are in `docs/private/stage-7-private.md` (smoke results, cutover figures, release record) and `docs/private/ENVIRONMENT.md` (the Umbrel, the NAS, SSH, stores, ports).
+- The operator's runbook is **`docs/deploy/RUNBOOK.md`**: release, install, backups, restore, rollback, troubleshooting and the go-live checklist.
 
-## What exists
-A pnpm workspace (Node 24, TypeScript 6). New or extended in Stage 6:
-
+## What exists (new in Stage 7)
 | Path | What it is |
 |---|---|
-| `packages/engine` | `fire.ts`: `deriveFireInputs` (spend and savings from the corrected savings engine, D97/D108; the super contribution from the super engine, D99; the growth blend over every FIRE asset with super, D102/D107; debts fixed in dollars, D106) and `projectFire` (the year-by-year path, milestones, needed vs projected, status, input guards incl. overflow → `needs_input`). `fireSheet.ts`: the template's formulas in "sheet mode", reproducing every populated FIRE output cell. Goldens in `test/golden/fire.*`; the hand-worked example in `test/fire.handworked.test.ts`. |
-| `packages/schema` | `src/fire.ts`, `dto/fire.ts` (the what-if query schema, DTOs), two new FIRE keys, FIRE keys as preference keys (D103), `SettingDto.notice`, FIRE fixtures (26 page states). |
-| `apps/server` | `src/fire/**` and `routes/fire.ts`: `GET /api/fire` (with what-if query), `POST /api/fire/use-workbook-contribution`; the D98 one-off upgrade (`applySettingUpgrades`, at start-up and after an import; idempotent, re-import-safe). `src/lib/**` shared date and sum helpers (CODE-9). No migration (still 6). |
-| `packages/ui` | `MilestoneLine` (node-line motif, colour by position), line-chart milestone markers, `Skeleton`, `StatTile` footer, KV and chart-table fixes (STYLE-5/6/7/11), the focus ring, and the **dense** spacing (D109: 24 px table rows, 12 px cards, 240 px charts, the shorter compact hero). |
-| `apps/web` | `/fire` (tiles, notes, milestone line, progression chart with two views, the what-if panel with Save/Reset, how it is worked out, year by year); route-level code splitting (lazy routes, chunk-load recovery); `PageSkeleton` on every data page; the refresh-error callout; empty states (Dividends, Side Income); the dense Net Worth layout (assets beside allocation, donut and gauge; the charts 2 × 2). |
-| `tools/privacy-guard` | Numbers written with `,` or `_` separators are matched too. |
-| `e2e/` | `fire.spec.ts`, `fire-states.spec.ts`, `fire-mutations.spec.ts` (own project after `history-mutations`), `polish.spec.ts` (phone audit, keyboard walk, formats), `warmup.setup.ts` (opens every lazy route once). The read-only projects retry twice. |
+| `apps/server/src/backups/**`, `routes/backups.ts` | Verified backups (`VACUUM INTO` + `integrity_check`). Nightly at 02:30 server time (D115) keeps 14 daily plus 12 monthly copies. Other kinds: manual, pre-import (10), pre-restore, and pre-update (5, taken before a migrating start-up). There is a start-up catch-up, and the API offers list, "back up now" and download. |
+| `apps/server/src/cli/restore.ts` | `node dist/cli/restore.js <backup> [--yes] [--force]`. It validates the copy, keeps a pre-restore copy, and refuses if the app is running, the database is newer, or the copy is damaged. Locally: `pnpm restore:backup`. |
+| `apps/server/src/security.ts` | The cross-site write guard: `Sec-Fetch-Site`, then Origin vs Host / `X-Forwarded-Host` / `PUBLIC_PORT`. |
+| `apps/web` Settings | The **Backups** section (list, back up now, download, schedule, retention) and the **About** block (version, database level, time zone, last restore). A stale-backup callout appears after 48 h. |
+| `packages/schema` | `backups.ts`, `dto/backups.ts`, fixtures; job name `backup`; error codes `BACKUP_FAILED`, `CROSS_SITE_REQUEST`. |
+| `Dockerfile`, `docker-compose.yml` | A pinned base digest, a TZ assertion, CLI checks and a build memory cap. |
+| `tools/deploy/**` | `pnpm umbrel:{release,status,registry,restore,smoke}`. They run from the Windows PC over `ssh umbrel`, and every one has `--dry-run`. |
+| `../tenon-umbrel-store` (sibling repo, public) | `tenon-joinr-registry` (loopback registry app, port 4930) and `tenon-joinr-finance` (port 4932, private network). Pushed: `0ca7bc3`, `052b3db`. |
 
 ## How to run
-Everything from Stages 1–5 still applies: `pnpm dev`, `pnpm import:workbook`, `pnpm seed:dev`, `pnpm check`, `pnpm test`, `pnpm e2e`, `pnpm build` then `pnpm start`, and `pnpm guard:all`.
-- Scoped runs:
-  - `pnpm vitest run --project engine test/golden`
-  - `pnpm vitest run --project server test/fire test/golden/fire.golden.test.ts`
-  - `pnpm vitest run --project ui --project web`
-- **Run commands from the repo root.** Under Git Bash, set `MSYS_NO_PATHCONV=1` when passing paths in environment variables.
-- **e2e on this PC:** read-only projects now retry twice, so a full run normally exits 0 with a handful of flaky tests (cold lazy-route loads and `net::ERR_NETWORK_CHANGED`). The mutating projects run in chain order: `mutations`, `cashflow-mutations`, `assets-mutations`, `history-mutations`, `fire-mutations`.
-- **`AUTO_RECORD`**: leave it unset and the setting off until the Stage 7 cutover (D84).
-- **The owner's `data/` database** is at migration 6. The D98 one-off ran at the demo (access age 60, origin `app`, marker written). Nothing was recorded or saved from FIRE. **`hasAppData` is false, so re-import is still allowed.**
-- Backups (git-ignored): `data/backups/pre-stage6-2026-09-27/` (before the build and the demo). The Stage 5 backups are no longer needed.
+Everything from Stages 1–6 still applies (`pnpm dev`, `pnpm check`, `pnpm e2e`, `pnpm build`, `pnpm guard:all`, …). New:
+
+- **Release a new version:**
+  1. Bump `version` in `package.json`.
+  2. Run `pnpm umbrel:release` (preview it with `--dry-run` first).
+  3. Write `releaseNotes:` in the store clone.
+  4. With the owner's OK, commit and push `tenon-umbrel-store`.
+  5. `pnpm umbrel:status` must print "Safe to click Update"; the owner then clicks Update in Umbrel.
+- **Restore on the Umbrel:** `pnpm umbrel:restore <backup name> --stop`, or `--from-file <path>` after a reinstall. **This needs the owner's explicit OK in chat every time** (the auto-mode permission check treats it as a production change).
+- **A dev copy of the live data:**
+  1. Download a backup from Settings → Backups.
+  2. Stop the dev server.
+  3. Run `pnpm restore:backup <path> --yes` (it restores into the local `DATA_DIR`).
+- **Remote writes:** run the script with `--dry-run` first. The auto-mode permission check blocks an unpreviewed remote write.
 
 **State at close:**
-- typecheck, lint, format:check, build (no chunk warning) and `guard:all` are green. The guard has 8023 private terms.
-- 5063 unit tests pass, with every gated suite and golden running.
-- e2e: the full suite passed with retries; the layout-sensitive specs passed again after the density change.
+- `pnpm test`: 5665 passed, 1 skipped (the symlink test, which Windows can't run; it passed live on the Umbrel).
+- The full e2e suite, typecheck, lint, format and build are green.
+- `guard:all` is clean with 8031 terms, and so is the store-clone guard (only allowed findings).
+- No migration this stage (still 6).
+
+## Live state on the Umbrel (at the Stage 7 close)
+- **Apps:**
+  - Joinr Registry 2.8.3, loopback only.
+  - Joinr Finance 1.0.0 (`sha256:c6f39d31d539…`), healthy, behind the Umbrel login on port 4932.
+- **Data and import:**
+  - The cutover import reconciled with **0 unexplained**.
+  - The D98 one-off ran once.
+  - August 2026 was recorded from the sheet.
+- **Auto-record** is on; the next run is **30/09/2026 23:00** Melbourne time (D84, D89).
+- **Backups:** the manual, pre-import, nightly and pre-restore copies from the demo. The first scheduled nightly with data runs at 02:30 on 29/09.
+- **Owner test data:** the owner's step-17 test trade (an app-added ETF buy of 100 units, dated the demo day) is still in the database. The owner deletes it if it was only a test.
+- **Leftovers:** the `1.0.0-rc.1` tag stays in the registry (harmless), and `~/joinr-build/` on the Umbrel holds the build contexts (the release script prunes old ones).
 
 ## Known issues / carried forward
-- **Stage 7:**
-  - Set `TZ` in the compose file: the 23:00 record time is server-local (D89).
-  - After the fresh import (the D98 one-off then runs on the new database), switch auto-record on (D84), and record or skip any missing month (D94).
-  - Fix the mortgage payment and compounding in the sheet before the export (D76).
-  - Optionally date the undated items (D73).
-  - Fix the budget rows' stale account names (D65).
-  - Cleanup: CODE-7 (adopt or drop `sumCents`/`sumDecimalStrings`; drop `STAGE_TITLES`/`PAGES.stage` if unused).
-- **Optional:** narrower what-if input ranges, only if the owner wants them.
-- **Known behaviour:** saving a FIRE setting records it with origin `app` (D103). A saved super contribution then reads "Your setting" instead of the derived figure until it is cleared (D105).
-- **Stale dev servers:** stop `pnpm dev` before agent work. A `tsx watch` server on `data/` would hot-reload onto in-progress code.
-  - Under the Claude preview, the server gets the preview port on 127.0.0.1 beside Vite on ::1. Its cold start can take ~30 s.
-  - Servers on other ports may belong to other projects on this PC; check the command line before stopping one.
-- **Browsers:**
-  - The Claude Browser pane's emulated viewports crop screenshots. For a page-wide look, take Playwright full-page shots against the dev server (`artifacts/stage6/density/shots.mjs` is a template).
-  - A custom select needs `form_input` (and sometimes a real click) before React sees the value.
-- **Still open from Stages 0–5:**
-  - The Dockerfile is unbuilt (Stage 7; it needs `cdn.sheetjs.com`).
-  - Yahoo is unofficial, and CoinGecko ids are resolved by search.
-  - Never run `pnpm deploy` in the dev checkout.
-  - pnpm 11 `allowBuilds` stays, and TypeScript stays pinned to ~6.0.
-- **Density rule (D109):** any new table or page must keep the dense spacing (STYLE_GUIDE §3). Check both the page and every table's inner scroll width at 1440 px.
-- **Privacy:** anything printed from an owner import stays in git-ignored `artifacts/` or `docs/private/`. Before implementers start, the stage's coordinator pre-step adds that stage's owner figures **and their rounded and separator forms** to `docs/private/guard-terms.txt`.
+- **Check next session:**
+  - Settings → Backups shows a `Nightly` row from 02:30 on 29/09, with the last run Succeeded (plan §9 step 20).
+  - After 30/09 23:00, History shows September recorded automatically.
+- **Deferred:**
+  - **Copying backups to the NAS** (D111), together with the JSON export (D121). The owner's backup app in the same store already has an rsync-to-NAS pattern to reuse; umbrelOS Backups is another candidate.
+  - **Access from a second PC and the phone** (D124): a dedicated Android app later.
+  - HTTPS (the app is plain HTTP behind the Umbrel login on the tailnet and LAN).
+- **Data to correct in the app** (the sheet fixes were skipped, D123):
+  - the mortgage payment and compounding (D76)
+  - the undated other assets (D73)
+  - the budget rows' stale account names (D65; the 3 "suspect" rows in the reconciliation)
+- **Uninstall deletes the database and every backup** (D113). Download a backup before any uninstall, and never change the store or app ids.
+- **`reference/`:** the cutover export is in `reference/cutover/` so that the goldens still find a single `.xlsx` in `reference/`. The goldens remain tied to the 2026-09-24 export.
+- **Still open from earlier stages:** Yahoo is unofficial, and CoinGecko ids are resolved by search; TypeScript stays pinned to ~6.0; never run `pnpm deploy` in the dev checkout.
+- **Density rule (D109)** and **privacy:** as before. Stage 7 added guard terms for the Umbrel home path, the SSH key name and this PC's user paths.
 
 ## Next step
-**Stage 7: Umbrel deployment & cutover.** Follow `docs/STAGE_PROCESS.md`:
-1. Ask the Stage 7 questions in `docs/private/OPEN_QUESTIONS.md`: the Umbrel version; SSH or Portainer access; the storage path for `DATA_DIR`; how the build context gets to the NAS (SMB copy, per the plan) and whether the GitHub remote stays public; backup retention. Check the prerequisites in PLAN.md (Tailscale healthy, NAS reachable from the dev PC).
-2. Build on Stage 6:
-   - The Dockerfile and compose file (written in Stage 0, never built) need `cdn.sheetjs.com` at build time and `TZ` set (D89).
-   - Umbrel packaging (`umbrel-app.yml`, app proxy auth, `DATA_DIR` bind-mounted to NAS storage), nightly backups with retention and a tested restore.
-   - The owner fixes the sheet items (D76, optionally D73 and D65), makes a fresh Drive export, then import and reconciliation on the NAS; switch auto-record on (D84, D94).
-   - The Stage 7 cleanup item (CODE-7).
-   - One batched push to GitHub, only if the owner wants it (D10).
-3. Coordinator pre-step: stop any running dev server, back up `data/`, and add any Stage 7 guard terms (NAS paths, hostnames and addresses are private: keep them in `docs/private/`).
+The planned build is complete. There is no Stage 8 in PLAN.md yet. Candidates, for the owner to choose and scope:
+1. **The NAS backup copy** (D111, D121).
+2. **The Android app** (D124).
+3. **Post-cutover data fixes** in the app (D76, D73, D65).
+
+Start by checking the first nightly and the September auto-record (above).
 
 ## Environment facts (generic)
-- **Tooling:** Windows 11 with PowerShell and Git Bash, Node v24.20.0, pnpm 11.23. **No Docker, GitHub CLI or Python.** System Chrome and Edge are installed; Playwright uses `channel: 'chrome'`.
-- **PDFs:** the Claude `Read` tool can't render them here (no poppler). Use the `.txt` of the style guide.
-- **Reading the xlsx:** use SheetJS (the 0.20.3 tarball from cdn.sheetjs.com).
-  - `exceljs` fails on the sheet named "History".
-  - SheetJS cannot **write** a sheet named "History"; the synthetic workbook renames it through `XLSX.CFB`.
-- **Network:**
-  - Yahoo's chart API needs a browser-like User-Agent. Dividend events, daily closes and FX closes come from the same chart endpoint, and dates must be taken in the exchange time zone.
-  - CoinGecko's public API needs no key.
-  - The ATO site refuses automated fetches (HTTP 403).
-- **Private backup:** `reference/` and `docs/private/` (including `guard-terms.txt` and `stage-1…6-private.md`) exist only on this PC. Back them up to the NAS when it is reachable (see `docs/private/ENVIRONMENT.md`).
+- **Tooling:** Windows 11 with PowerShell and Git Bash, Node v24.20.0, pnpm 11.23. No local Docker, `gh` or Python. `ssh umbrel` works with key auth, and the deploy scripts resolve Windows OpenSSH or Git's ssh.
+- **The Umbrel:** umbrelOS 1.7.4 with Docker 28, running on UTC while the app runs on Australia/Melbourne (D114). Its app store syncs from GitHub about every 5 minutes.
+- **Reading the xlsx:** SheetJS (the tarball from cdn.sheetjs.com, also needed by the image build on the Umbrel).
+- **Network:** Yahoo's chart API needs a browser-like User-Agent; CoinGecko needs no key; both are reachable from the container.
+- **Private backup:** `reference/` and `docs/private/` exist only on this PC. Copy them somewhere safe; the NAS copy feature could cover them too.
