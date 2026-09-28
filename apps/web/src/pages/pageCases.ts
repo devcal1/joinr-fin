@@ -1,7 +1,10 @@
 // Test support (stage-6.md §6.9): every data page with its API routes and fixture states, shared by
 // the page-wide tests (states, formatAudit, noStage5, the router's pending-layout test). Not imported
-// by the app. FIRE joined in phase B (§6.9).
+// by the app. FIRE joined in phase B (§6.9). Stage 8 (stage-8.md §8.8, CODE-8): Settings also mocks
+// `GET /api/backups` (the server version equal to this build's), so the page-wide suites render the
+// real Backups section and the NAS copy block.
 import {
+  backupsPages,
   budgetPages,
   cashPages,
   dividendsPages,
@@ -338,6 +341,11 @@ export const PAGE_CASES: readonly PageCase[] = [
     layout: 'form',
     errorTitle: 'Could not load settings',
     primary: 'GET /api/settings',
-    states: statesOf(settingsPages, 'GET /api/settings'),
+    states: statesOf(settingsPages, 'GET /api/settings', {
+      'GET /api/backups': {
+        ...backupsPages.typical,
+        app: { ...backupsPages.typical.app, version: __APP_VERSION__ },
+      },
+    }),
   },
 ];

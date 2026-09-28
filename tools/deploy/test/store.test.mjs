@@ -149,8 +149,59 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
       expect(m.description).toContain(
         'UNINSTALLING THIS APP DELETES ITS DATABASE AND EVERY BACKUP',
       );
-      expect(m.backupIgnore).toEqual(['data/finance.db-shm', 'data/.*', 'data/backups/.*']);
+      expect(m.backupIgnore).toEqual([
+        'data/finance.db-shm',
+        'data/.*',
+        'data/backups/.*',
+        'data/secrets',
+        'data/secrets/*',
+      ]);
+      // umbreld's own character rule for a backupIgnore entry.
       for (const p of m.backupIgnore) expect(p).toMatch(/^[-a-zA-Z0-9._/*]+$/);
+    });
+
+    it('manifest: the NAS copy in the description and the uninstall warning (stage-8.md §9.4)', () => {
+      expect(m.description).toContain('**Copy to the NAS (optional):**');
+      expect(m.description).toContain('pnpm umbrel:nas-secrets');
+      expect(m.description).toMatch(/nothing on the NAS is ever deleted/);
+      expect(m.description).toMatch(/never shows or asks for the address or the password/);
+      // The uninstall warning points at the NAS copy, and the NAS keeps its copies.
+      const warning = m.description.slice(
+        m.description.indexOf('UNINSTALLING THIS APP'),
+        m.description.indexOf('**Backups:**'),
+      );
+      expect(warning).toMatch(/weekly copy to the NAS/);
+      expect(warning).toMatch(/never touches the copies on the NAS/);
+      // D132: no heartbeat in Stage 8.
+      expect(read('tenon-joinr-finance', 'umbrel-app.yml').toLowerCase()).not.toContain(
+        'heartbeat',
+      );
+      expect(m.releaseNotes).toContain('1.1.0');
+      expect(m.releaseNotes).toMatch(/rsync/);
+    });
+
+    it('holds no NAS secret: only .gitkeep files under data/, no secrets folder', () => {
+      const files = [];
+      const walk = (dir) => {
+        for (const e of readdirSync(join(REAL_STORE_DIR, dir), { withFileTypes: true })) {
+          const rel = `${dir}/${e.name}`;
+          if (e.isDirectory()) walk(rel);
+          else files.push(rel);
+        }
+      };
+      walk('tenon-joinr-finance/data');
+      expect(
+        files.every((f) => f.endsWith('/.gitkeep')),
+        files.join(', '),
+      ).toBe(true);
+      expect(existsSync(join(REAL_STORE_DIR, 'tenon-joinr-finance', 'data', 'secrets'))).toBe(
+        false,
+      );
+      for (const f of ['umbrel-app.yml', 'docker-compose.yml']) {
+        const text = read('tenon-joinr-finance', f);
+        expect(text).not.toMatch(/rsync:\/\/[^<\s]/);
+        expect(text).not.toMatch(/nas-password\s*[:=]/);
+      }
     });
 
     it('compose: app_proxy, the app on the private network only, nothing published', () => {
@@ -174,7 +225,9 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
         .split('\n')
         .filter((l) => !l.trimStart().startsWith('#'))
         .join('\n');
-      expect(noComments).not.toMatch(/PROXY_AUTH_WHITELIST|NIGHTLY_BACKUPS|AUTO_RECORD/);
+      expect(noComments).not.toMatch(
+        /PROXY_AUTH_WHITELIST|NIGHTLY_BACKUPS|WEEKLY_NAS_COPY|AUTO_RECORD|secrets/,
+      );
     });
 
     it('the image line matches the release writer and pins the manifest version', () => {

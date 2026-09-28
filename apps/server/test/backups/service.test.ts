@@ -719,3 +719,28 @@ describe('stale (§5.4)', () => {
     expect(on.service.staleness()).toEqual({ stale: true, lastBackupAt: null });
   });
 });
+
+// Stage 8 (stage-8.md §5.10): the additive whenIdle() the NAS copy awaits before it starts.
+describe('whenIdle()', () => {
+  it('resolves at once when no backup is in flight', async () => {
+    const t = await harness(local(2030, 9, 15, 10), { enabled: false });
+    let idle = false;
+    void t.service.whenIdle().then(() => (idle = true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(idle).toBe(true);
+  });
+
+  it('waits for an in-flight backup (a click)', async () => {
+    const gate = gatedCopy();
+    const t = await harness(local(2030, 9, 15, 10), { enabled: false, copy: gate.copy });
+    const click = t.service.backupNow();
+    let idle = false;
+    void t.service.whenIdle().then(() => (idle = true));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(idle).toBe(false);
+    gate.release();
+    await click;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(idle).toBe(true);
+  });
+});

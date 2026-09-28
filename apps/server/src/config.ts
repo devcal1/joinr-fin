@@ -65,6 +65,12 @@ export interface Config {
    * compose sets the manifest port); only the cross-site write guard's Origin rule reads it.
    */
   publicPort: number | null;
+  /**
+   * Stage 8 (stage-8.md §5.1): `WEEKLY_NAS_COPY` (true|false|1|0|yes|no); default on, off under
+   * NODE_ENV=test. Off means no weekly timer and no start-up catch-up; "Copy to NAS now" still
+   * works. The NAS files are the copy's only other configuration.
+   */
+  weeklyNasCopy: boolean;
 }
 
 export const DEFAULTS = {
@@ -82,10 +88,14 @@ export const TEST_DEFAULTS = {
   priceRefreshMinutes: 0,
   marketDataMode: 'off',
   nightlyBackups: false,
+  weeklyNasCopy: false,
 } as const;
 
 /** The nightly backup default outside NODE_ENV=test (stage-7.md §5.1). */
 export const DEFAULT_NIGHTLY_BACKUPS = true;
+
+/** The weekly NAS copy default outside NODE_ENV=test (stage-8.md §5.1). */
+export const DEFAULT_WEEKLY_NAS_COPY = true;
 
 /** The largest PRICE_REFRESH_MINUTES (one day). */
 export const MAX_PRICE_REFRESH_MINUTES = 1440;
@@ -134,6 +144,7 @@ const envSchema = z.object({
   IMPORT_CORRECTIONS_FILE: z.string().optional(),
   AUTO_RECORD: booleanFlag.optional(),
   NIGHTLY_BACKUPS: booleanFlag.optional(),
+  WEEKLY_NAS_COPY: booleanFlag.optional(),
   PUBLIC_PORT: z
     .string()
     .regex(/^\d{1,5}$/, { error: 'must be a whole number from 1 to 65535' })
@@ -239,5 +250,7 @@ export function loadConfig(
     nightlyBackups:
       e.NIGHTLY_BACKUPS ?? (isTest ? TEST_DEFAULTS.nightlyBackups : DEFAULT_NIGHTLY_BACKUPS),
     publicPort: e.PUBLIC_PORT ?? null,
+    weeklyNasCopy:
+      e.WEEKLY_NAS_COPY ?? (isTest ? TEST_DEFAULTS.weeklyNasCopy : DEFAULT_WEEKLY_NAS_COPY),
   };
 }

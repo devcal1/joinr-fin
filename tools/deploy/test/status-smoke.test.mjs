@@ -95,7 +95,7 @@ describe('smoke', () => {
     expect(await smoke(['start', '--image', IMAGE], h.deps())).toBe(0);
     expect(remoteCommand(h.callsFor('smoke-mkdir')[0])).toBe(`mkdir -p '${DATA}/backups'`);
     expect(remoteCommand(h.callsFor('smoke-run')[0])).toBe(
-      `docker run -d --name joinr-smoke --user 1000:1000 -e TZ=Australia/Melbourne -e NIGHTLY_BACKUPS=true -e PUBLIC_PORT=4939 -p 127.0.0.1:4939:3001 -v '${DATA}:/data' '${IMAGE}'`,
+      `docker run -d --name joinr-smoke --user 1000:1000 -e TZ=Australia/Melbourne -e NIGHTLY_BACKUPS=true -e WEEKLY_NAS_COPY=false -e PUBLIC_PORT=4939 -p 127.0.0.1:4939:3001 -v '${DATA}:/data' '${IMAGE}'`,
     );
     expect(h.purposes().indexOf('listeners')).toBeLessThan(h.purposes().indexOf('smoke-run'));
   });
@@ -161,10 +161,19 @@ describe('smoke', () => {
     expect(h.out.join('\n')).toMatch(/FAIL {2}symlink in backups\/ → 404/);
   });
 
-  it('remove: the container and the validated absolute folder only', async () => {
+  it('remove: both containers, the network and the validated absolute folder only', async () => {
     const h = fakeHost({ 'container-state': { stdout: 'running' } });
     expect(await smoke(['remove'], h.deps())).toBe(0);
+    expect(remoteCommand(h.callsFor('smoke-nas-rm')[0])).toBe('docker rm -f joinr-smoke-nas');
     expect(remoteCommand(h.callsFor('smoke-rm')[0])).toBe('docker rm -f joinr-smoke');
+    expect(remoteCommand(h.callsFor('smoke-net-rm')[0])).toBe(
+      'if docker network inspect joinr-smoke-net >/dev/null 2>&1; then docker network rm joinr-smoke-net; fi',
+    );
+    // The network goes after both containers, the folder (the scratch NAS's included) last.
+    const order = h.purposes();
+    expect(order.indexOf('smoke-net-rm')).toBeGreaterThan(order.indexOf('smoke-rm'));
+    expect(order.indexOf('smoke-net-rm')).toBeGreaterThan(order.indexOf('smoke-nas-rm'));
+    expect(order.at(-1)).toBe('smoke-rmdir');
     expect(remoteCommand(h.callsFor('smoke-rmdir')[0])).toBe(
       `rm -rf -- '${HOME}/joinr-build/smoke'`,
     );

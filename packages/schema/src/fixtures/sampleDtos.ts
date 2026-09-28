@@ -6,6 +6,7 @@ import type { CheckStatus, MarketDataMode, RunStatus } from '../enums';
 import { RECORD_ENTITIES, RECORD_ENTITY_IDS, SNAPSHOT_VALUE_COLUMNS } from '../records';
 import type { RecordEntityId } from '../records';
 import type { ApiErrorBody } from '../dto/errors';
+import { NAS_COPY_FIX_FIRST_MESSAGE, NAS_COPY_OFF_MESSAGE } from '../nasCopy';
 import type { ImportRunDetail, ImportRunSummary, ImportRunsResponse } from '../dto/import';
 import type {
   JobRunSummary,
@@ -635,4 +636,7 @@ export const apiErrors = {
   // Stage 7 (stage-7.md §4.1): a failed 'Back up now' (a category message, never a path) and the cross-site write guard.
   backupFailed: { error: { code: 'BACKUP_FAILED', message: 'Not enough free space on the server' } },
   crossSiteRequest: { error: { code: 'CROSS_SITE_REQUEST', message: 'Requests from another site are refused' } },
+  // Stage 8 (stage-8.md §4.1): 'Copy to NAS now' while the NAS files are absent, and while the refusal lock holds.
+  nasCopyNotReady: { error: { code: 'NAS_COPY_NOT_READY', message: NAS_COPY_OFF_MESSAGE } },
+  nasCopyFixFirst: { error: { code: 'NAS_COPY_FIX_FIRST', message: NAS_COPY_FIX_FIRST_MESSAGE } },
 } satisfies Record<string, ApiErrorBody>;

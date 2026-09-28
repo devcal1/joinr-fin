@@ -87,7 +87,7 @@ describe('Backups: every fixture state (§6.2, §6.7)', () => {
     const warning = within(section()).getByRole('note', { name: 'Stored on the server' });
     expect(warning).toHaveClass('jf-callout--important');
     expect(warning).toHaveTextContent(
-      "These backups are stored on the server, in this app's data folder. Uninstalling the app deletes them. Download the newest one before you uninstall, and keep a copy off the server.",
+      "These backups are stored on the server, in this app's data folder. Uninstalling the app deletes them. Download the newest one before you uninstall, and keep a copy off the server: the weekly NAS copy does this once it is set up.",
     );
     expect(within(warning).getByText('Uninstalling the app deletes them.').tagName).toBe('STRONG');
   });
@@ -366,12 +366,14 @@ describe('Back up now (§6.2 item 4)', () => {
 });
 
 describe('Backups and the rest of Settings (§6.2)', () => {
-  it('the in-page index ends with Backups and About', async () => {
+  it('the in-page index ends with Backups, NAS copy and About (stage-8.md §8.3)', async () => {
     await openBackups();
     const index = screen.getByRole('navigation', { name: 'On this page' });
     const links = within(index).getAllByRole('link');
-    expect(links.at(-2)).toHaveTextContent('Backups');
-    expect(links.at(-2)).toHaveAttribute('href', '#backups');
+    expect(links.at(-3)).toHaveTextContent('Backups');
+    expect(links.at(-3)).toHaveAttribute('href', '#backups');
+    expect(links.at(-2)).toHaveTextContent('NAS copy');
+    expect(links.at(-2)).toHaveAttribute('href', '#nas-copy');
     expect(links.at(-1)).toHaveTextContent('About');
     expect(links.at(-1)).toHaveAttribute('href', '#about');
   });
@@ -411,18 +413,39 @@ describe('Backups and the rest of Settings (§6.2)', () => {
     expect(within(about).getByRole('table')).toHaveTextContent(`v${__APP_VERSION__}`);
   });
 
+  it('a backups failure keeps the #nas-copy target: /settings#nas-copy focuses its subheading', async () => {
+    mockOverview({
+      settings: settingsPages.populated,
+      backups: apiError(500, { error: { code: 'INTERNAL', message: 'The server had a problem.' } }),
+    });
+    renderApp('/settings#nas-copy');
+    await screen.findByRole('note', { name: 'Could not load backups' });
+    const heading = within(section()).getByRole('heading', { level: 3, name: 'Copy to the NAS' });
+    expect(heading).toHaveAttribute('id', 'nas-copy');
+    expect(within(section()).getByText('Shown once the backups have loaded.')).toBeVisible();
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.queryByRole('button', { name: 'Copy to NAS now' })).toBeNull();
+  });
+
   it('loading: the section bar and its own skeleton', async () => {
     mockOverview({ backups: pending });
     renderApp('/settings');
     await screen.findByRole('heading', { level: 2, name: 'Pay and tax' });
     expect(screen.getByRole('heading', { level: 2, name: 'Backups' })).toBeVisible();
     expect(within(section()).getByText('Loading backups…')).toBeInTheDocument();
+    // The index's "NAS copy" link has its target while the list loads.
+    expect(
+      within(section()).getByRole('heading', { level: 3, name: 'Copy to the NAS' }),
+    ).toHaveAttribute('id', 'nas-copy');
   });
 
-  it('the keyboard reaches "Back up now", each download link and "Show all"', async () => {
+  it('the keyboard reaches "Back up now", "Copy to NAS now", each download link and "Show all"', async () => {
     const { user } = await openBackups();
     const button = within(section()).getByRole('button', { name: 'Back up now' });
     button.focus();
+    // The NAS button stays focusable while unavailable (aria-disabled, stage-8.md §8.2 item 2).
+    await user.tab();
+    expect(within(section()).getByRole('button', { name: 'Copy to NAS now' })).toHaveFocus();
     const links = within(screen.getByTestId('backups-table')).getAllByRole('link');
     expect(links).toHaveLength(12);
     for (const link of links) {

@@ -1,7 +1,7 @@
 // Server entry point: load config → open DB → migrate (a pre-update backup first; a refusal on a
 // database a newer version migrated, stage-7.md §5.7) → clean up interrupted runs → build →
 // listen → start the scheduler, the snapshot recorder (stage-5.md §4.6), then the backup service
-// (stage-7.md §5.4).
+// (stage-7.md §5.4) and the weekly NAS copy (stage-8.md §5.11).
 import type { FastifyInstance } from 'fastify';
 import { buildApp, defaultServices } from './app';
 import { ConfigError, loadConfig, type Config } from './config';
@@ -88,6 +88,7 @@ async function main(): Promise<void> {
       serveWeb: config.serveWeb,
       marketDataMode: config.marketDataMode,
       priceRefreshMinutes: config.priceRefreshMinutes,
+      weeklyNasCopy: config.weeklyNasCopy,
       interruptedRuns: interrupted,
     },
     'database ready',
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
   app.scheduler.start();
   app.recorder.start();
   app.backups.start();
+  app.nasCopy.start();
 }
 
 main().catch((err: unknown) => {

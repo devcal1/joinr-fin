@@ -2,6 +2,7 @@
  * The Settings Backups and About sections (stage-7.md §6.2, §6.3): `jf-app-backups-*` rules only.
  * Dense per D109: the KV rows and the table keep the core 24 px rows; the in-table download button
  * is the 22 px table button from 768 px (app.css) and a 32 px icon-only button on a phone.
+ * Stage 8 (stage-8.md §8.2): the "Copy to the NAS" block (`jf-app-nas-copy*`), dense the same way.
  */
 @layer app {
   /* "Last run": the time, the badge, then a muted reason or the failure's category message. */
@@ -68,6 +69,37 @@
     .jf-table__cell .jf-app-backups-download.jf-button--icon {
       width: 32px;
       min-height: 32px;
+    }
+  }
+
+  /* "Copy to the NAS": the KV table, the button and its result (the "Back up now" wrapper above),
+     then the adds-only line at the body measure. */
+  .jf-app-nas-copy__note {
+    max-width: var(--measure);
+  }
+
+  /* The subheading is a hash target (#nas-copy): its focus ring fits the words, as #backups's does,
+     instead of running round the whole column. */
+  .jf-app-nas-copy > .jf-app-subhead__title {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  /* Unavailable or busy: aria-disabled (still focusable, so its description can be heard), drawn
+     like a disabled button; the hover keeps the resting border. */
+  .jf-app-nas-copy .jf-button[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .jf-app-nas-copy .jf-button--secondary[aria-disabled='true']:hover {
+    border-color: var(--raised);
+  }
+
+  /* A phone: "Back up now" and "Copy to NAS now" take the full width (§8.2 item 5). */
+  @media (max-width: 767.98px) {
+    .jf-app-backups-actions > .jf-button {
+      flex: 1 1 100%;
     }
   }
 }

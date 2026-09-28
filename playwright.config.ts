@@ -144,6 +144,9 @@ export default defineConfig({
       IMPORT_CORRECTIONS_FILE: process.env.IMPORT_CORRECTIONS_FILE ?? 'none',
       // No nightly timer and no start-up catch-up file mid-run (stage-7.md §6.8).
       NIGHTLY_BACKUPS: process.env.NIGHTLY_BACKUPS ?? 'false',
+      // No weekly NAS-copy timer and no start-up catch-up; the e2e server has no NAS files anyway,
+      // so the copy is off (stage-8.md §8.7).
+      WEEKLY_NAS_COPY: process.env.WEEKLY_NAS_COPY ?? 'false',
     },
   },
 });

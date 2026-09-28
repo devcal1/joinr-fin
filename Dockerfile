@@ -90,6 +90,22 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# rsync: the weekly copy to the NAS (Stage 8) runs the system rsync as a client. From Debian
+# bookworm (the pinned base's release); the version follows Debian's security updates at each build.
+# This layer comes before the app copy, so it stays cached across app changes. The build fails if
+# the mirror cannot be reached or rsync does not run, and if a popt alias file exists: client rsync
+# reads /etc/popt (and $HOME/.popt, which the app never sets), where an alias could add a flag to
+# every invocation unseen. `rsync --version` prints the upstream version; `dpkg-query` prints the
+# Debian revision, which shows whether bookworm-security's fixes are in. rsync first runs once
+# outside a pipe: RUN's /bin/sh has no pipefail, so only that bare run can fail the build.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends rsync \
+ && rm -rf /var/lib/apt/lists/* \
+ && test ! -e /etc/popt && test ! -e /etc/popt.d \
+ && rsync --version > /dev/null \
+ && rsync --version | head -n 1 \
+ && dpkg-query -W -f='rsync ${Version}\n' rsync
+
 # App files stay root-owned (read-only for the app); only /data is writable by `node`.
 COPY --from=build /out/app ./
 RUN mkdir -p /data && chown node:node /data

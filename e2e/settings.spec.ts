@@ -3,6 +3,7 @@
 // and focuses its heading after load, a page's Settings link lands on its group, no page-level
 // horizontal scroll, no console errors, screenshots. Nothing is saved here. Stage 7 (stage-7.md §6.8):
 // the Backups and About sections follow the groups, and the auto-record help names no stage.
+// Stage 8 (stage-8.md §8.2): the "Copy to the NAS" subheading sits in Backups; no "Stage 8" text.
 // Drafted by web phase A; finished by the Integrator against the real API.
 import { expect, test } from '@playwright/test';
 import { SETTING_GROUPS } from '../packages/schema/src/settings';
@@ -30,7 +31,11 @@ test('Settings: every group', async ({ page, request }, testInfo) => {
   for (const name of ['Backups', 'About']) {
     await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeVisible();
   }
+  await expect(
+    page.getByRole('heading', { level: 3, name: 'Copy to the NAS', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('main')).not.toContainText('Stage 7');
+  await expect(page.getByRole('main')).not.toContainText('Stage 8');
   // The auto-record note shows before the cutover (no app data yet).
   if (!(await settingsPage(request)).hasAppData) {
     await expect(page.getByRole('main')).toContainText(

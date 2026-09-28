@@ -3,6 +3,9 @@
 // backup), so the list is compared with `expect.poll` and a fresh `GET /api/backups`, never with a
 // fixed count. Under e2e the nightly schedule is off (NIGHTLY_BACKUPS=false in the webServer env),
 // so the page shows the "Off …" text, which still names the time. Nothing is written here.
+// Stage 8 (stage-8.md §8.7): the e2e server has no NAS files, so the "Copy to the NAS" block shows
+// "Not set up", its button is unavailable (aria-disabled; a click sends no POST), `#nas-copy` and the
+// index link reach its subheading, and no NAS-copy callout shows.
 // Drafted by web-backups (phase A); run in phase B.
 import { expect, test } from '@playwright/test';
 import {
@@ -10,9 +13,12 @@ import {
   aboutSection,
   backupsList,
   backupsSection,
+  countNasCopyPosts,
   downloadLink,
   downloadPath,
   health,
+  nasCopyBlock,
+  nasCopyButton,
   scheduleLine,
   showAllBackups,
   tableFits,
@@ -143,3 +149,68 @@ for (const [hash, name] of [
     await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeInViewport();
   });
 }
+
+test('NAS copy: not set up, the button unavailable, a click sends nothing, no callout', async ({
+  page,
+  request,
+}, testInfo) => {
+  const errors = trackConsoleErrors(page);
+  const list = await backupsList(request);
+  expect(list.nasCopy.configured).toBe('off');
+  const posts = await countNasCopyPosts(page);
+  await page.goto(SETTINGS_PATH);
+  const block = nasCopyBlock(page);
+  await expect(
+    block.getByRole('heading', { level: 3, name: 'Copy to the NAS', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId('nas-copy-state')).toHaveText(
+    'Not set up: the NAS files are not on the server. Place them with the NAS set-up helper (see the runbook).',
+  );
+  await expect(page.getByTestId('nas-copy-next')).toHaveCount(0);
+  await expect(page.getByTestId('nas-copy-last')).toHaveText('No copy yet');
+  const button = nasCopyButton(page);
+  await expect(button).toHaveText('Copy to NAS now');
+  await expect(button).toHaveAttribute('aria-disabled', 'true');
+  await expect(button).toHaveAttribute('aria-describedby', 'nas-copy-state');
+  await button.focus();
+  await expect(button).toBeFocused();
+  // Playwright treats aria-disabled as disabled for actionability: force the click.
+  await button.click({ force: true });
+  await page.waitForTimeout(500);
+  expect(posts()).toBe(0);
+  await expect(page.getByRole('status', { name: 'NAS copy result' })).toHaveText('');
+  // The copy is off, not broken: no NAS-copy callout on any page.
+  await expect(page.getByRole('note', { name: /^NAS copy/ })).toHaveCount(0);
+  await page.goto('/history');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('note', { name: /^NAS copy/ })).toHaveCount(0);
+  await page.goto(SETTINGS_PATH);
+  await expect(page.getByTestId('nas-copy-state')).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await nasCopyBlock(page).scrollIntoViewIfNeeded();
+  await shot(page, testInfo, 'settings', 'nas-copy-real');
+  expect(errors).toEqual([]);
+});
+
+test('/settings#nas-copy scrolls to the NAS copy and focuses its subheading', async ({ page }) => {
+  await page.goto(`${SETTINGS_PATH}#nas-copy`);
+  const heading = page.getByRole('heading', { level: 3, name: 'Copy to the NAS', exact: true });
+  await expect(heading).toBeFocused();
+  await expect(heading).toBeInViewport();
+});
+
+test('the in-page index scrolls to NAS copy', async ({ page }, testInfo) => {
+  await page.goto(SETTINGS_PATH);
+  await expect(page.getByTestId('nas-copy-state')).toBeVisible();
+  if (testInfo.project.name === 'phone') {
+    await page.getByTestId('settings-jump').locator('summary').click();
+  }
+  await page
+    .getByRole('list', { name: 'Settings groups' })
+    .getByRole('link', { name: 'NAS copy', exact: true })
+    .click();
+  await expect(page).toHaveURL(/#nas-copy$/);
+  await expect(
+    page.getByRole('heading', { level: 3, name: 'Copy to the NAS', exact: true }),
+  ).toBeInViewport();
+});

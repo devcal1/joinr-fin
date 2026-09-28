@@ -146,7 +146,7 @@ describe('settings registry: Stage 3 (stage-3.md §3.3)', () => {
     for (const k of BUDGET_AUTO_KINDS) expect(BUDGET_ITEM_KINDS).toContain(k);
     for (const k of EDITABLE_NOTE_KINDS) expect(PERIOD_NOTE_KINDS).toContain(k);
     expect(JOB_NAMES.slice(0, 3)).toEqual(['prices', 'dividends', 'snapshot']);
-    expect(API_ERROR_CODES.slice(-12, -9)).toEqual([
+    expect(API_ERROR_CODES.slice(-14, -11)).toEqual([
       'ACCOUNT_IN_USE',
       'STREAM_IN_USE',
       'LAST_BALANCE_ENTRY',
@@ -225,7 +225,7 @@ describe('settings registry: Stage 4 (stage-4.md §3.3)', () => {
     for (const t of SUPER_CONTRIBUTION_TYPES) expect(SUPER_ENTRY_KINDS).toContain(t);
     expect(SUPER_ENTRY_KINDS.slice(0, 2)).toEqual(['voluntary_contribution', 'reported_gain']);
     expect(EDITABLE_NOTE_KINDS).toEqual(['spend', 'side_income', 'super_option']);
-    expect(API_ERROR_CODES.slice(-9, -6)).toEqual([
+    expect(API_ERROR_CODES.slice(-11, -8)).toEqual([
       'FUND_IN_USE',
       'PROPERTY_HAS_LOAN',
       'SALE_OVERSELL',

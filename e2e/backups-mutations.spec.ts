@@ -6,11 +6,16 @@
 // by `Sec-Fetch-Site`, one with a foreign `Origin` and no fetch metadata (the production case of the
 // write guard's Origin rule; the same-host-other-port case is a server unit test, since the e2e
 // server runs in development, where a loopback Origin passes).
+// Stage 8 (stage-8.md §8.7): "Copy to NAS now" with no NAS files on the e2e server → 409
+// `NAS_COPY_NOT_READY` with the off message and no `nas-copy` run written; a cross-site POST → 403;
+// a body other than none or `{}` → 400.
 // Drafted by web-backups (phase A); run in phase B.
 import { expect, test } from '@playwright/test';
 import type { BackupNowResponse } from '../packages/schema/src/dto/backups';
+import { NAS_COPY_OFF_MESSAGE } from '../packages/schema/src/nasCopy';
 import {
   BACKUPS_API,
+  NAS_COPY_API,
   SETTINGS_PATH,
   backupRows,
   backupsList,
@@ -129,5 +134,50 @@ test.describe('backups mutations', () => {
 
     const after = (await backupsList(request)).backups.map((file) => file.name);
     expect(after).toEqual(before);
+  });
+
+  test('Copy to NAS now without the NAS files → 409 NAS_COPY_NOT_READY, and no run is written', async ({
+    request,
+  }) => {
+    const before = await backupsList(request);
+    expect(before.nasCopy.configured).toBe('off');
+    expect(before.nasCopy.lastRun).toBeNull();
+
+    for (const data of [undefined, {}]) {
+      const response = await request.post(NAS_COPY_API, data === undefined ? {} : { data });
+      expect(response.status(), await response.text()).toBe(409);
+      const body = (await response.json()) as { error: { code: string; message: string } };
+      expect(body.error).toEqual({ code: 'NAS_COPY_NOT_READY', message: NAS_COPY_OFF_MESSAGE });
+    }
+
+    const after = await backupsList(request);
+    expect(after.nasCopy.lastRun).toBeNull();
+    expect(after.nasCopy.running).toBe(false);
+    expect(after.backups.map((file) => file.name)).toEqual(before.backups.map((file) => file.name));
+  });
+
+  test('Copy to NAS now: a cross-site POST → 403, a body → 400, nothing written', async ({
+    request,
+  }) => {
+    const marked = await request.post(NAS_COPY_API, {
+      headers: { 'sec-fetch-site': 'cross-site' },
+    });
+    expect(marked.status()).toBe(403);
+    expect(((await marked.json()) as { error: { code: string } }).error.code).toBe(
+      'CROSS_SITE_REQUEST',
+    );
+
+    const foreign = await request.post(NAS_COPY_API, {
+      headers: { origin: 'http://example.test:1' },
+    });
+    expect(foreign.status()).toBe(403);
+
+    const withBody = await request.post(NAS_COPY_API, { data: { x: 1 } });
+    expect(withBody.status(), await withBody.text()).toBe(400);
+    expect(((await withBody.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_ERROR',
+    );
+
+    expect((await backupsList(request)).nasCopy.lastRun).toBeNull();
   });
 });

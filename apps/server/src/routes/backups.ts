@@ -1,5 +1,6 @@
 // Backups routes (stage-7.md §4, §5.10): GET /api/backups, POST /api/backups ("Back up now"),
-// GET /api/backups/:name (download one file).
+// GET /api/backups/:name (download one file). Stage 8 (stage-8.md §4, §5.11): the `nasCopy` block
+// of GET /api/backups and POST /api/backups/nas-copy ("Copy to NAS now": 202, in the background).
 //
 // The download validates the name (at most 64 characters, the name rule, which admits no `/`,
 // `\`, `..`, NUL or control character), requires a regular file (`lstat`: a symlink is not one)
@@ -15,6 +16,7 @@ import {
   BACKUP_RETENTION,
   type BackupNowResponse,
   type BackupsResponse,
+  type NasCopyNowResponse,
 } from '@joinr/schema';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
@@ -26,6 +28,7 @@ import type { Config } from '../config';
 import { countAppliedMigrations, type AppDatabase } from '../db/database';
 import { readRestoreLast } from '../db/meta';
 import { HttpError, parseWith } from '../errors';
+import type { NasCopyService } from '../nascopy/service';
 import { importLock } from './import';
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../investments/mutations';
 
@@ -33,6 +36,8 @@ export interface BackupsRouteOptions {
   database: AppDatabase;
   config: Config;
   backups: BackupService;
+  /** Stage 8: the NAS copy (the `nasCopy` block and "Copy to NAS now"). */
+  nasCopy: Pick<NasCopyService, 'status' | 'copyNow'>;
   /** The server's version (the About block). */
   version: string;
   now?: () => Date;
@@ -65,7 +70,7 @@ function notFound(): HttpError {
 }
 
 export const backupsRoutes: FastifyPluginAsync<BackupsRouteOptions> = async (app, opts) => {
-  const { database, config, backups, version } = opts;
+  const { database, config, backups, nasCopy, version } = opts;
   const now = opts.now ?? (() => new Date());
   const statfs = opts.statfs ?? defaultStatfs;
 
@@ -96,6 +101,7 @@ export const backupsRoutes: FastifyPluginAsync<BackupsRouteOptions> = async (app
         migrations: countAppliedMigrations(database.sqlite),
         restoredFrom: readRestoreLast(database.db),
       },
+      nasCopy: nasCopy.status(),
     };
   });
 
@@ -126,6 +132,14 @@ export const backupsRoutes: FastifyPluginAsync<BackupsRouteOptions> = async (app
       const { file, joined } = await backups.backupNow();
       reply.code(201);
       return { backup: file, joined };
+    });
+    // "Copy to NAS now" (stage-8.md §4.2): 202, the copy runs in the background and the page
+    // follows `nasCopy.lastRun.id`. A 409 (not ready, or the refusal lock) writes no row.
+    scope.post('/backups/nas-copy', async (request, reply): Promise<NasCopyNowResponse> => {
+      assertEmptyBody(request.body);
+      const { joined } = nasCopy.copyNow();
+      reply.code(202);
+      return { joined, nasCopy: nasCopy.status() };
     });
   });
 

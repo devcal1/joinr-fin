@@ -100,6 +100,63 @@ describe('Dockerfile', () => {
     );
   });
 
+  it('keeps the Stage 7 base image digest (no base bump in Stage 8)', () => {
+    expect(code).toContain(
+      'ARG NODE_IMAGE=node:24.20-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e',
+    );
+  });
+
+  describe('rsync for the NAS copy (stage-8.md §7)', () => {
+    const lines = runtimeStage.split('\n');
+    const start = lines.findIndex((l) => /^RUN apt-get update\b/.test(l));
+    /** The whole RUN instruction (its continuation lines joined). */
+    const apt = (() => {
+      if (start < 0) return '';
+      const parts = [];
+      for (let i = start; i < lines.length; i++) {
+        parts.push(lines[i]);
+        if (!lines[i].trimEnd().endsWith('\\')) break;
+      }
+      return parts.join('\n');
+    })();
+
+    it('is installed in the runtime stage only, with no recommends, the lists removed', () => {
+      expect(apt).not.toBe('');
+      expect(apt).toContain('apt-get install -y --no-install-recommends rsync');
+      expect(apt).toContain('rm -rf /var/lib/apt/lists/*');
+      expect(buildStage).not.toMatch(/apt-get/);
+      // rsync is the only package installed (tzdata stays a commented-out fallback).
+      expect(runtimeStage.match(/apt-get install/g)).toHaveLength(1);
+      expect(apt).toMatch(/--no-install-recommends rsync \\\n/);
+    });
+
+    it('comes before the app copy and before USER node', () => {
+      const at = runtimeStage.indexOf(apt);
+      expect(at).toBeGreaterThan(-1);
+      expect(at).toBeLessThan(runtimeStage.indexOf('COPY --from=build'));
+      expect(at).toBeLessThan(runtimeStage.indexOf('USER node'));
+    });
+
+    it('fails the build on a popt alias file, and prints the version and the Debian revision', () => {
+      expect(apt).toContain('test ! -e /etc/popt && test ! -e /etc/popt.d');
+      expect(apt).toContain('rsync --version | head -n 1');
+      // RUN's /bin/sh has no pipefail (a pipe's status is head's): rsync must also run bare, first.
+      expect(apt).toContain('\n && rsync --version > /dev/null \\\n');
+      expect(apt.indexOf('rsync --version > /dev/null')).toBeLessThan(
+        apt.indexOf('rsync --version | head -n 1'),
+      );
+      expect(apt).toContain("dpkg-query -W -f='rsync ${Version}\\n' rsync");
+      // Every step is chained with &&, so any failure fails the build.
+      const steps = apt.split('\n').slice(1);
+      for (const s of steps) expect(s.trimStart().startsWith('&& ')).toBe(true);
+    });
+
+    it('leaves the runtime user unprivileged', () => {
+      expect(runtimeStage.match(/^USER /gm)).toEqual(['USER ']);
+      expect(runtimeStage).toMatch(/^USER node$/m);
+    });
+  });
+
   it('keeps pnpm deploy inside the image and the frozen, offline install', () => {
     expect(buildStage).toContain('pnpm install --frozen-lockfile --offline');
     expect(buildStage).toContain('pnpm --filter @joinr/server deploy --prod --legacy /out/app');

@@ -1,6 +1,7 @@
 // stage-5.md §6.7, stage-6.md §6.8 and stage-7.md §6.5: every user-facing "Stage 5", "Stage 6" and
 // "Stage 7" text is now a present-tense line. This renders every data page (FIRE included) with every
-// fixture state and asserts no page shows "Stage 5", "Stage 6" or "Stage 7".
+// fixture state and asserts no page shows "Stage 5", "Stage 6" or "Stage 7". Stage 8 (stage-8.md §8.5):
+// nor "Stage 8" (Settings now renders the real Backups section and the NAS copy block, §8.8).
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { mockApi } from '../../test/mockApi';
@@ -11,7 +12,7 @@ const CASES = PAGE_CASES.flatMap((page) =>
   Object.entries(page.states).map(([state, routes]) => [page.id, state, page, routes] as const),
 );
 
-describe('no page shows "Stage 5", "Stage 6" or "Stage 7" (stage-5.md §6.7, stage-6.md §6.8, stage-7.md §6.5)', () => {
+describe('no page shows "Stage 5" to "Stage 8" (stage-5.md §6.7, stage-6.md §6.8, stage-7.md §6.5, stage-8.md §8.5)', () => {
   it.each(CASES)('%s · %s', async (_id, state, page, routes) => {
     mockApi(Object.fromEntries(Object.entries(routes).map(([route, body]) => [route, { body }])));
     renderApp(page.paths?.[state] ?? page.path);
@@ -22,6 +23,7 @@ describe('no page shows "Stage 5", "Stage 6" or "Stage 7" (stage-5.md §6.7, sta
     expect(main).not.toHaveTextContent('Stage 5');
     expect(main).not.toHaveTextContent('Stage 6');
     expect(main).not.toHaveTextContent('Stage 7');
-    expect(document.title).not.toMatch(/Stage [567]/);
+    expect(main).not.toHaveTextContent('Stage 8');
+    expect(document.title).not.toMatch(/Stage [5678]/);
   });
 });

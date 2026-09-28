@@ -70,6 +70,14 @@ export const BACKUP_FILE_NAME_RE =
 export const BACKUP_DOWNLOAD_PREFIX = 'joinr-finance-';
 export const BACKUP_FILE_NAME_MAX = 64;
 
+/**
+ * The NAS copy's files (stage-8.md §6.1, D132). A copy of `NAS_SECRETS_DIR`
+ * and `NAS_SECRET_FILES` from `@joinr/schema` (`packages/schema/src/nasCopy.ts`); a test keeps
+ * them equal. Both files or neither.
+ */
+export const NAS_SECRETS_DIR = 'secrets';
+export const NAS_SECRET_FILES = Object.freeze({ url: 'nas-url', password: 'nas-password' });
+
 // ─── Errors ────────────────────────────────────────────────────────────────────────────────────
 
 /** A refusal or failure with the exit code the script ends with. */
@@ -274,6 +282,14 @@ export function renderSpec(spec) {
   if (spec.pipeFrom)
     text = `${one(spec.pipeFrom.cmd, spec.pipeFrom.args, spec.pipeFrom.env)} | ${text}`;
   if (spec.inputFile) text = `${text} < ${renderArg(spec.inputFile)}`;
+  // Standard input is never printed unless the spec marks it public (a fixed config text): a
+  // secret travels only on stdin, so this is the one place it could otherwise leak (§9.1).
+  if (spec.input !== undefined) {
+    text =
+      spec.publicInput === true
+        ? `${text} <<'STDIN'\n${String(spec.input).replace(/\n$/, '')}\nSTDIN`
+        : `${text} < <stdin: secret>`;
+  }
   return text;
 }
 
@@ -471,7 +487,8 @@ export async function remoteHome(ctx) {
   const r = await remoteOk(
     ctx,
     'remote-home',
-    'printf %s "$HOME"',
+    // `echo`, not `printf %s`: the NAS helper's tests hold that no remote command contains `%s`.
+    'echo "$HOME"',
     'Could not read the remote home folder',
   );
   ctx.home = validate('home', r.stdout.trim(), 'remote home');
@@ -618,6 +635,278 @@ export function readStoreApp(storeDir, appId) {
     manifest,
     image: parseComposeImage(compose),
     version: parseManifestVersion(manifest),
+  };
+}
+
+// ─── The NAS copy: the address rule, Tailscale ranges, terminal prompts (stage-8.md §6, §9.1) ──
+
+/** The user, module and subfolder allowlist (after percent-decoding). */
+const NAS_URL_SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** A DNS name or IPv4 (starting with a letter or digit), or a bracketed IPv6. */
+const NAS_URL_HOST_RE = /^(?:[A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:.]+\])$/;
+/** The whole address, split: user, host, optional port, path. No whitespace, `?` or `#` anywhere. */
+const NAS_URL_SHAPE_RE =
+  /^rsync:\/\/([^@/?#\s]+)@(\[[^\]/?#\s]*\]|[^:/?#@\s[\]]*)(?::(\d{1,5}))?(\/[^?#\s]*)$/i;
+
+function decodeNasSegment(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A copy of `checkNasUrl` from `@joinr/schema` (§5.3), because these scripts are plain `.mjs`; a
+ * test runs both on one table and on generated input and requires the same answer. Accepts
+ * exactly `rsync://<user>@<host>[:<port>]/<module>[/<subfolder>][/]` with no password, query,
+ * fragment or whitespace; returns `{ ok: true, url, hasSubfolder }` (the canonical URL ends in
+ * `/`) or `{ ok: false, configured }` and nothing else, so a refusal never quotes the value.
+ * Never throws.
+ */
+export function checkNasUrl(raw) {
+  const refuse = (configured) => ({ ok: false, configured });
+  try {
+    if (typeof raw !== 'string') return refuse(false);
+    const text = raw.trim();
+    if (text === '') return refuse(false);
+    const shape = NAS_URL_SHAPE_RE.exec(text);
+    if (shape === null) return refuse(true);
+    const [, rawUser = '', host = '', portText, rawPath = ''] = shape;
+    let parsed;
+    try {
+      parsed = new URL(text);
+    } catch {
+      return refuse(true);
+    }
+    if (parsed.protocol !== 'rsync:') return refuse(true);
+    if (parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') return refuse(true);
+    if (rawUser.includes(':')) return refuse(true);
+    const user = decodeNasSegment(rawUser);
+    if (user === null || !NAS_URL_SEGMENT_RE.test(user)) return refuse(true);
+    if (!NAS_URL_HOST_RE.test(host)) return refuse(true);
+    let port = '';
+    if (portText !== undefined) {
+      const value = Number(portText);
+      if (!Number.isInteger(value) || value < 1 || value > 65_535) return refuse(true);
+      port = `:${value}`;
+    }
+    let path = rawPath.slice(1);
+    if (path.endsWith('/')) path = path.slice(0, -1);
+    const raws = path.split('/');
+    if (raws.length < 1 || raws.length > 2) return refuse(true);
+    const segments = [];
+    for (const segment of raws) {
+      const decoded = decodeNasSegment(segment);
+      if (decoded === null || !NAS_URL_SEGMENT_RE.test(decoded)) return refuse(true);
+      segments.push(decoded);
+    }
+    return {
+      ok: true,
+      url: `rsync://${user}@${host}${port}/${segments.join('/')}/`,
+      hasSubfolder: segments.length === 2,
+    };
+  } catch {
+    return refuse(typeof raw === 'string' && raw.trim() !== '');
+  }
+}
+
+/** The host of a canonical address from `checkNasUrl` (helper only; brackets removed). */
+export function nasUrlHost(canonical) {
+  const m = /^rsync:\/\/[^@/]+@(\[[^\]]+\]|[^:/]+)/.exec(String(canonical));
+  return m ? m[1].replace(/^\[|\]$/g, '') : '';
+}
+
+/**
+ * Tailscale's address ranges, held as numbers (the privacy guard flags dotted IPv4 literals):
+ * the IPv4 CGNAT /10 (first octet 100, second octet 64 to 127) and IPv6 fd7a:115c:a1e0::/48.
+ */
+export const TAILSCALE_IPV4 = Object.freeze({ first: 100, secondMin: 64, secondMax: 127 });
+export const TAILSCALE_IPV6_PREFIX = Object.freeze([0xfd7a, 0x115c, 0xa1e0]);
+
+/**
+ * Four octets of a dotted-decimal IPv4 address, or null. An octet with a leading zero is refused:
+ * the C library's numeric parsing reads it as octal, so the host rsync would reach is not the one
+ * the digits suggest (such a host is then not a Tailscale address, and the helper warns).
+ */
+function ipv4Octets(text) {
+  const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(text);
+  if (!m) return null;
+  const octets = m.slice(1).map(Number);
+  return octets.every((n) => n <= 255) ? octets : null;
+}
+
+/** The eight 16-bit groups of an IPv6 address (an embedded IPv4 tail allowed), or null. */
+export function ipv6Groups(text) {
+  let s = String(text).toLowerCase();
+  if (!/^[0-9a-f:.]+$/.test(s) || s.split('::').length > 2) return null;
+  const v4 = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(s);
+  let tail = [];
+  if (v4) {
+    const o = ipv4Octets(v4[1]);
+    if (!o) return null;
+    tail = [(o[0] << 8) | o[1], (o[2] << 8) | o[3]];
+    s = s.slice(0, -v4[1].length);
+    if (s.endsWith(':') && !s.endsWith('::')) s = s.slice(0, -1);
+  }
+  const parse = (part) => (part === '' ? [] : part.split(':'));
+  const [headText, restText] = s.split('::');
+  const head = parse(headText);
+  const rest = restText === undefined ? [] : parse(restText);
+  if ([...head, ...rest].some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  const known = head.length + rest.length + tail.length;
+  if (restText === undefined) {
+    if (known !== 8) return null;
+    return [...head.map((g) => parseInt(g, 16)), ...tail];
+  }
+  if (known > 7) return null;
+  return [
+    ...head.map((g) => parseInt(g, 16)),
+    ...Array(8 - known).fill(0),
+    ...rest.map((g) => parseInt(g, 16)),
+    ...tail,
+  ];
+}
+
+/** True when `host` is an address inside Tailscale's ranges (a DNS name never is). */
+export function isTailscaleAddress(host) {
+  const h = String(host ?? '').replace(/^\[|\]$/g, '');
+  const o = ipv4Octets(h);
+  if (o) {
+    return (
+      o[0] === TAILSCALE_IPV4.first &&
+      o[1] >= TAILSCALE_IPV4.secondMin &&
+      o[1] <= TAILSCALE_IPV4.secondMax
+    );
+  }
+  const g = ipv6Groups(h);
+  return g !== null && TAILSCALE_IPV6_PREFIX.every((p, i) => g[i] === p);
+}
+
+/** The refusal when a prompt needs a terminal (§6.2). */
+export const NOT_A_TERMINAL_MESSAGE =
+  "This needs a terminal that can hide what you type. Git Bash's mintty window is not a terminal Node can hide input in: use PowerShell or Windows Terminal, or `winpty node tools/deploy/nas-secrets.mjs`.";
+
+/** Per stream: the entry before ended on `\r`, so a `\n` arriving next belongs to it. */
+const pendingLf = new WeakSet();
+
+/**
+ * Reads one line from a terminal in raw mode (§6.2): `hidden` echoes nothing. Every character of
+ * every data chunk is handled (a paste arrives as one chunk): `\r` or `\n` ends the entry (a `\n`
+ * right after a `\r` is swallowed, even in the next chunk), Backspace is 0x08 (conhost) or 0x7f
+ * (Windows Terminal), an ESC sequence (`\x1b[…` or `\x1bO…`) is ignored whole, Ctrl+C rejects with
+ * exit 130, and any other control character is dropped. On every exit path raw mode is switched
+ * off, the stream is paused (without the pause the process never exits) and a newline is printed.
+ * `stream` is stdin (or a fake); `out` is stdout (or a fake with `write`).
+ */
+export function readLine(stream, out, { hidden = false } = {}) {
+  return new Promise((resolvePromise, reject) => {
+    let value = '';
+    /** 0: normal; 1: after ESC; 2: in a CSI sequence (`ESC [`); 3: after `ESC O`. */
+    let esc = 0;
+    let done = false;
+    const finish = (err) => {
+      if (done) return;
+      done = true;
+      stream.removeListener('data', onData);
+      stream.removeListener('end', onEnd);
+      stream.removeListener('error', onError);
+      try {
+        if (typeof stream.setRawMode === 'function') stream.setRawMode(false);
+      } finally {
+        stream.pause();
+        out.write('\n');
+      }
+      if (err) reject(err);
+      else resolvePromise(value);
+    };
+    const onEnd = () => finish(new DeployError('Aborted: the input ended.', 130));
+    const onError = () => finish(new DeployError('Aborted: the input could not be read.', 130));
+    const onData = (chunk) => {
+      const chars = [...String(chunk)];
+      for (let i = 0; i < chars.length; i++) {
+        const ch = chars[i];
+        if (done) return;
+        const code = ch.codePointAt(0);
+        if (pendingLf.has(stream)) {
+          pendingLf.delete(stream);
+          if (ch === '\n') continue;
+        }
+        if (esc === 1) {
+          esc = ch === '[' ? 2 : ch === 'O' ? 3 : 0;
+          if (esc !== 0) continue;
+        } else if (esc === 2) {
+          if (code >= 0x40 && code <= 0x7e) esc = 0;
+          continue;
+        } else if (esc === 3) {
+          esc = 0;
+          continue;
+        }
+        if (ch === '\x1b') {
+          esc = 1;
+        } else if (ch === '\r' || ch === '\n') {
+          // A `\r` that ends its chunk may still have its `\n` to come (the next chunk).
+          if (ch === '\r' && i === chars.length - 1) pendingLf.add(stream);
+          finish();
+          return;
+        } else if (ch === '\x03') {
+          finish(new DeployError('Aborted.', 130));
+          return;
+        } else if (ch === '\x08' || ch === '\x7f') {
+          if (value.length > 0) {
+            const chars = [...value];
+            chars.pop();
+            value = chars.join('');
+            if (!hidden) out.write('\b \b');
+          }
+        } else if (code < 0x20 || (code >= 0x80 && code <= 0x9f)) {
+          // Any other control character is dropped.
+        } else {
+          value += ch;
+          if (!hidden) out.write(ch);
+        }
+      }
+    };
+    stream.on('data', onData);
+    stream.on('end', onEnd);
+    stream.on('error', onError);
+    try {
+      if (typeof stream.setRawMode === 'function') stream.setRawMode(true);
+      stream.setEncoding('utf8');
+      stream.resume();
+    } catch (err) {
+      finish(
+        err instanceof DeployError ? err : new DeployError('The terminal refused raw mode.', 2),
+      );
+    }
+  });
+}
+
+/** A hidden entry: nothing typed is echoed (§6.2). */
+export function readHidden(stream, out) {
+  return readLine(stream, out, { hidden: true });
+}
+
+/** A visible entry (the address, confirmations), read the same way. */
+export function readVisible(stream, out) {
+  return readLine(stream, out, { hidden: false });
+}
+
+/**
+ * Prompts on the real terminal: `{ isTerminal(), visible(question), hidden(question) }`. The
+ * question is written first; the answer is never printed back by the hidden reader.
+ */
+export function createTerminalPrompt(stdin = process.stdin, stdout = process.stdout) {
+  return {
+    isTerminal: () => stdin.isTTY === true && stdout.isTTY === true,
+    visible: (question) => {
+      stdout.write(question);
+      return readVisible(stdin, stdout);
+    },
+    hidden: (question) => {
+      stdout.write(question);
+      return readHidden(stdin, stdout);
+    },
   };
 }
 

@@ -3,7 +3,8 @@
 // The app container's state, health and image; the registry; whether the digest pinned in the
 // store compose (and in the app-data compose, once installed) is in the registry, ending with
 // "Safe to click Update in Umbrel" or "Do NOT click Update: <reason>"; the device port check; the
-// backup files (names and sizes only) and the free space in app-data.
+// backup files (names and sizes only) and the free space in app-data; the NAS copy's files
+// (stage-8.md §9.3: present or missing, mode and owner, never contents and never a size).
 //
 // Exit codes: 0 safe to click Update/Install · 1 not safe (the reason is printed) · 2 usage.
 import {
@@ -25,6 +26,7 @@ import {
   runMain,
   shq,
 } from './lib.mjs';
+import { describeNasFiles, nasItems, nasPaths, parseStat, statCommand } from './nas-secrets.mjs';
 import { registryDryRunReply, registryStatus } from './registry.mjs';
 import { portProblems } from './release.mjs';
 import { parseYqScalar } from './restore-remote.mjs';
@@ -45,6 +47,9 @@ function size(bytes) {
 
 function dryRunReply(spec) {
   if (spec.purpose === 'manifest-head') return { stdout: '200' };
+  if (spec.purpose === 'nas-files') {
+    return { stdout: ['secrets', 'nas-url', 'nas-password'].map((l) => `${l} missing\n`).join('') };
+  }
   return registryDryRunReply(spec) ?? commonDryRunReply(spec);
 }
 
@@ -136,6 +141,19 @@ export async function main(argv, deps = {}) {
   const free = Number(df.stdout.trim().split(/\s+/)[3]);
   if (Number.isFinite(free) && free > 0)
     ctx.out(`Free space in app-data: ${(free / 1024 / 1024).toFixed(1)} GiB`);
+
+  // The NAS copy's files (read-only; the same check as `pnpm umbrel:nas-secrets --check`).
+  const items = nasItems(nasPaths(ctx, home));
+  const nas = await remote(ctx, 'nas-files', statCommand(items));
+  const { lines: nasLines, state: nasState } = describeNasFiles(
+    parseStat(
+      nas.stdout,
+      items.map((i) => i.label),
+    ),
+    items,
+  );
+  ctx.out(`NAS copy files: ${nasState}`);
+  for (const l of nasLines) ctx.out(`  ${l}`);
 
   if (reasons.length === 0) {
     ctx.out('Safe to click Update in Umbrel (or Install, the first time).');

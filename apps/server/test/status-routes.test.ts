@@ -70,6 +70,14 @@ describe('GET /api/status', () => {
       history: { autoRecord: false, nextRecordAt: null },
       // Stage 7 (stage-7.md §3.3): no backup yet, and nothing to be stale about.
       backups: { stale: false, lastBackupAt: null },
+      // Stage 8 (stage-8.md §3.4): no NAS files, nothing locked or stale.
+      nasCopy: {
+        configured: 'off',
+        configReason: null,
+        blocked: false,
+        stale: false,
+        lastSuccessAt: null,
+      },
     });
   });
 
@@ -179,6 +187,8 @@ describe('GET /api/status', () => {
     });
     // A bare status plugin (no recorder decorated) leaves the recorder field out.
     expect(res.json<AppStatus>().history).toBeUndefined();
+    // …and the NAS copy's (Stage 8: no decorator, no field).
+    expect(res.json<AppStatus>().nasCopy).toBeUndefined();
   });
 });
 

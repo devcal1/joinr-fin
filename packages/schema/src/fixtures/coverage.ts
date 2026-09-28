@@ -30,11 +30,14 @@ import type { BackupKind } from '../backups';
 import type { BackupFileDto, BackupKeptAs, BackupSkipReason } from '../dto/backups';
 import type { FireInputsDto } from '../dto/fire';
 import type { FireInputSource, FireMilestoneKind, FirePhase, FireStatus } from '../fire';
+import type { NasCopyJobDetail } from '../dto/nasCopy';
+import type { NasCopyConfigReason, NasCopyConfigState, NasCopyFailureReason } from '../nasCopy';
 import type { SettingGroupId } from '../settings';
 import { otherAssetsPages, propertyPages, superPages } from './assets';
 import { cashPages, dividendsPages } from './cashflow';
 import { backupNowResponses, backupsPages } from './backups';
 import { firePages } from './fire';
+import { nasCopyStates } from './nasCopy';
 import { historyPages, netWorthPages, settingsPages } from './history';
 import { allInvestmentPageFixtures } from './investments';
 import { importRunDetails, priceItems } from './sampleDtos';
@@ -67,7 +70,9 @@ export function fireInputSourcesOf(i: FireInputsDto): FireInputSource[] {
  * and record trigger in the History fixtures, every net-worth class and liability in the Net Worth
  * fixtures, and every setting group in the Settings fixtures (stage-5.md §3.6); every FIRE status,
  * phase, milestone kind and input source in the FIRE fixtures (stage-6.md §3.6); every backup kind,
- * kept-as reason, last-run status and skip reason in the Backups fixtures (stage-7.md §3.4).
+ * kept-as reason, last-run status and skip reason in the Backups fixtures (stage-7.md §3.4); every
+ * NAS-copy configuration state and reason, both lock values and the failure reasons that have a
+ * fixture (stage-8.md §3.5; no heartbeat outcomes: D132).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -103,6 +108,10 @@ export const FIXTURE_COVERAGE: {
   backupKeptAs: BackupKeptAs[];
   backupRunStatuses: JobStatus[];
   backupSkipReasons: BackupSkipReason[];
+  nasCopyConfigStates: NasCopyConfigState[];
+  nasCopyConfigReasons: Array<NasCopyConfigReason | null>;
+  nasCopyBlocked: boolean[];
+  nasCopyFailureReasons: NasCopyFailureReason[];
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -186,6 +195,17 @@ export const FIXTURE_COVERAGE: {
       const skipped = (p.lastRun?.detail as { skipped?: BackupSkipReason } | null | undefined)
         ?.skipped;
       return skipped === undefined ? [] : [skipped];
+    }),
+  ),
+  nasCopyConfigStates: unique(Object.values(nasCopyStates).map((s) => s.configured)),
+  nasCopyConfigReasons: unique(Object.values(nasCopyStates).map((s) => s.configReason)),
+  nasCopyBlocked: unique(Object.values(nasCopyStates).map((s) => s.blockedUntilFilesChange)),
+  nasCopyFailureReasons: unique(
+    Object.values(nasCopyStates).flatMap((s): NasCopyFailureReason[] => {
+      if (s.lastRun?.status !== 'failed') return [];
+      // A row the job did not finish itself (`detail` null) is shown as the `stopped` sentence.
+      const reason = (s.lastRun.detail as NasCopyJobDetail | null)?.reason;
+      return [reason ?? 'stopped'];
     }),
   ),
 };

@@ -2,6 +2,7 @@
 // Stage 5 (stage-5.md §3.2, §4.5, additive): every `features.*` switch (default true; the navigation
 // hides a page that is off, §6.6) and the recorder's switch with its next month-end record time.
 // Stage 7 (stage-7.md §3.3, §5.4, additive): the stale-backup flag and the newest backup's time.
+// Stage 8 (stage-8.md §3.4, §5.11, additive): the NAS copy's problem flags.
 import { SETTING_KEYS, type AppStatus, type FeatureKey, type SettingKey } from '@joinr/schema';
 import { importRuns, snapshots } from '@joinr/schema/db';
 import { count, desc, max } from 'drizzle-orm';
@@ -13,6 +14,7 @@ import { hasDomainData } from '../db/queries/domain';
 import { booleanSetting, readSettings } from '../db/queries/settings';
 import type { SnapshotRecorder } from '../history/recorder';
 import type { MarketDataService } from '../market/types';
+import type { NasCopyService } from '../nascopy/service';
 
 export interface StatusRouteOptions {
   database: AppDatabase;
@@ -42,6 +44,7 @@ export function readAppStatus(
   market: MarketDataService,
   recorder?: Pick<SnapshotRecorder, 'status'>,
   backups?: Pick<BackupService, 'staleness'>,
+  nasCopy?: Pick<NasCopyService, 'problem'>,
 ): AppStatus {
   const price = market.status();
   const snap = db
@@ -69,6 +72,7 @@ export function readAppStatus(
     status.history = { autoRecord: r.autoRecord.enabled, nextRecordAt: r.nextRunAt };
   }
   if (backups) status.backups = backups.staleness();
+  if (nasCopy) status.nasCopy = nasCopy.problem();
   return status;
 }
 
@@ -79,6 +83,7 @@ export const statusRoutes: FastifyPluginAsync<StatusRouteOptions> = async (app, 
       opts.market,
       app.hasDecorator('recorder') ? app.recorder : undefined,
       app.hasDecorator('backups') ? app.backups : undefined,
+      app.hasDecorator('nasCopy') ? app.nasCopy : undefined,
     ),
   );
 };

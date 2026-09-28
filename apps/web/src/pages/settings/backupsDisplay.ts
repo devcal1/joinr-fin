@@ -24,7 +24,7 @@ export const UNINSTALL_WARNING_LEAD =
   "These backups are stored on the server, in this app's data folder.";
 export const UNINSTALL_WARNING_STRONG = 'Uninstalling the app deletes them.';
 export const UNINSTALL_WARNING_TAIL =
-  'Download the newest one before you uninstall, and keep a copy off the server.';
+  'Download the newest one before you uninstall, and keep a copy off the server: the weekly NAS copy does this once it is set up.';
 
 const pad2 = (value: number): string => String(value).padStart(2, '0');
 

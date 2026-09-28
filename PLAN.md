@@ -27,6 +27,7 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 5 | History, Net Worth dashboard & Settings | ✅ done 2026-09-27 |
 | 6 | FIRE planner & polish | ✅ done 2026-09-27 |
 | 7 | Umbrel deployment & cutover | ✅ done 2026-09-27/28 |
+| 8 | Weekly backup copy to the NAS | ✅ done 2026-09-27/28 |
 
 Every stage ends with a **demo**, a **handoff update**, a **local commit** (with the owner's OK) and a **`/clear`**. Pushes happen only when the owner asks (D10). See `docs/STAGE_PROCESS.md`.
 
@@ -235,3 +236,16 @@ Each stage lists its scope, acceptance criteria and demo. The stage Planner agen
 - Tailscale is healthy and the NAS is reachable from the dev PC.
 - Umbrel version and SSH or Portainer access are known.
 - The target storage path is chosen.
+
+### Stage 8 — Weekly backup copy to the NAS
+**Scope** (D126–D134)
+- A weekly job (Sunday 03:00 server time) and a "Copy to NAS now" button copy every kept backup to an rsync-daemon module on the NAS. It only adds, and it proves each copy by listing it back.
+- The two NAS files (address and password) are placed in the app data folder over SSH by a helper the owner runs; the copy is off until they are there.
+- Copy status in Settings → Backups (never the address) with an every-page callout after 8 days without a copy (no heartbeat, D132), and a release (1.1.0) through the Stage 7 path.
+
+**Acceptance**
+- A copy reaches the NAS and is proved by listing it back; a second run sends nothing new.
+- A NAS that is off, full or misconfigured never fails a backup; it shows as a copy problem.
+- Nothing on the NAS is ever deleted or overwritten (a test pins the rsync flags).
+
+**Demo:** "Copy to NAS now" on the Umbrel, the files listed on the NAS, and the status in Settings.

@@ -4,6 +4,8 @@
 // download link. Every time is in the server's zone. The section bar renders whatever the query's
 // state (the hash target always exists); the section has its own loading and error states, so a
 // failure here never blanks the rest of Settings, and a settings failure never hides it.
+// Stage 8 (stage-8.md §8.2): the "Copy to the NAS" block sits after "Back up now" and its result,
+// before the table.
 import type { BackupFileDto, BackupsResponse } from '@joinr/schema';
 import {
   Button,
@@ -47,6 +49,7 @@ import {
   showsMonthlyPill,
   spaceText,
 } from './backupsDisplay';
+import { NasCopyBlock, NasCopyPlaceholder } from './NasCopyBlock';
 import './backups.css';
 
 const TABLE_ID = 'backups-table';
@@ -268,6 +271,7 @@ function BackupsBody({ data }: { data: BackupsResponse }): JSX.Element {
         </p>
       </Callout>
       <BackupNow data={data} />
+      {data.nasCopy ? <NasCopyBlock status={data.nasCopy} /> : null}
       <BackupsTable data={data} />
     </>
   );
@@ -283,7 +287,7 @@ export function BackupsSection({ query }: { query: UseQueryResult<BackupsRespons
         layout="table"
         errorTitle="Could not load backups"
       />
-      {query.data ? <BackupsBody data={query.data} /> : null}
+      {query.data ? <BackupsBody data={query.data} /> : <NasCopyPlaceholder />}
     </section>
   );
 }

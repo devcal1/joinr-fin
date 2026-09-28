@@ -15,6 +15,8 @@ import {
   type DividendEventsService,
 } from './market/dividends/index';
 import { createMarketDataService } from './market/index';
+import type { RsyncRunner } from './nascopy/runner';
+import { createNasCopyService, type NasCopyService } from './nascopy/service';
 import { Cooldowns } from './market/refresh';
 import { createService } from './market/service';
 import type { MarketDataService } from './market/types';
@@ -70,6 +72,8 @@ declare module 'fastify' {
     recorder: SnapshotRecorder;
     /** Stage 7 (stage-7.md §5.4): the nightly backup and "Back up now"; index.ts starts it. */
     backups: BackupService;
+    /** Stage 8 (stage-8.md §5.11): the weekly copy to the NAS; index.ts starts it. */
+    nasCopy: NasCopyService;
   }
 }
 
@@ -97,6 +101,15 @@ export interface BuildAppOptions {
   backupClock?: Clock;
   /** Stage 7 (stage-7.md §5.3 step 2): the backup copy seam (tests pass an async fake). */
   backupCopy?: CopyFn;
+  /** Stage 8 (stage-8.md §5.11): the NAS copy's timer clock (tests; default `systemClock`). */
+  nasCopyClock?: Clock;
+  /** Stage 8 (stage-8.md §5.11): the rsync runner (tests pass a fake; default the real one). */
+  nasCopyRunner?: RsyncRunner;
+  /**
+   * Stage 8 (stage-8.md §5.12, tests only): where the app's log lines go (default stdout), so the
+   * leak test can read every line the app wrote.
+   */
+  logStream?: { write(line: string): void };
 }
 
 export const SECURITY_HEADERS = {
@@ -145,13 +158,16 @@ export async function buildApp({
   recorderClock,
   backupClock,
   backupCopy,
+  nasCopyClock,
+  nasCopyRunner,
+  logStream,
 }: BuildAppOptions): Promise<FastifyInstance> {
   // Fail before creating anything, so the caller only has the database to clean up.
   if (config.serveWeb) assertWebDist(config.webDistDir);
 
   // frameworkErrors: the router's own errors (a too-long download name) in the Stage 0 shape.
   const app = Fastify({
-    logger: { level: config.logLevel },
+    logger: logStream ? { level: config.logLevel, stream: logStream } : { level: config.logLevel },
     frameworkErrors: frameworkErrorHandler,
   });
   // Stage 7 (stage-7.md §5.8): the cross-site write guard runs before anything else.
@@ -182,6 +198,17 @@ export async function buildApp({
     copy: backupCopy,
   });
   app.decorate('backups', backups);
+  const nasCopy = createNasCopyService({
+    database: db,
+    config,
+    scheduler,
+    backups,
+    log: app.log,
+    now,
+    clock: nasCopyClock ?? systemClock,
+    runner: nasCopyRunner,
+  });
+  app.decorate('nasCopy', nasCopy);
 
   app.addHook('onSend', async (request, reply, payload) => {
     reply.headers(SECURITY_HEADERS);
@@ -192,9 +219,11 @@ export async function buildApp({
     }
     return payload;
   });
-  // Stop the recorder (it aborts its own price wait) and then the scheduler (abort and await an
-  // in-flight job) before the database closes (stage-5.md §4.6).
+  // Stop the NAS copy first (it aborts its own copy and waits at most 4 s, stage-8.md §5.10), the
+  // backups, the recorder (it aborts its own price wait) and then the scheduler (abort and await
+  // an in-flight job) before the database closes (stage-5.md §4.6).
   app.addHook('preClose', async () => {
+    await nasCopy.stop();
     await backups.stop();
     await recorder.stop();
     await scheduler.stop();
@@ -256,6 +285,7 @@ export async function buildApp({
     database: db,
     config,
     backups,
+    nasCopy,
     version,
     now,
   });

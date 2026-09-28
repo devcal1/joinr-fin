@@ -4,7 +4,8 @@
 // form per group with its own Save. The pages keep their in-context forms; both edit the same
 // values (D86). Stage 7 (stage-7.md §6.2, §6.3): the Backups and About sections follow the groups, each
 // with its own query states, and render whatever the settings query does (so `#backups` and `#about`
-// always exist); the hash target waits for both queries to settle.
+// always exist); the hash target waits for both queries to settle. Stage 8 (stage-8.md §8.3): the
+// index gains "NAS copy" (`#nas-copy`, the NAS block's subheading inside Backups).
 import type { SettingsPageResponse } from '@joinr/schema';
 import { Callout, MEDIA, PageHeader, SectionBar, useMediaQuery } from '@joinr/ui';
 import { useState, type JSX } from 'react';
@@ -15,6 +16,7 @@ import { useHashTarget } from '../history/useHashTarget';
 import { AboutSection } from './AboutSection';
 import { BackupsSection } from './BackupsSection';
 import { ABOUT_SECTION_ID, BACKUPS_SECTION_ID } from './backupsDisplay';
+import { NAS_COPY_INDEX_LABEL, NAS_COPY_SECTION_ID } from './nasCopyDisplay';
 import { SettingsGroupForm, type SettingsGroup } from './SettingsGroupForm';
 
 /** The groups in page order with their settings in registry order. */
@@ -29,12 +31,13 @@ function groupsOf(page: SettingsPageResponse): SettingsGroup[] {
   }));
 }
 
-/** The in-page index: every group, then Backups and About (stage-7.md §6.2). */
+/** The in-page index: every group, then Backups, NAS copy (stage-8.md §8.3) and About. */
 function GroupIndex({ groups }: { groups: readonly SettingsGroup[] }): JSX.Element {
   const phone = useMediaQuery(MEDIA.phone);
   const entries: { id: string; label: string }[] = [
     ...groups.map((group) => ({ id: group.id, label: group.label })),
     { id: BACKUPS_SECTION_ID, label: 'Backups' },
+    { id: NAS_COPY_SECTION_ID, label: NAS_COPY_INDEX_LABEL },
     { id: ABOUT_SECTION_ID, label: 'About' },
   ];
   const links = (

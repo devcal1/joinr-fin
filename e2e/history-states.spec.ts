@@ -75,6 +75,9 @@ test.describe('history states (fixtures)', () => {
   });
 
   test('settings: the tax suggestion bands and the pay form', async ({ page }, testInfo) => {
+    // Five full Settings loads, each with a full-page shot: the page grew with the NAS block
+    // (Stage 8), and under the full suite the loop ran past the default 30 s (7.5 s alone).
+    test.setTimeout(90_000);
     for (const name of ['populated', 'taxShadeIn', 'taxNoLevy', 'taxLito', 'noSalary'] as const) {
       await mockHistoryPage(page, 'settings', settingsPages[name]);
       // A goto that changes only the hash does not reload the page (nor refetch the mock), so

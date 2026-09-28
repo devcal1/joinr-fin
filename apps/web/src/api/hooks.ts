@@ -5,10 +5,11 @@
 // ['side-income'], ['budget'], ['dividends']. Stage 4 (stage-4.md §6.2): ['other-assets'], ['super'],
 // ['property']. Stage 5 (stage-5.md §6.2): ['net-worth', unit, count], ['history'],
 // ['history-series', unit, count], ['settings']. Stage 6 (stage-6.md §6.2): ['fire', query].
-// Stage 7 (stage-7.md §6.1): ['backups'].
+// Stage 7 (stage-7.md §6.1): ['backups']. Stage 8 (stage-8.md §8.1): the NAS copy shares ['backups'].
 import type {
   BackupNowResponse,
   BackupsResponse,
+  NasCopyNowResponse,
   ChartDateUnit,
   CorrectionResponse,
   FirePageResponse,
@@ -471,13 +472,15 @@ export function useSettingsPage(
 
 /**
  * `GET /api/backups` (stage-7.md §6.1): the backup files, the schedule, the last run and the About
- * facts. Polled every 2 s while a backup runs, otherwise not at all.
+ * facts. Polled every 2 s while a backup runs, otherwise not at all. Stage 8 (stage-8.md §8.1): also
+ * every 2 s while a copy to the NAS runs (`nasCopy.running`).
  */
 export function useBackups(): UseQueryResult<BackupsResponse> {
   return useQuery({
     queryKey: queryKeys.backups,
     queryFn: () => apiGet<BackupsResponse>('/api/backups'),
-    refetchInterval: (query) => (query.state.data?.running ? BUSY_POLL_MS : false),
+    refetchInterval: (query) =>
+      query.state.data?.running || query.state.data?.nasCopy?.running ? BUSY_POLL_MS : false,
   });
 }
 
@@ -1089,6 +1092,24 @@ export function useBackupNow(): UseMutationResult<BackupNowResponse, Error, void
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => apiSend<BackupNowResponse>('POST', '/api/backups'),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.backups }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+      ]),
+  });
+}
+
+/**
+ * `POST /api/backups/nas-copy` (stage-8.md §8.1): "Copy to NAS now". The server answers 202 at once
+ * (the copy runs in the background); the page follows `nasCopy.lastRun.id` from the body. On
+ * settle, success or failure, the backups list (which then polls while the copy runs) and the
+ * header status refetch. Errors carry the server's message (a 409 names why no copy starts).
+ */
+export function useNasCopyNow(): UseMutationResult<NasCopyNowResponse, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<NasCopyNowResponse>('POST', '/api/backups/nas-copy'),
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.backups }),

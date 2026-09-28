@@ -68,6 +68,11 @@ export interface BackupService {
   status(): BackupServiceStatus;
   /** §5.4 stale flag and the newest nightly or manual file's createdAt (`/api/status`). */
   staleness(): Staleness;
+  /**
+   * Stage 8 (stage-8.md §5.10, additive): resolves once no tracked backup attempt is in flight
+   * (at once when none is), so a NAS copy never starts in the middle of one.
+   */
+  whenIdle(): Promise<void>;
 }
 
 export interface BackupServiceDeps {
@@ -489,6 +494,10 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
 
     staleness() {
       return computeStaleness(db, listBackupFiles(config.dataDir), now(), enabled);
+    },
+
+    async whenIdle() {
+      while (attempts.size > 0) await Promise.allSettled([...attempts]);
     },
   };
 }

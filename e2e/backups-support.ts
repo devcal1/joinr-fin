@@ -136,3 +136,46 @@ export async function tableFits(page: Page): Promise<{ scroll: number; client: n
     .locator('[data-testid="backups-table"] .jf-table__scroll')
     .evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
 }
+
+// ─── Stage 8: the weekly copy to the NAS (stage-8.md §8.7; D132: no heartbeat) ───────────────────
+
+/** "Copy to NAS now" (202; 409 while the NAS files are not ready). */
+export const NAS_COPY_API = '/api/backups/nas-copy';
+
+/** The "Copy to the NAS" block (a group labelled by its subheading, inside Backups). */
+export function nasCopyBlock(page: Page): Locator {
+  return page.getByRole('group', { name: 'Copy to the NAS', exact: true });
+}
+
+/** The block's "Copy to NAS now" button (or "Copying…" while a copy runs). */
+export function nasCopyButton(page: Page): Locator {
+  return nasCopyBlock(page).getByRole('button', { name: /^(Copy to NAS now|Copying…)$/ });
+}
+
+/** The KV table's own scroll width against its box (D109: the inner width ≤ its container). */
+export async function nasTableFits(page: Page): Promise<{ scroll: number; client: number }> {
+  return nasCopyBlock(page)
+    .getByRole('table')
+    .evaluate((el) => {
+      const box = el.parentElement ?? el;
+      return { scroll: el.scrollWidth, client: box.clientWidth };
+    });
+}
+
+/** Counts the POSTs the page sends to `NAS_COPY_API` (answered 500, never reaching the server). */
+export async function countNasCopyPosts(page: Page): Promise<() => number> {
+  let posts = 0;
+  await page.route(
+    (url) => url.pathname === NAS_COPY_API,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      posts += 1;
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'INTERNAL', message: 'not expected in this test' } }),
+      });
+    },
+  );
+  return () => posts;
+}

@@ -32,6 +32,10 @@ export const API_ERROR_CODES = [
   // Stage 7 (stage-7.md §4.1): 500 (a category message, never a path) · 403 (the cross-site write guard).
   'BACKUP_FAILED',
   'CROSS_SITE_REQUEST',
+  // Stage 8 (stage-8.md §4.1): 409 (the copy is not set up, or half set up, or unusable) · 409 (the
+  // refusal lock holds). The message is a fixed sentence, never a value.
+  'NAS_COPY_NOT_READY',
+  'NAS_COPY_FIX_FIRST',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 

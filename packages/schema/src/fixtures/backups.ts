@@ -8,9 +8,12 @@
 //
 // Common inputs: dates in 2030; the server zone `Australia/Melbourne`; one nightly copy a day at
 // 02:30 from 01/01/2030; app version 1.0.0 at database level 6; round sizes.
+// Stage 8 (stage-8.md §3.5): every state carries `nasCopy: nasCopyStates.off`; `nasReady` is `typical`
+// with the 15/09 NAS copy succeeded.
 import { BACKUP_NIGHTLY_HOUR, BACKUP_NIGHTLY_MINUTE, BACKUP_RETENTION } from '../backups';
 import type { BackupFileDto, BackupNowResponse, BackupsResponse } from '../dto/backups';
 import type { AppStatus } from '../dto/status';
+import { nasCopyStates } from './nasCopy';
 import { appStatusPopulated } from './sampleDtos';
 
 /** The server zone of every fixture. */
@@ -93,6 +96,7 @@ const TYPICAL = {
   stale: false,
   retention: BACKUP_RETENTION,
   app: APP,
+  nasCopy: nasCopyStates.off,
 } satisfies BackupsResponse;
 
 /** A young install whose last three nightly slots failed: dailies 03/09 → 12/09 and the pre-import copy of the first import. */
@@ -154,6 +158,7 @@ export const backupsPages = {
     stale: false,
     retention: BACKUP_RETENTION,
     app: APP,
+    nasCopy: nasCopyStates.off,
   },
   /** The 16/09 02:30 nightly run in flight (the list is still the 15/09 folder). */
   running: {
@@ -197,6 +202,7 @@ export const backupsPages = {
     stale: true,
     retention: BACKUP_RETENTION,
     app: APP,
+    nasCopy: nasCopyStates.off,
   },
   /** Nothing to back up yet: the 15/09 slot settled without a file. */
   skippedEmpty: {
@@ -219,6 +225,7 @@ export const backupsPages = {
     stale: false,
     retention: BACKUP_RETENTION,
     app: APP,
+    nasCopy: nasCopyStates.off,
   },
   /** The 16/09 02:30 run found an import running: skipped, retried 15 minutes on. */
   skippedImport: {
@@ -263,6 +270,7 @@ export const backupsPages = {
     stale: false,
     retention: BACKUP_RETENTION,
     app: APP,
+    nasCopy: nasCopyStates.off,
   },
   /** The 10/09 backup by hand restored at 11:00 on 15/09: the restored database's own history, the pre-restore copy in the folder. */
   restored: {
@@ -299,6 +307,8 @@ export const backupsPages = {
     backups: [FUTURE_FILE, ...TYPICAL_FILES],
     totalBytes: 114_200_000,
   },
+  /** Stage 8: `typical` with the NAS copy set up and the 15/09 copy succeeded. */
+  nasReady: { ...TYPICAL, nasCopy: nasCopyStates.succeeded },
 } satisfies Record<string, BackupsResponse>;
 
 export type BackupsPageFixture = keyof typeof backupsPages;
@@ -318,6 +328,7 @@ export const backupsFixtureNow: Record<BackupsPageFixture, string> = {
   restored: '2030-09-15T11:05:00+10:00',
   versionMismatch: '2030-09-15T14:30:00+10:00',
   future: '2030-09-15T14:30:00+10:00',
+  nasReady: '2030-09-15T14:30:00+10:00',
 };
 
 /** "Back up now" (§4.2, 201). */

@@ -6,4 +6,5 @@ export * from './assets';
 export * from './history';
 export * from './fire';
 export * from './backups';
+export * from './nasCopy';
 export * from './coverage';

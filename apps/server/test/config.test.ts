@@ -46,6 +46,7 @@ describe('loadConfig', () => {
       autoRecord: null,
       nightlyBackups: true,
       publicPort: null,
+      weeklyNasCopy: true,
     });
   });
 
@@ -66,6 +67,7 @@ describe('loadConfig', () => {
         AUTO_RECORD: 'yes',
         NIGHTLY_BACKUPS: 'no',
         PUBLIC_PORT: '4932',
+        WEEKLY_NAS_COPY: '0',
       },
       base,
     );
@@ -86,6 +88,7 @@ describe('loadConfig', () => {
       autoRecord: true,
       nightlyBackups: false,
       publicPort: 4932,
+      weeklyNasCopy: false,
     });
   });
 
@@ -166,6 +169,28 @@ describe('loadConfig', () => {
     expect(loadConfig({ NODE_ENV: 'production' }, base).nightlyBackups).toBe(true);
     expect(configError({ NIGHTLY_BACKUPS: 'nightly' }).issues[0]).toMatch(
       /^NIGHTLY_BACKUPS: must be one of true, 1, yes, false, 0, no/,
+    );
+  });
+
+  // Stage 8 (stage-8.md §5.1).
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['yes', true],
+    ['false', false],
+    ['0', false],
+    ['no', false],
+    ['', true],
+  ])('reads WEEKLY_NAS_COPY=%j (default on)', (value, expected) => {
+    expect(loadConfig({ WEEKLY_NAS_COPY: value }, base).weeklyNasCopy).toBe(expected);
+  });
+
+  it('turns the weekly NAS copy off under NODE_ENV=test unless set', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }, base).weeklyNasCopy).toBe(false);
+    expect(loadConfig({ NODE_ENV: 'test', WEEKLY_NAS_COPY: 'yes' }, base).weeklyNasCopy).toBe(true);
+    expect(loadConfig({ NODE_ENV: 'production' }, base).weeklyNasCopy).toBe(true);
+    expect(configError({ WEEKLY_NAS_COPY: 'weekly' }).issues[0]).toMatch(
+      /^WEEKLY_NAS_COPY: must be one of true, 1, yes, false, 0, no/,
     );
   });
 

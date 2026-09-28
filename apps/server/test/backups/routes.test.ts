@@ -14,6 +14,7 @@ import {
   type BackupNowResponse,
   type BackupsResponse,
 } from '@joinr/schema';
+import { nasCopyStates } from '@joinr/schema/fixtures';
 import { COMMITTED_MIGRATION_COUNT } from '@joinr/schema/testing';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -115,6 +116,24 @@ describe('GET /api/backups', () => {
       stale: false,
       retention: BACKUP_RETENTION,
       app: { version: '1.2.3', migrations: COMMITTED_MIGRATION_COUNT, restoredFrom: null },
+      nasCopy: {
+        configured: 'off',
+        configReason: null,
+        missing: [],
+        blockedUntilFilesChange: false,
+        schedule: {
+          enabled: false,
+          weekday: 0,
+          hour: 3,
+          minute: 0,
+          timeZone: 'Australia/Melbourne',
+          nextRunAt: null,
+        },
+        running: false,
+        lastRun: null,
+        lastSuccessAt: null,
+        stale: false,
+      },
     });
   });
 
@@ -192,6 +211,7 @@ describe('GET /api/backups', () => {
       backupNow: () => Promise.reject(new Error('not used')),
       status: () => ({ enabled: false, nextRunAt: null, running: false, lastRun: null }),
       staleness: () => ({ stale: false, lastBackupAt: null }),
+      whenIdle: () => Promise.resolve(),
     };
     app = Fastify({ logger: false });
     registerErrorHandler(app);
@@ -200,6 +220,10 @@ describe('GET /api/backups', () => {
       database: live.database,
       config: testConfig(live.dataDir),
       backups: stub,
+      nasCopy: {
+        status: () => nasCopyStates.off,
+        copyNow: () => ({ joined: false }),
+      },
       version: '1.2.3',
       now: () => NOW,
       statfs: () => null,

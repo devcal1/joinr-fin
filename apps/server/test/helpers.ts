@@ -39,6 +39,7 @@ export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Co
     autoRecord: null,
     nightlyBackups: false,
     publicPort: null,
+    weeklyNasCopy: false,
     ...overrides,
   };
 }

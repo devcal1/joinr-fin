@@ -2,6 +2,7 @@
 // server's local offset (e.g. `2030-03-15T02:30:00+11:00`), except the job run's own timestamps,
 // which are stored as UTC ISO like every other `job_runs` row.
 import type { BACKUP_RETENTION, BackupKind } from '../backups';
+import type { NasCopyStatusDto } from './nasCopy';
 import type { JobRunSummary } from './prices';
 
 export type BackupKeptAs = 'daily' | 'monthly' | 'daily_and_monthly' | 'recent' | 'future';
@@ -60,6 +61,8 @@ export interface BackupsResponse {
     /** app_meta restore.last (§5.5 step 10). */
     restoredFrom: { name: string; at: string } | null;
   };
+  /** Stage 8 (stage-8.md §4.2, §4.3): the weekly copy to the NAS. */
+  nasCopy: NasCopyStatusDto;
 }
 
 export interface BackupNowResponse {

@@ -235,8 +235,11 @@ describe('release: immutable tags', () => {
     const host = setup({
       'digest-header': { stdout: `Docker-Content-Digest: sha256:${'9'.repeat(64)}\r\n` },
     });
+    // The store as it was before the release (the real clone's pin since 1.0.0, not the placeholder).
+    const before = store.read();
     await expect(main([], host.deps())).rejects.toMatchObject({ exitCode: 1 });
-    expect(store.read().compose).toContain(PLACEHOLDER_DIGEST);
+    expect(store.read()).toEqual(before);
+    expect(store.read().compose).not.toContain(`sha256:${'9'.repeat(64)}`);
   });
 });
 
