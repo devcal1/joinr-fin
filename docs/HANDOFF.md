@@ -1,9 +1,17 @@
 # Handoff
 
-_Last updated: end of Stage 8 (2026-09-27/28)._
+_Last updated: after the 1.1.1 layout release (2026-09-29)._
 
 ## Where we are
-**Stage 8 (weekly backup copy to the NAS) is done (D135).** Joinr Finance **1.1.0** runs on the owner's Umbrel with the owner's data, and copies every kept backup to the owner's NAS every Sunday at 03:00 Melbourne time. **The Umbrel is the source of truth (D125)**; the workbook is retired and the local `data/` is the pre-cutover archive.
+**1.1.1 (a layout release, D136) is live on the Umbrel** (the owner clicked Update; health says 1.1.1, no migration). It tunes every page for the owner's desktop browser: about 1707 × 900 CSS px of viewport (a 2560 × 1600 screen at 150%).
+- Tables and key–value tables fit their content instead of stretching to the card. Headers wrap at spaces only when a table would overflow. The account groups share a capped 60rem grid.
+- Charts without an explicit height are a quarter of their width (260–340 px), with 12 px axis and legend text.
+- From 1600 px, paired row actions and a trade's Result sit on one line. Investment-table fund names keep to one line, with the full name on hover. The holdings (More columns on) and FIRE year-by-year tables use 6 px cell sides from 1200 px.
+- At 1707 px no live page overflows sideways. Other Assets and Prices keep two-line rows on purpose (badges and ticker over name).
+- Commits: `joinr-fin` `1ef78fe` and the store `be761c9`, both pushed. The release record is in `docs/private/stage-8-private.md` §11.
+- **Layout checks without a visible browser:** the Browser pane and a background Chrome window often render stale frames or stall data loading. Headless Playwright with `channel: 'chrome'` at 1707 × 898 against the dev server is reliable. Scratch scripts, git-ignored: `artifacts/shots.mjs` (viewport-high tiles; `MORE=1` turns More columns on), `artifacts/audit.mjs` (table width, overflow and row height on every route) and `artifacts/cols.mjs <route> <caption>` (per-column widths).
+
+**Stage 8 (weekly backup copy to the NAS) is done (D135).** Joinr Finance **1.1.0** ran on the owner's Umbrel with the owner's data, and copies every kept backup to the owner's NAS every Sunday at 03:00 Melbourne time. **The Umbrel is the source of truth (D125)**; the workbook is retired and the local `data/` is the pre-cutover archive.
 
 - Stage 8: `docs/stages/stage-8.md` (see "Stage close notes"; the D132 banner at its top voids every heartbeat item). Decisions D126–D135. Private: `docs/private/stage-8-private.md` (smoke, release and demo records) and `docs/private/ENVIRONMENT.md` (the NAS target).
 - Stage 7 (deployment and cutover) is below; its record is `docs/stages/stage-7.md`.
@@ -76,6 +84,10 @@ Everything from Stages 1–6 still applies (`pnpm dev`, `pnpm check`, `pnpm e2e`
 - **Leftovers:** the `1.0.0-rc.1` tag stays in the registry (harmless), and `~/joinr-build/` on the Umbrel holds the build contexts (the release script prunes old ones).
 
 ## Known issues / carried forward
+- **E2E and a running dev server:** `playwright.config.ts` has `reuseExistingServer: true`. With `pnpm dev` running on `data/`, `pnpm e2e` would run against the real archive (the mutating projects write to it). **Stop the dev server first** so e2e starts its own on `artifacts/e2e/data`.
+- **An interrupted first start leaves a broken DB:** a `pnpm dev` killed during its first start left a 20 KB `artifacts/e2e/data/finance.db`. Every later start then failed with "The pre-update backup failed: The copy could not be written", and deleting the scratch file fixed it. This is worth a look: a half-created database should not block start-up. It is unrelated to 1.1.1.
+- **Check with the owner:** on the live data after 1.1.1, the two loan accounts are listed under Bank accounts, not "Loans you've made", so they count toward the emergency fund. This is how the accounts are configured, not the layout; the owner may not have meant it (details in `docs/private/stage-8-private.md` §11).
+- **Owner's test trade:** the demo-day app-added ETF buy is still in the database (see "Live state" below).
 - **Check next session:**
   - After Sunday 04/10/2026 03:00, Settings → Backups shows a scheduled NAS copy that succeeded.
   - Settings → Backups shows a `Nightly` row from 02:30 on 29/09, with the last run Succeeded (plan §9 step 20).
