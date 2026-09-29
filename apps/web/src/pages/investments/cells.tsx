@@ -139,7 +139,11 @@ export function HoldingName({
       >
         {symbol}
       </Link>
-      {name ? <span className="jf-app-instrument__name">{name}</span> : null}
+      {name ? (
+        <span className="jf-app-instrument__name" title={name}>
+          {name}
+        </span>
+      ) : null}
       {children}
     </span>
   );

@@ -15,6 +15,13 @@
     min-width: 0;
   }
 
+  /* No explicit height: a quarter of the width, 260–340 px (EChart DEFAULT_CHART_HEIGHT). */
+  .jf-chart__plot--auto {
+    aspect-ratio: 4 / 1;
+    min-height: 260px;
+    max-height: 340px;
+  }
+
   /* Legend: text in text tokens; the colour lives only in the key beside it. */
   .jf-chart__legend {
     display: flex;

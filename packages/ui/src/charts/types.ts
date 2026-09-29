@@ -54,7 +54,8 @@ export interface EChartProps extends ChartStateProps {
   option: EChartsCoreOption;
   /** Accessible name of the chart image; also passed to ECharts' aria description. */
   ariaLabel: string;
-  /** Plot height in px, including the axis labels (the legend sits above it). Default 280. */
+  /** Plot height in px, including the axis labels (the legend sits above it). Default: responsive,
+   *  a quarter of the width between 260 and 340 px. */
   height?: number;
   className?: string;
   /** Nothing to plot: shows the empty state instead of the chart. */

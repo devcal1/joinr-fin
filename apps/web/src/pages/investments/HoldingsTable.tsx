@@ -205,7 +205,7 @@ function holdingColumns(
       header: 'Sector',
       value: (row) => row.sector,
       cell: (row) => row.sector ?? <Missing />,
-      minWidth: 140,
+      minWidth: 96,
     },
   };
   const more = MORE_ORDER.filter((id) => {

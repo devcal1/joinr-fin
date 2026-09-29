@@ -104,8 +104,9 @@ describe('KeyValueTable at narrow widths (STYLE-6)', () => {
     removeCss = installUiCss(['tokens', 'base', 'content'], { containerWidth: 480 });
     const table = renderFacts();
     expect(getComputedStyle(table).display).not.toBe('block');
-    const label = within(table).getByRole('rowheader', { name: 'Lender' });
-    expect(getComputedStyle(label).width).toBe('38%');
+    // Both columns size to their content (owner 2026-09-29), not a fixed label share.
+    expect(getComputedStyle(table).width).toBe('auto');
+    expect(getComputedStyle(table).tableLayout).toBe('auto');
   });
 });
 

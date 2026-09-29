@@ -307,7 +307,7 @@ describe('ChartCard table view (STYLE-11)', () => {
     removeCss();
   });
 
-  it('lets the header labels wrap between words in the table view only', async () => {
+  it('lets the header labels wrap between words, in the table view and elsewhere', async () => {
     removeCss = installUiCss(['tokens', 'base', 'table', 'charts']);
     const user = userEvent.setup();
     const table = (
@@ -327,9 +327,11 @@ describe('ChartCard table view (STYLE-11)', () => {
     expect(getComputedStyle(header).whiteSpace).toBe('normal');
     expect(getComputedStyle(header).wordBreak).toBe('normal');
 
-    // Outside a chart card the header keeps to one line.
+    // Outside a chart card too (owner 2026-09-29): a header wraps at its spaces only when the table
+    // would otherwise be wider than its box.
     render(table);
     const plain = screen.getAllByRole('columnheader', { name: 'Contributions after tax' })[1];
-    expect(getComputedStyle(plain as HTMLElement).whiteSpace).toBe('nowrap');
+    expect(getComputedStyle(plain as HTMLElement).whiteSpace).toBe('normal');
+    expect(getComputedStyle(plain as HTMLElement).overflowWrap).toBe('normal');
   });
 });

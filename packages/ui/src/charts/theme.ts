@@ -1,12 +1,13 @@
 // The 'joinr' ECharts theme (STYLE_GUIDE §6): transparent ground, Arial, hairline axes and grid,
-// 11px secondary axis labels, tooltips on --raised with a hairline border, no shadows, no 3-D.
+// 12px secondary axis labels, tooltips on --raised with a hairline border, no shadows, no 3-D.
 import { COLORS, FONT_MONO, FONT_SANS } from '../core';
 import { CHART_PALETTE } from './palette';
 
 export const CHART_THEME_NAME = 'joinr';
 
-/** Axis-label and legend text size (STYLE_GUIDE §2 small label). */
-export const CHART_LABEL_SIZE = 11;
+/** Axis-label and legend text size: 12 px, a step above the 11 px small label so axes stay
+ *  readable at a glance (owner 2026-09-29). */
+export const CHART_LABEL_SIZE = 12;
 
 const axisLabel = {
   color: COLORS.textSecondary,

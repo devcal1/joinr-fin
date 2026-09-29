@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { COLORS } from '../../core';
 import { moneyFormatter } from '../format';
 import { CHART_GAIN, CHART_LOSS, CHART_OTHER, CHART_PALETTE, withAlpha } from '../palette';
-import { JOINR_CHART_THEME } from '../theme';
+import { CHART_LABEL_SIZE, JOINR_CHART_THEME } from '../theme';
 import type { Series } from '../types';
 import { BAR_MAX_WIDTH, barLegend, barOption, barRadius, stackEnds } from './bar';
 import { alignSeries, changeWord, hasSeriesData, seriesLegend, signed } from './common';
@@ -502,7 +502,7 @@ describe('every builder', () => {
       extraCssText: 'box-shadow: none;',
     });
     expect(JOINR_CHART_THEME.valueAxis).toMatchObject({
-      axisLabel: { color: COLORS.textSecondary, fontSize: 11 },
+      axisLabel: { color: COLORS.textSecondary, fontSize: CHART_LABEL_SIZE },
       splitLine: { lineStyle: { color: COLORS.hairline, type: 'solid' } },
     });
     expect(JOINR_CHART_THEME.categoryAxis).toMatchObject({

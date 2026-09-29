@@ -9,7 +9,12 @@ import { initChart, type EChartsType } from './echarts';
 import { usePrefersReducedMotion } from './hooks';
 import type { ChartLegendItem, EChartProps } from './types';
 
-export const DEFAULT_CHART_HEIGHT = 240;
+/**
+ * The plot's minimum height when no `height` is given. The default plot is responsive (owner
+ * 2026-09-29): a quarter of its width, between this and 340 px (charts.css `.jf-chart__plot--auto`),
+ * so a full-width chart on a wide screen is not a flat strip.
+ */
+export const DEFAULT_CHART_HEIGHT = 260;
 export const DEFAULT_EMPTY_MESSAGE = 'Nothing to chart yet.';
 
 export type ChartViewState = 'ready' | 'refreshing' | 'loading' | 'empty';
@@ -60,7 +65,7 @@ function ChartLegend({ items }: { items: ChartLegendItem[] }): JSX.Element {
 export function EChart({
   option,
   ariaLabel,
-  height = DEFAULT_CHART_HEIGHT,
+  height,
   className,
   loading = false,
   empty = false,
@@ -117,7 +122,10 @@ export function EChart({
       aria-busy={loading || undefined}
     >
       {plotted && legend && legend.length > 0 ? <ChartLegend items={legend} /> : null}
-      <div className="jf-chart__plot" style={{ height }}>
+      <div
+        className={joinClasses('jf-chart__plot', height === undefined && 'jf-chart__plot--auto')}
+        style={height === undefined ? undefined : { height }}
+      >
         <div
           ref={hostRef}
           className="jf-chart__host"

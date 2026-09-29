@@ -183,7 +183,6 @@ export function OverTimeCharts({
               axisFormatter={compactMoneyFormatter}
               loading={loading}
               emptyMessage={NO_GROUPS}
-              height={240}
             />,
             live,
             [STACK_CAPTION],

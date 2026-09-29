@@ -13,8 +13,12 @@
     text-transform: uppercase;
   }
 
-  /* Wide tables scroll inside this box; the page never scrolls sideways. */
+  /* Wide tables scroll inside this box; the page never scrolls sideways. The box hugs the table
+     (fit-to-content, owner 2026-09-29), so a short table's text column never soaks up the card's
+     spare width and a label stays next to its figures. */
   .jf-table__scroll {
+    width: fit-content;
+    max-width: 100%;
     overflow-x: auto;
     overscroll-behavior-x: contain;
     border-radius: var(--radius-card);
@@ -26,7 +30,7 @@
   }
 
   .jf-table__table {
-    width: 100%;
+    width: auto;
     border-collapse: separate;
     border-spacing: 0;
     color: var(--text);
@@ -38,7 +42,9 @@
     font-size: var(--fs-body);
   }
 
-  /* Dense (owner, D109): 6/8 px headers, 3/8 px cells, so a row is about 24 px. */
+  /* Dense (owner, D109): 6/8 px headers, 3/8 px cells, so a row is about 24 px. A multi-word
+     header stays on one line while the table fits and wraps at its spaces (never inside a word)
+     only when the columns would otherwise push the table past its box. */
   .jf-table__th {
     padding: 6px var(--space-2);
     background: var(--raised);
@@ -50,7 +56,8 @@
     text-align: left;
     text-transform: uppercase;
     vertical-align: bottom;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: normal;
   }
 
   .jf-table__th--num {

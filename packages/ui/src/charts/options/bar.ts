@@ -8,6 +8,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import { COLORS } from '../../core';
 import { formatChartNumber } from '../format';
 import { CHART_GAIN, CHART_LOSS, resolveSeriesColor } from '../palette';
+import { CHART_LABEL_SIZE } from '../theme';
 import { readParamIndex, tooltipHtml, type TooltipRow } from '../tooltip';
 import type { BarChartProps, BarOverlay, ChartLegendItem, ValueFormatter } from '../types';
 import {
@@ -208,7 +209,7 @@ export function barOption(p: BarChartProps): EChartsCoreOption {
     type: 'value' as const,
     position: 'right' as const,
     name: overlays.find((o) => o.axis === 'secondary')?.name,
-    nameTextStyle: { color: COLORS.textSecondary, fontSize: 11 },
+    nameTextStyle: { color: COLORS.textSecondary, fontSize: CHART_LABEL_SIZE },
     splitLine: { show: false },
     axisLabel: { formatter: (v: number) => secondaryAxisFormat(v), hideOverlap: true },
   };

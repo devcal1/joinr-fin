@@ -153,17 +153,34 @@
     container-type: inline-size;
   }
 
+  /* Fit-to-content (owner 2026-09-29): the table is as wide as its longest label and value, so a
+     value sits next to its label; a long value still wraps inside the card. */
   .jf-kv__table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
+    width: auto;
+    min-width: min(100%, 24rem);
+    max-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: auto;
     /* What a figure's `text-align: inherit` resolves to, whatever the surrounding alignment. */
     text-align: left;
   }
 
-  /* The label column's share, on the column itself (see KeyValueTable). */
-  .jf-kv__col-label {
-    width: 38%;
+  /* The table can be narrower than its box, so its own corner cells carry the rounding. */
+  .jf-kv__row:first-child > .jf-kv__label {
+    border-top-left-radius: var(--radius-card);
+  }
+
+  .jf-kv__row:first-child > .jf-kv__value {
+    border-top-right-radius: var(--radius-card);
+  }
+
+  .jf-kv__row:last-child > .jf-kv__label {
+    border-bottom-left-radius: var(--radius-card);
+  }
+
+  .jf-kv__row:last-child > .jf-kv__value {
+    border-bottom-right-radius: var(--radius-card);
   }
 
   .jf-kv__label,
@@ -174,7 +191,6 @@
   }
 
   .jf-kv__label {
-    width: 38%;
     background: var(--raised);
     color: var(--text-secondary);
     font-size: var(--fs-small);
@@ -218,11 +234,6 @@
     .jf-kv__row {
       display: block;
       width: 100%;
-    }
-
-    /* The column widths mean nothing once rows stack (and would make an anonymous table box). */
-    .jf-kv__table > colgroup {
-      display: none;
     }
 
     .jf-kv__label,
