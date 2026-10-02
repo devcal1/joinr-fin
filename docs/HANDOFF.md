@@ -2,6 +2,11 @@
 
 _Last updated: after the 1.1.1 layout release (2026-09-29)._
 
+## Next: Stage 9 — Android app (planned 2026-10-02)
+The owner approved design D, "Console + cards" (D137), the paired read-only phone key (D138) and the app lock (D139). The scope, acceptance and demo are in `PLAN.md` → Stage 9. The remaining kickoff questions (app technology, repo location, managed funds, crypto day, FX, refresh cadence, APK updates) are in `docs/private/OPEN_QUESTIONS.md` → Stage 9, each with a proposed answer. The private design canvas link is there too.
+
+**Next step:** `/clear`, then "Start Stage 9".
+
 ## Where we are
 **1.1.1 (a layout release, D136) is live on the Umbrel** (the owner clicked Update; health says 1.1.1, no migration). It tunes every page for the owner's desktop browser: about 1707 × 900 CSS px of viewport (a 2560 × 1600 screen at 150%).
 - Tables and key–value tables fit their content instead of stretching to the card. Headers wrap at spaces only when a table would overflow. The account groups share a capped 60rem grid.
