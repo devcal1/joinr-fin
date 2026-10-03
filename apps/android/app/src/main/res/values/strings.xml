@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Joinr Finance</string>
+    <string name="widget_today_description">Today\'s change across your holdings, led by the biggest moves.</string>
+    <string name="widget_holding_description">One holding\'s day change and line.</string>
+    <string name="widget_best_worst_description">The best and the worst holding today.</string>
+    <string name="widget_today_label">Today</string>
+    <string name="widget_holding_label">Holding</string>
+    <string name="widget_best_worst_label">Best / worst</string>
+
+    <!-- Widget picker previews: made-up generic data only (the fixtures' symbols and figures). -->
+    <string name="preview_today_label" translatable="false">TODAY · EXCL. CASH</string>
+    <string name="preview_today_value" translatable="false">$120,630</string>
+    <string name="preview_today_figure" translatable="false">(+$1,943) ▲1.82%</string>
+    <string name="preview_today_cards" translatable="false">BTC ▲2.50% SILVER ▼1.02% XYZ ▼2.00%</string>
+    <string name="preview_holding_code" translatable="false">ABC</string>
+    <string name="preview_holding_change" translatable="false">▲ 1.00% · +$53</string>
+    <string name="preview_best_worst_label" translatable="false">BEST / WORST</string>
+    <string name="preview_best" translatable="false">BTC ▲2.50%</string>
+    <string name="preview_worst" translatable="false">XYZ ▼2.00%</string>
+    <string name="preview_age" translatable="false">15:15 · updated Thu 15:20</string>
+</resources>

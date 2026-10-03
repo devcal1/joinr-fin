@@ -111,18 +111,21 @@ describe('smoke', () => {
     });
   });
 
-  it('start defaults the image to the package version in the loopback registry', async () => {
-    const h = fakeHost();
-    await smoke(['start'], h.deps());
-    expect(remoteCommand(h.callsFor('smoke-run')[0])).toContain(
-      "'127.0.0.1:4930/joinr-finance:1.2.3'",
-    );
+  it('start without --image refuses (exit 2) before anything is spawned, dry run included', async () => {
+    for (const argv of [['start'], ['start', '--dry-run']]) {
+      const h = fakeHost();
+      await expect(smoke(argv, h.deps())).rejects.toMatchObject({
+        exitCode: 2,
+        message: expect.stringContaining('--image'),
+      });
+      expect(h.calls).toEqual([]);
+    }
   });
 
   it('check: every probe passes on a good container', async () => {
     const h = fakeHost({
       'smoke-health': {
-        stdout: JSON.stringify({ status: 'ok', version: '1.0.0-rc.1', db: { migrations: 6 } }),
+        stdout: JSON.stringify({ status: 'ok', version: '1.0.0-rc.1', db: { migrations: 7 } }),
       },
       'smoke-tz': { stdout: '{"zone":"Australia/Melbourne","offset":-600}\n' },
       'smoke-egress': { stdout: '404\n' },
@@ -137,7 +140,7 @@ describe('smoke', () => {
       'smoke-origin': { stdout: '403' },
     });
     expect(await smoke(['check'], h.deps())).toBe(0);
-    expect(h.out.at(-1)).toBe('All 9 checks passed.');
+    expect(h.out.at(-1)).toBe('All 11 checks passed.');
     expect(remoteCommand(h.callsFor('smoke-download')[0])).toContain(
       '/api/backups/manual-20300315-143200%2B1100.db',
     );

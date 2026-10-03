@@ -6,6 +6,8 @@ import { z } from 'zod';
 import {
   BUDGET_ITEM_KINDS,
   CASH_ACCOUNT_KINDS,
+  DAY_GRANULARITIES,
+  DAY_QUOTE_SOURCES,
   FETCH_STATUSES,
   FX_RATE_SOURCES,
   IMPORT_TRIGGERS,
@@ -167,6 +169,9 @@ export const newMarketQuoteSchema = z.strictObject({
   lastStatus: z.enum(FETCH_STATUSES).optional(),
   lastError: nullable(z.string().max(200)),
   consecutiveFailures: z.number().int().min(0).optional(),
+  // Stage 9 (migration 0006, stage-9.md §3.2).
+  previousClose: nullable(DecimalStringSchema),
+  previousCloseDate: nullable(IsoDateSchema),
 });
 
 export const newTradeSchema = z.strictObject({
@@ -579,6 +584,32 @@ export const newMarketQuoteHistorySchema = z.strictObject({
   value: DecimalStringSchema,
   source: nonEmpty,
   fetchedAt: IsoTimestampSchema,
+});
+
+// ─── Stage 9 (migration 0006; stage-9.md §3.1, §3.1a) ───────────────────────────────────────────
+
+const dayQuoteShape = {
+  sessionDate: IsoDateSchema,
+  timeZone: nonEmpty,
+  granularity: z.enum(DAY_GRANULARITIES),
+  nativeCurrency: nonEmpty,
+  previousClose: nullable(DecimalStringSchema),
+  regularStart: nullable(IsoTimestampSchema),
+  regularEnd: nullable(IsoTimestampSchema),
+  /** JSON `[[unixSeconds,"price"],…]` (the writer checks the shape). */
+  points: text.optional(),
+  source: z.enum(DAY_QUOTE_SOURCES),
+  fetchedAt: IsoTimestampSchema,
+};
+
+export const newDayQuoteSchema = z.strictObject({
+  instrumentId: z.number().int().positive(),
+  ...dayQuoteShape,
+});
+
+export const newSeriesDayQuoteSchema = z.strictObject({
+  seriesId: nonEmpty,
+  ...dayQuoteShape,
 });
 
 export type NewInstrument = z.output<typeof newInstrumentSchema>;

@@ -26,6 +26,7 @@ import {
   propertyValuations,
   savingsAdjustments,
   savingsGoals,
+  seriesDayQuotes,
   settings,
   sideIncomeDeposits,
   snapshotAudit,
@@ -40,6 +41,7 @@ import {
 } from '../db/index';
 import type { ReconciliationReport } from '../dto/report';
 import { totalsOf } from '../dto/report';
+import { previousWeekdayStart } from '../dates';
 import { JoinrDecimal, normaliseDecimal } from '../decimal';
 import type { InstrumentKind } from '../enums';
 import { FIRE_REPLACED_ACCESS_AGE } from '../fire';
@@ -77,7 +79,9 @@ function isoDateLocal(d: Date): string {
 /**
  * Deletes every row the seed writes (everything except other app_meta keys), plus the Stage 3
  * overlays (savings adjustments and goals), the Stage 4 overlay (SG statements) and series
- * history, and the Stage 5 snapshot audit log, so a seeded database starts without them.
+ * history, the Stage 5 snapshot audit log and the Stage 9 day rows, so a seeded database starts
+ * without them. `day_quotes` goes with the instruments (ON DELETE CASCADE); `series_day_quotes`
+ * has no foreign key, so it is cleared here (a same-day reseed must not keep an old midnight base).
  */
 export function clearSeededTables(db: JoinrDb): void {
   db.transaction((tx) => {
@@ -89,6 +93,7 @@ export function clearSeededTables(db: JoinrDb): void {
     tx.delete(snapshotAudit).run();
     tx.delete(instruments).run(); // cascades price_sources, prices and dividend_events
     tx.delete(marketQuotes).run();
+    tx.delete(seriesDayQuotes).run();
     tx.delete(settings).run();
     tx.delete(importRuns).run();
     tx.delete(jobRuns).run();
@@ -155,6 +160,11 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
   const nowIso = iso(now);
   const minutesAgo = (m: number) => iso(new Date(now.getTime() - m * 60_000));
   const asOfTs = `${SEED_WORKBOOK_AS_OF}T00:00:00.000Z`;
+  // Fetched Yahoo-style prices and series are dated 00:00 local on the previous weekday: still
+  // fresh under the market rule (`asOf >= previousWeekdayStart(now)`), but older than any fake
+  // session or two-day bar, so the first fake refresh always replaces them (the never-backwards
+  // write would otherwise keep a seeded price unrelated to the fake's day bars, Stage 9).
+  const marketAsOf = iso(previousWeekdayStart(now));
 
   clearSeededTables(db);
 
@@ -239,10 +249,10 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
           nativePrice: '12.5',
           nativeCurrency: 'AUD',
           fxRate: '1',
-          asOf: minutesAgo(30),
-          fetchedAt: minutesAgo(29),
+          asOf: marketAsOf,
+          fetchedAt: marketAsOf,
           source: 'yahoo',
-          lastAttemptAt: minutesAgo(29),
+          lastAttemptAt: marketAsOf,
           lastStatus: 'ok',
           consecutiveFailures: 0,
         },
@@ -294,7 +304,7 @@ export function seedGenericData(db: JoinrDb, options: SeedOptions = {}): SeedRes
       seriesId,
       value,
       unit,
-      asOf: minutesAgo(30),
+      asOf: marketAsOf,
       fetchedAt: minutesAgo(29),
       source: src,
       lastAttemptAt: minutesAgo(29),

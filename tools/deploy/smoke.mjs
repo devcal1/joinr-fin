@@ -1,5 +1,5 @@
-// `pnpm umbrel:smoke start | check | nas | remove [--image <ref>] [--dry-run]` (stage-7.md §7.6,
-// §9 step S; stage-8.md §9.2).
+// `pnpm umbrel:smoke start | check | nas | mobile | remove [--image <ref>] [--dry-run]`
+// (stage-7.md §7.6, §9 step S; stage-8.md §9.2; stage-9.md §7.3).
 //
 // The coordinator's live smoke on the Umbrel, before any version is installed: runs an image on a
 // loopback-only port with a scratch data folder under the build root, checks it from the host,
@@ -11,6 +11,11 @@
 //           rsync) on a private Docker network, then copies, the proof, a second copy sending
 //           nothing, a foreign file, a wrong password and the refusal lock, a stopped NAS, a
 //           subfolder, and leak counts. Never contacts a real NAS.
+//   mobile  (Stage 9) the phone API: migrations 7, no key → 401, a made-up crypto holding seeded
+//           through the API and a restart, so the start-up intraday run fetches its day chart;
+//           then open → pair → today → POST → revoke → today as ONE host script (the code and
+//           the key live only in shell variables on the host; the key reaches curl on stdin),
+//           the traversal corpus with curl --path-as-is, the devices/ modes, and leak counts
 //   remove  both containers, the network and the smoke folder (the scratch NAS's included)
 //
 // Exit codes: 0 done / every check passed · 1 a check failed · 2 usage · 3 port or container in the way.
@@ -24,12 +29,10 @@ import {
   commonDryRunReply,
   containerState,
   createContext,
-  imageRef,
   isEntry,
   listeners,
   parseFlags,
   preflight,
-  readAppVersion,
   remote,
   remoteHome,
   remoteOk,
@@ -42,12 +45,22 @@ import {
 } from './lib.mjs';
 
 const USAGE =
-  'Usage: node tools/deploy/smoke.mjs (start | check | nas | remove) [--image <ref>] [--dry-run]';
+  'Usage: node tools/deploy/smoke.mjs (start --image <ref> | check | nas [--image <ref>] | mobile | remove) [--dry-run]';
 
 /** The name of the symlink planted by `check` (a valid backup name dated 2030). */
 export const SYMLINK_PROBE = 'nightly-20300101-023000+1100.db';
-/** The market-data hosts the server calls (reachable = any HTTP status). */
-export const EGRESS_URLS = ['https://query1.finance.yahoo.com/', 'https://api.coingecko.com/'];
+/**
+ * The market-data hosts the server calls (reachable = any HTTP status), and since Stage 9 the
+ * day charts' paths: Yahoo's one-day five-minute chart and CoinGecko's market_chart.
+ */
+export const EGRESS_URLS = [
+  'https://query1.finance.yahoo.com/',
+  'https://api.coingecko.com/',
+  'https://query1.finance.yahoo.com/v8/finance/chart/AUDUSD=X?range=1d&interval=5m',
+  'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=aud&days=1',
+];
+/** The database level of this release (`/api/health` `db.migrations`; Stage 9 adds 0006). */
+export const EXPECTED_MIGRATIONS = 7;
 
 function smokePaths(ctx, home) {
   const root = remotePath(home, ctx.config.remoteBuildRoot, SMOKE_DIR);
@@ -130,7 +143,7 @@ async function check(ctx, home) {
     ctx,
     results,
     '/api/health',
-    health?.status === 'ok' && health?.db?.migrations === 6,
+    health?.status === 'ok' && health?.db?.migrations === EXPECTED_MIGRATIONS,
     health
       ? `version ${String(health.version).slice(0, 30)}, migrations ${health.db?.migrations}`
       : 'no answer',
@@ -167,7 +180,9 @@ async function check(ctx, home) {
         `fetch(${JSON.stringify(url)}, { signal: AbortSignal.timeout(10000) }).then((r) => console.log(r.status), (e) => { console.log('error ' + (e.cause?.code ?? e.name)); process.exit(1); })`,
       )}`,
     );
-    report(ctx, results, `egress ${new URL(url).host}`, r.code === 0, r.stdout.trim().slice(0, 40));
+    const u = new URL(url);
+    const label = u.pathname === '/' ? u.host : `${u.host} ${u.pathname.split('/').at(-1)}`;
+    report(ctx, results, `egress ${label}`, r.code === 0, r.stdout.trim().slice(0, 40));
   }
 
   // 4. Back up now, then the list.
@@ -753,6 +768,447 @@ async function nas(ctx, home, explicitImage) {
   return failed === 0 ? 0 : 1;
 }
 
+// ─── mobile: the phone API on the rc container (stage-9.md §7.3) ──────────────────────────────
+
+/** The made-up holding the `mobile` probe seeds (a generic coin; never the owner's data). */
+export const SEED_INSTRUMENT = Object.freeze({
+  kind: 'crypto',
+  symbol: 'BTC',
+  name: 'Smoke test coin',
+  quoteCurrency: 'AUD',
+  watched: false,
+  targetRatio: null,
+  sector: null,
+  location: null,
+  mgmtFeeRatio: null,
+  regions: null,
+  dividendFreqMonths: null,
+  drp: null,
+  defaultFee: null,
+  note: null,
+});
+/** Its buy (made-up units and price), dated a week before the smoke runs. */
+export function seedTrade(instrumentId, tradeDate) {
+  return {
+    instrumentId,
+    side: 'buy',
+    tradeDate,
+    quantity: { mode: 'units', units: '0.01' },
+    price: '50000',
+    fee: { kind: 'flat', cents: 0 },
+  };
+}
+/** How long the probe waits for the start-up intraday run and its day row after the restart. */
+export const MOBILE_INTRADAY_WAIT_MS = 120_000;
+const MOBILE_POLL_MS = 5_000;
+/** Strings that must never reach the container's log (stage-9.md §11 step 18). */
+export const MOBILE_LEAK_NEEDLES = ['jfk_', 'Bearer ', 'X-Joinr-Key', 'pair?v='];
+/** A valid-looking backup name for the traversal corpus when none is listed. */
+const CORPUS_BACKUP_FALLBACK = 'manual-20300101-000000+1100.db';
+
+/** The §6.10 traversal corpus (raw paths, sent with `curl --path-as-is`). */
+export function traversalCorpus(backupName) {
+  return [
+    '/api/mobile/../backups',
+    '/api/mobile/%2e%2e/backups',
+    '/api/mobile/%2E%2E%2Fbackups',
+    '/api/mobile/..%2fbackups',
+    '/api/mobile/today/../../backups',
+    '/api/mobile//../backups',
+    '/api/mobile/./today',
+    '/api/mobile/;/../backups',
+    '/api/mobile/today%00',
+    '/api/mobile\\..\\backups',
+    '/api/mobile/../status',
+    '/api/mobile/../phone',
+    `/api/mobile/../backups/${encodeURIComponent(backupName)}`,
+  ];
+}
+export const CORPUS_METHODS = ['GET', 'HEAD', 'POST', 'DELETE'];
+/** The only answers the corpus may get: the mobile hook's 401, or a 404/405 (never 200, never the SPA). */
+const CORPUS_ALLOWED = new Set(['401', '404', '405']);
+
+/**
+ * The corpus as one host script (no secret in it): one line per request, `METHOD STATUS TYPE`
+ * followed by the path's index, so the PC can judge every answer.
+ */
+export function corpusScript(paths) {
+  const lines = ['exec 2>/dev/null'];
+  paths.forEach((p, i) => {
+    for (const m of CORPUS_METHODS) {
+      const how = m === 'HEAD' ? '--head' : `-X ${m}`;
+      lines.push(
+        `printf '%s %s ' ${m} ${i}; curl --path-as-is -s -o /dev/null ${how} -w '%{http_code} %{content_type}\\n' ${shq(`${base}${p}`)}`,
+      );
+    }
+  });
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The secret part as ONE host shell script (stage-9.md §7.3; the Stage 8 `pw=$(…)` pattern): the
+ * pairing code and the device key live only in shell variables on the host; the key reaches curl
+ * on stdin (`--config -`), never in argv; only status lines and shape checks are printed.
+ */
+export function mobileScript() {
+  return `exec 2>/dev/null
+set -u
+B=${shq(base)}
+split() { st=$(printf '%s' "$resp" | tail -n 1); body=$(printf '%s' "$resp" | sed '$d'); }
+errcode() { printf '%s' "$body" | sed -n 's/.*"code":"\\([A-Z_]*\\)".*/\\1/p' | head -n 1; }
+okword() { if [ -n "$1" ]; then echo ok; else echo missing; fi; }
+today() { resp=$(printf 'header = "Authorization: Bearer %s"\\n' "$key" | curl -s --config - -w '\\n%{http_code}' "$B/api/mobile/today"); split; }
+key=''
+id=''
+resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/phone/pairing"); split
+code=$(printf '%s' "$body" | sed -n 's/.*"code":"\\([0-9A-HJKMNP-TV-Z]\\{10\\}\\)".*/\\1/p' | head -n 1)
+echo "open $st code=$(okword "$code")"
+if [ -n "$code" ]; then
+  resp=$(printf '{"code":"%s","deviceName":"Smoke test","appVersion":"smoke"}' "$code" | curl -s -X POST -H 'content-type: application/json' --data-binary @- -w '\\n%{http_code}' "$B/api/mobile/pair"); split
+  key=$(printf '%s' "$body" | sed -n 's/.*"key":"\\(jfk_[A-Za-z0-9_-]\\{43\\}\\)".*/\\1/p' | head -n 1)
+  id=$(printf '%s' "$body" | sed -n 's/.*"deviceId":"\\(d_[0-9a-f]\\{16\\}\\)".*/\\1/p' | head -n 1)
+  echo "pair $st key=$(okword "$key") device=$(okword "$id")"
+fi
+code=''
+if [ -n "$key" ]; then
+  today
+  if [ "$st" = 200 ]; then
+    body=$(printf '%s' "$body" | tr -d ' \\t\\r\\n')
+    n=$(printf '%s' "$body" | grep -o '"dayStatus":"' | wc -l | tr -d ' ')
+    s=$(printf '%s' "$body" | grep -o '"session":{' | wc -l | tr -d ' ')
+    v=missing
+    if printf '%s' "$body" | grep -q '"apiVersion":1[,}]'; then v=1; fi
+    shape=ok
+    for f in '"serverVersion":"' '"generatedAt":"' '"timeZone":"' '"localDate":"' '"market":{' '"freshness":{' '"totals":{' '"portfolioLine":' '"holdings":['; do
+      if ! printf '%s' "$body" | grep -qF "$f"; then shape=missing; fi
+    done
+    echo "today $st apiVersion=$v holdings=$n sessions=$s shape=$shape"
+  else
+    echo "today $st $(errcode)"
+  fi
+fi
+resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/mobile/today"); split
+echo "post $st $(errcode)"
+if [ -n "$id" ]; then
+  resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/phone/devices/$id/revoke"); split
+  echo "revoke $st"
+  if [ -n "$key" ]; then today; echo "revoked-today $st $(errcode)"; fi
+else
+  curl -s -o /dev/null -X DELETE "$B/api/phone/pairing"
+  echo "revoke skipped"
+fi
+key=''
+id=''
+`;
+}
+
+/** The script as `--dry-run` prints it: every variable expansion shown as <redacted>. */
+export function redactScript(script) {
+  // sed's own `'$d'` (delete the last line) is not a shell expansion.
+  return script.replace(
+    /"\$[A-Za-z_][A-Za-z0-9_]*"|\$\{[A-Za-z_][A-Za-z0-9_]*\}|(?<!')\$[A-Za-z_][A-Za-z0-9_]*/g,
+    '<redacted>',
+  );
+}
+
+/** Parses the host script's status lines into `{ word: [fields…] }`. */
+export function parseScriptLines(stdout) {
+  const out = {};
+  for (const line of stdout.split('\n')) {
+    const parts = line.trim().split(/\s+/);
+    if (parts[0]) out[parts[0]] = parts.slice(1);
+  }
+  return out;
+}
+
+/** `key=value` fields of one status line. */
+const fieldsOf = (parts = []) =>
+  Object.fromEntries(parts.filter((p) => p.includes('=')).map((p) => p.split('=', 2)));
+
+/** A curl call on the host sending a JSON body on stdin (fixed, public text). */
+async function apiSend(ctx, purpose, method, path, body) {
+  const r = await remote(
+    ctx,
+    purpose,
+    `curl -s -w '\\n%{http_code}' -X ${method} -H 'content-type: application/json' --data-binary @- ${shq(`${base}${path}`)}`,
+    { input: JSON.stringify(body), publicInput: true },
+  );
+  const text = r.stdout.replace(/\n$/, '');
+  const at = text.lastIndexOf('\n');
+  const status = Number(at < 0 ? text : text.slice(at + 1));
+  let parsed;
+  try {
+    parsed = JSON.parse(at < 0 ? '' : text.slice(0, at));
+  } catch {
+    parsed = undefined;
+  }
+  return { status: Number.isInteger(status) ? status : 0, body: parsed };
+}
+
+/** The date `days` before `now` in the server's zone (YYYY-MM-DD). */
+export function zoneDate(now, days = 0, timeZone = DEFAULT_TZ) {
+  const d = new Date(now.getTime() - days * 86_400_000);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/** Counts read from the container's database (read-only; node:sqlite in the image's Node). */
+const DB_COUNTS_JS = [
+  "const { DatabaseSync } = require('node:sqlite');",
+  "const db = new DatabaseSync('/data/finance.db', { readOnly: true });",
+  'const n = (s) => db.prepare(s).get().n;',
+  'console.log(JSON.stringify({',
+  '  intraday: n("SELECT count(*) AS n FROM job_runs WHERE job = \'intraday\'"),',
+  '  dayRows: n("SELECT count(*) AS n FROM day_quotes d JOIN instruments i ON i.id = d.instrument_id WHERE i.symbol = \'BTC\'"),',
+  '}));',
+].join(' ');
+
+async function mobile(ctx, home) {
+  const paths = smokePaths(ctx, home);
+  const results = [];
+  const judge = (ok) => ctx.dryRun || ok;
+
+  // 0. The smoke app must be running (`smoke start`).
+  const appState = await containerState(ctx, SMOKE_CONTAINER);
+  if (appState !== 'running' && !ctx.dryRun) {
+    throw new DeployError(
+      `${SMOKE_CONTAINER} is not running (${appState}): run \`smoke start\` first`,
+      1,
+    );
+  }
+
+  // 1. The database level (0006 applied).
+  const h = await api(ctx, 'smoke-mobile-health', 'GET', '/api/health');
+  report(
+    ctx,
+    results,
+    `/api/health migrations ${EXPECTED_MIGRATIONS}`,
+    judge(h.body?.status === 'ok' && h.body?.db?.migrations === EXPECTED_MIGRATIONS),
+    `migrations ${String(h.body?.db?.migrations)}`,
+  );
+
+  // 2. No key → 401 DEVICE_KEY_MISSING.
+  const nokey = await api(ctx, 'smoke-mobile-nokey', 'GET', '/api/mobile/today');
+  report(
+    ctx,
+    results,
+    'GET /api/mobile/today without a key → 401 DEVICE_KEY_MISSING',
+    judge(nokey.status === 401 && nokey.body?.error?.code === 'DEVICE_KEY_MISSING'),
+    `HTTP ${nokey.status} ${String(nokey.body?.error?.code ?? '')}`,
+  );
+
+  // 3. Seed a made-up crypto holding (once; a re-run finds it there), resolve its coin id with a
+  //    price refresh, then restart: the start-up intraday run (30 s after start) fetches its day.
+  const inst = await apiSend(ctx, 'smoke-mobile-seed', 'POST', '/api/instruments', SEED_INSTRUMENT);
+  let seeded = inst.status === 409;
+  if (inst.status === 201 && Number.isInteger(inst.body?.id)) {
+    const trade = await apiSend(
+      ctx,
+      'smoke-mobile-seed-trade',
+      'POST',
+      '/api/trades',
+      seedTrade(inst.body.id, zoneDate(ctx.now(), 7)),
+    );
+    seeded = trade.status === 201;
+  }
+  report(
+    ctx,
+    results,
+    'a made-up crypto holding seeded',
+    judge(seeded),
+    inst.status === 409 ? 'already there' : `HTTP ${inst.status}`,
+  );
+  const refresh = await apiSend(ctx, 'smoke-mobile-refresh', 'POST', '/api/prices/refresh', {});
+  report(
+    ctx,
+    results,
+    'POST /api/prices/refresh',
+    judge(refresh.status === 200),
+    `HTTP ${refresh.status}`,
+  );
+  await remoteOk(
+    ctx,
+    'smoke-mobile-restart',
+    `docker restart ${SMOKE_CONTAINER}`,
+    `Could not restart ${SMOKE_CONTAINER}`,
+  );
+  const healthy = await waitHealthy(ctx, SMOKE_CONTAINER);
+  report(ctx, results, 'healthy after the restart', judge(healthy), healthy ? '' : 'not healthy');
+
+  // 4. The start-up intraday run and the seeded holding's day row (the database, read-only).
+  let counts;
+  const deadline = ctx.now().getTime() + MOBILE_INTRADAY_WAIT_MS;
+  for (;;) {
+    const r = await remote(
+      ctx,
+      'smoke-mobile-db',
+      `docker exec ${SMOKE_CONTAINER} node -e ${shq(DB_COUNTS_JS)}`,
+    );
+    try {
+      counts = JSON.parse(r.stdout);
+    } catch {
+      counts = undefined;
+    }
+    if (ctx.dryRun || (counts?.intraday > 0 && counts?.dayRows > 0)) break;
+    if (ctx.now().getTime() >= deadline) break;
+    await ctx.sleep(MOBILE_POLL_MS);
+  }
+  report(
+    ctx,
+    results,
+    'an intraday run in job_runs (the start-up run)',
+    judge(counts?.intraday > 0),
+    `${String(counts?.intraday ?? '?')} run(s)`,
+  );
+  report(
+    ctx,
+    results,
+    'a day row for the seeded holding',
+    judge(counts?.dayRows > 0),
+    `${String(counts?.dayRows ?? '?')} row(s)`,
+  );
+
+  // 5. open → pair → today → POST → revoke → today: one host script, secrets in host variables.
+  const script = mobileScript();
+  if (ctx.dryRun) {
+    ctx.out(
+      '[dry-run] the host script for open → pair → today → POST → revoke (secrets redacted):',
+    );
+    for (const line of redactScript(script).replace(/\n$/, '').split('\n')) ctx.out(`  ${line}`);
+  }
+  const s = await remote(ctx, 'smoke-mobile-script', 'sh -s', { input: script });
+  const lines = parseScriptLines(s.stdout);
+  const open = lines.open ?? [];
+  report(
+    ctx,
+    results,
+    'POST /api/phone/pairing → 201 with a code',
+    judge(open[0] === '201' && fieldsOf(open).code === 'ok'),
+    open.join(' ') || 'no answer',
+  );
+  const pair = lines.pair ?? [];
+  const pf = fieldsOf(pair);
+  report(
+    ctx,
+    results,
+    'POST /api/mobile/pair (no Origin) → 201 with a key',
+    judge(pair[0] === '201' && pf.key === 'ok' && pf.device === 'ok'),
+    pair.join(' ') || 'no answer',
+  );
+  const today = lines.today ?? [];
+  const tf = fieldsOf(today);
+  report(
+    ctx,
+    results,
+    'GET /api/mobile/today with the key → 200 and the shape',
+    judge(
+      today[0] === '200' &&
+        tf.apiVersion === '1' &&
+        tf.shape === 'ok' &&
+        Number(tf.holdings) > 0 &&
+        Number(tf.sessions) > 0,
+    ),
+    today.join(' ') || 'no answer',
+  );
+  const post = lines.post ?? [];
+  report(
+    ctx,
+    results,
+    'POST /api/mobile/today → 405 MOBILE_READ_ONLY',
+    judge(post[0] === '405' && post[1] === 'MOBILE_READ_ONLY'),
+    post.join(' ') || 'no answer',
+  );
+  const revoke = lines.revoke ?? [];
+  report(ctx, results, 'revoke → 200', judge(revoke[0] === '200'), revoke.join(' ') || 'no answer');
+  const after = lines['revoked-today'] ?? [];
+  report(
+    ctx,
+    results,
+    'the revoked key → 401 DEVICE_KEY_REVOKED',
+    judge(after[0] === '401' && after[1] === 'DEVICE_KEY_REVOKED'),
+    after.join(' ') || 'no answer',
+  );
+
+  // 6. The traversal corpus, raw (curl --path-as-is), every path with GET, HEAD, POST and DELETE.
+  const list = await api(ctx, 'smoke-mobile-backups', 'GET', '/api/backups');
+  const listed = list.body?.backups?.[0]?.name;
+  const backupName =
+    typeof listed === 'string' && BACKUP_FILE_NAME_RE.test(listed)
+      ? listed
+      : CORPUS_BACKUP_FALLBACK;
+  const corpus = traversalCorpus(backupName);
+  const c = await remote(ctx, 'smoke-mobile-corpus', 'sh -s', {
+    input: corpusScript(corpus),
+    publicInput: true,
+  });
+  const answers = c.stdout
+    .split('\n')
+    .map((l) => l.trim().split(/\s+/))
+    .filter((p) => p.length >= 3 && CORPUS_METHODS.includes(p[0]));
+  const bad = answers.filter(
+    ([, , status, type = '']) => !CORPUS_ALLOWED.has(status) || type.startsWith('text/html'),
+  );
+  const expected = corpus.length * CORPUS_METHODS.length;
+  report(
+    ctx,
+    results,
+    `the traversal corpus (${expected} raw requests) → 401/404/405 only`,
+    judge(answers.length === expected && bad.length === 0),
+    bad.length > 0
+      ? bad
+          .slice(0, 4)
+          .map(([m, i, st, ty]) => `${m} ${corpus[Number(i)] ?? '?'} → ${st} ${ty ?? ''}`)
+          .join('; ')
+      : `${answers.length} answers`,
+  );
+
+  // 7. The device store's folder and file modes (0700, 0600, uid 1000), read on the host.
+  const st = await remote(
+    ctx,
+    'smoke-mobile-modes',
+    `stat -c '%a %u' ${shq(`${paths.data}/devices`)} ${shq(`${paths.data}/devices/devices.json`)}`,
+  );
+  const [dirMode, fileMode] = st.stdout.trim().split('\n');
+  report(
+    ctx,
+    results,
+    'devices/ 0700 and devices.json 0600, uid 1000',
+    judge(dirMode === '700 1000' && fileMode === '600 1000'),
+    `${dirMode ?? '?'} / ${fileMode ?? '?'}`,
+  );
+
+  // 8. Leaks: counts only come back.
+  for (const needle of MOBILE_LEAK_NEEDLES) {
+    const r = await remote(
+      ctx,
+      'smoke-mobile-leak',
+      `docker logs ${SMOKE_CONTAINER} 2>&1 | grep -c -F -- ${shq(needle)} || true`,
+    );
+    const n = r.stdout.trim();
+    report(
+      ctx,
+      results,
+      `no ${JSON.stringify(needle)} in the logs`,
+      judge(n === '0'),
+      `count ${n || '?'}`,
+    );
+  }
+
+  const failed = results.filter((r) => !r.ok).length;
+  ctx.out(
+    ctx.dryRun
+      ? '(dry run: nothing was run, so no probe was judged)'
+      : failed === 0
+        ? `All ${results.length} mobile probes passed.`
+        : `${failed} of ${results.length} mobile probes failed.`,
+  );
+  return failed === 0 ? 0 : 1;
+}
+
 async function removeSmoke(ctx, home) {
   const paths = smokePaths(ctx, home);
   for (const name of [SMOKE_NAS_CONTAINER, SMOKE_CONTAINER]) {
@@ -801,19 +1257,22 @@ export async function main(argv, deps = {}) {
     return 0;
   }
   const command = positional[0];
-  if (positional.length !== 1 || !['start', 'check', 'nas', 'remove'].includes(command))
+  if (positional.length !== 1 || !['start', 'check', 'nas', 'mobile', 'remove'].includes(command))
     throw new DeployError(USAGE, 2);
+  // start never guesses its image: the runbook always names the rc tag, and a bare
+  // `smoke start` must fail before anything is spawned (no binaries, no preflight, no ssh).
+  if (command === 'start' && flags.image === undefined)
+    throw new DeployError('smoke start needs --image <ref>', 2);
   const ctx = createContext(deps, { dryRun: flags['dry-run'] === true, dryRunReply });
   const explicit =
     flags.image !== undefined ? validate('imageRef', flags.image, '--image') : undefined;
-  const image =
-    explicit ?? imageRef(ctx.config, (deps.readVersion ?? readAppVersion)(ctx.repoRoot));
   resolveBinaries(ctx, { needGit: false });
   await preflight(ctx);
   const home = await remoteHome(ctx);
-  if (command === 'start') return start(ctx, home, image);
+  if (command === 'start') return start(ctx, home, explicit);
   if (command === 'check') return check(ctx, home);
   if (command === 'nas') return nas(ctx, home, explicit);
+  if (command === 'mobile') return mobile(ctx, home);
   return removeSmoke(ctx, home);
 }
 

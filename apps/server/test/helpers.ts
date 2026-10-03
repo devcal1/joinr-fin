@@ -40,6 +40,7 @@ export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Co
     nightlyBackups: false,
     publicPort: null,
     weeklyNasCopy: false,
+    intradayRefresh: false,
     ...overrides,
   };
 }

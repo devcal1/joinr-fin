@@ -47,6 +47,7 @@ describe('loadConfig', () => {
       nightlyBackups: true,
       publicPort: null,
       weeklyNasCopy: true,
+      intradayRefresh: true,
     });
   });
 
@@ -68,6 +69,7 @@ describe('loadConfig', () => {
         NIGHTLY_BACKUPS: 'no',
         PUBLIC_PORT: '4932',
         WEEKLY_NAS_COPY: '0',
+        INTRADAY_REFRESH: 'no',
       },
       base,
     );
@@ -89,6 +91,7 @@ describe('loadConfig', () => {
       nightlyBackups: false,
       publicPort: 4932,
       weeklyNasCopy: false,
+      intradayRefresh: false,
     });
   });
 
@@ -191,6 +194,30 @@ describe('loadConfig', () => {
     expect(loadConfig({ NODE_ENV: 'production' }, base).weeklyNasCopy).toBe(true);
     expect(configError({ WEEKLY_NAS_COPY: 'weekly' }).issues[0]).toMatch(
       /^WEEKLY_NAS_COPY: must be one of true, 1, yes, false, 0, no/,
+    );
+  });
+
+  // Stage 9 (stage-9.md §5.7): the intraday job's switch (the live kill switch).
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['yes', true],
+    ['false', false],
+    ['0', false],
+    ['no', false],
+    ['', true],
+  ])('reads INTRADAY_REFRESH=%j (default on)', (value, expected) => {
+    expect(loadConfig({ INTRADAY_REFRESH: value }, base).intradayRefresh).toBe(expected);
+  });
+
+  it('turns the intraday job off under NODE_ENV=test unless set', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }, base).intradayRefresh).toBe(false);
+    expect(loadConfig({ NODE_ENV: 'test', INTRADAY_REFRESH: '1' }, base).intradayRefresh).toBe(
+      true,
+    );
+    expect(loadConfig({ NODE_ENV: 'production' }, base).intradayRefresh).toBe(true);
+    expect(configError({ INTRADAY_REFRESH: 'often' }).issues[0]).toMatch(
+      /^INTRADAY_REFRESH: must be one of true, 1, yes, false, 0, no/,
     );
   });
 

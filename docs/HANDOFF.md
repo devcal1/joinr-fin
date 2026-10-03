@@ -1,35 +1,34 @@
 # Handoff
 
-_Last updated: after the 1.1.1 layout release (2026-09-29)._
+_Last updated: at the Stage 9 close (2026-10-03)._
 
-## Next: Stage 9 — Android app (planned 2026-10-02)
-The owner approved design D, "Console + cards" (D137), the paired read-only phone key (D138) and the app lock (D139). The scope, acceptance and demo are in `PLAN.md` → Stage 9. The remaining kickoff questions (app technology, repo location, managed funds, crypto day, FX, refresh cadence, APK updates) are in `docs/private/OPEN_QUESTIONS.md` → Stage 9, each with a proposed answer. The private design canvas link is there too.
+## Next: Stage 10 — Phone app: period selector
+A selector at the top of the app's Today screen: **1D · 1W · 2W · 1M · 3M · 6M · 12M · ALL** (D156, D158). The server must fetch and cache daily closes (a 1.3.0 release); widgets stay daily. Scope in `PLAN.md` → Stage 10; proposed kickoff answers in `docs/private/OPEN_QUESTIONS.md` → Stage 10.
 
-**Next step:** `/clear`, then "Start Stage 9".
+**Next step:** `/clear`, then "Start Stage 10".
 
 ## Where we are
-**1.1.1 (a layout release, D136) is live on the Umbrel** (the owner clicked Update; health says 1.1.1, no migration). It tunes every page for the owner's desktop browser: about 1707 × 900 CSS px of viewport (a 2560 × 1600 screen at 150%).
-- Tables and key–value tables fit their content instead of stretching to the card. Headers wrap at spaces only when a table would overflow. The account groups share a capped 60rem grid.
-- Charts without an explicit height are a quarter of their width (260–340 px), with 12 px axis and legend text.
-- From 1600 px, paired row actions and a trade's Result sit on one line. Investment-table fund names keep to one line, with the full name on hover. The holdings (More columns on) and FIRE year-by-year tables use 6 px cell sides from 1200 px.
-- At 1707 px no live page overflows sideways. Other Assets and Prices keep two-line rows on purpose (badges and ticker over name).
-- Commits: `joinr-fin` `1ef78fe` and the store `be761c9`, both pushed. The release record is in `docs/private/stage-8-private.md` §11.
-- **Layout checks without a visible browser:** the Browser pane and a background Chrome window often render stale frames or stall data loading. Headless Playwright with `channel: 'chrome'` at 1707 × 898 against the dev server is reliable. Scratch scripts, git-ignored: `artifacts/shots.mjs` (viewport-high tiles; `MORE=1` turns More columns on), `artifacts/audit.mjs` (table width, overflow and row height on every route) and `artifacts/cols.mjs <route> <caption>` (per-column widths).
+**Stage 9 (the Android app) is done (D159).** Joinr Finance **1.2.0** is live on the Umbrel and the owner's phone runs the signed **APK 1.0.2**, paired by QR.
+- Plan, review logs and close notes: `docs/stages/stage-9.md`. Decisions D137–D159. Private: `docs/private/stage-9-private.md` (the pairing address, the phone, the keystore's place, the smoke, release, probe and APK records).
+- **Server 1.2.0:** migration 0006 (`day_quotes`, `series_day_quotes`, two `market_quotes` columns); every Yahoo price is a 1-day, 5-minute chart; an `intraday` job (ASX every 5 minutes in trading hours; crypto and bullion every 15 minutes); `GET /api/mobile/today`, `GET /api/mobile/device` and `POST /api/mobile/pair` behind a paired device key (hashes in `DATA_DIR/devices/devices.json`, not the database); Settings → Phone (QR pairing, list, remove).
+- **Store:** `a0ea681` (pushed): `PROXY_AUTH_WHITELIST: "/api/mobile/*"` (D154), `backupIgnore` for `data/devices`, the 1.2.0 notes, and a Joinr Backup description line that no longer names a private repository.
+- **The phone:** APK 1.0.0 → 1.0.1 (D155: the widget total line; VAL · INVESTED · GAIN) → 1.0.2 (D157: the widget tiles are the biggest day moves). Installed over wireless debugging with `adb install -r --user 0` (the phone has a second Android user).
+- **Live checks passed:** the rc smoke (11 + 19 probes), the proxy probes without a session, the log leak counts (all 0), and the demo.
 
-**Stage 8 (weekly backup copy to the NAS) is done (D135).** Joinr Finance **1.1.0** ran on the owner's Umbrel with the owner's data, and copies every kept backup to the owner's NAS every Sunday at 03:00 Melbourne time. **The Umbrel is the source of truth (D125)**; the workbook is retired and the local `data/` is the pre-cutover archive.
+## What exists (new in Stage 9)
+| Path | What it is |
+|---|---|
+| `packages/engine/src/dayChange.ts` | `computeDayChange`, `portfolioLine`, `downsample`: the day rules (lots held before the session count from the previous close, lots bought within it from their cost; FX included; crypto and bullion from 00:00 Melbourne; funds' latest NAV move). Worked examples M1–M26. |
+| `packages/schema/src/{mobile.ts,dto/mobile.ts,dto/phone.ts,fixtures/mobile.ts,fixtures/phone.ts}` | Constants, the pairing URL, DTOs, error codes, fixtures; `scripts/exportMobileFixtures.ts` writes the Android JSON copies (drift-tested). |
+| `apps/server/src/market/{day.ts,dayWrites.ts,intraday/**}` | Yahoo and CoinGecko day data, the newer-session merge, the intraday job (`INTRADAY_REFRESH` is the kill switch). |
+| `apps/server/src/mobile/**`, `routes/{mobile,phone}.ts` | The device store, pairing (10-character codes, 5 minutes, 5 tries), the key check, the read-only catch-all (405), the today builder, bullion. |
+| `apps/web/src/pages/settings/PhoneSection.tsx` (+ `PairingQr`, `qrModel`, `phoneDisplay`) | Settings → Phone. |
+| `apps/android/**` | Kotlin, Compose and Glance (application id `com.tenon.joinrfinance`): Today (CARDS / LIST / MOVERS, sort, VAL · INVESTED · GAIN), detail, pairing (scan, deep link, by hand), the app lock, settings, three widgets and the 30-minute worker. Arimo bundled (OFL). |
+| `tools/deploy/android.mjs` | `pnpm android:{test,lint,debug,release,fixtures,stop}`. A release needs `JOINR_ANDROID_SIGNING` (the owner's `signing.properties`, outside the repo) and prints the APK's and the certificate's SHA-256. |
+| `tools/deploy/smoke.mjs mobile` | 19 live probes against the rc container. |
+| `e2e/phone.spec.ts`, `e2e/phone-states.spec.ts` | The pairing flow on the real API; every Settings → Phone state. |
 
-- Stage 8: `docs/stages/stage-8.md` (see "Stage close notes"; the D132 banner at its top voids every heartbeat item). Decisions D126–D135. Private: `docs/private/stage-8-private.md` (smoke, release and demo records) and `docs/private/ENVIRONMENT.md` (the NAS target).
-- Stage 7 (deployment and cutover) is below; its record is `docs/stages/stage-7.md`.
-
-- The plan, its live outcome and the review log are in `docs/stages/stage-7.md` (see "Stage close notes").
-- Decisions:
-  - Kickoff: D111–D117.
-  - Plan review: D118–D122.
-  - Cutover and demo: D123–D125.
-- Owner-specific facts are in `docs/private/stage-7-private.md` (smoke results, cutover figures, release record) and `docs/private/ENVIRONMENT.md` (the Umbrel, the NAS, SSH, stores, ports).
-- The operator's runbook is **`docs/deploy/RUNBOOK.md`**: release, install, backups, restore, rollback, troubleshooting and the go-live checklist.
-
-## What exists (new in Stage 8)
+## What exists (Stage 8)
 | Path | What it is |
 |---|---|
 | `apps/server/src/nascopy/**` | The weekly copy to an rsync-daemon module (D126): the `nas-url` check, the listing parser, the plan (missing names, newest first, one invocation), the runner (`shell: false`, the password only in `RSYNC_PASSWORD`, a kill grace), the copy (list, send, list again, sizes), the schedule (Sunday 03:00, a catch-up, retries at +1/+2/+4 h), the refusal lock, the status. It never throws and never fails a backup; add-only flags are pinned by a test. |
@@ -40,7 +39,7 @@ The owner approved design D, "Console + cards" (D137), the paired read-only phon
 | `Dockerfile` | rsync installed in the runtime image. |
 | `../tenon-umbrel-store` | `tenon-joinr-finance` 1.1.0 (`backupIgnore` for `data/secrets`). Pushed: `6459388`. |
 
-## What exists (new in Stage 7)
+## What exists (Stage 7)
 | Path | What it is |
 |---|---|
 | `apps/server/src/backups/**`, `routes/backups.ts` | Verified backups (`VACUUM INTO` + `integrity_check`). Nightly at 02:30 server time (D115) keeps 14 daily plus 12 monthly copies. Other kinds: manual, pre-import (10), pre-restore, and pre-update (5, taken before a migrating start-up). There is a start-up catch-up, and the API offers list, "back up now" and download. |
@@ -53,6 +52,7 @@ The owner approved design D, "Console + cards" (D137), the paired read-only phon
 | `../tenon-umbrel-store` (sibling repo, public) | `tenon-joinr-registry` (loopback registry app, port 4930) and `tenon-joinr-finance` (port 4932, private network). Pushed: `0ca7bc3`, `052b3db`. |
 
 ## How to run
+- **Android:** `pnpm android:test`, `android:lint`, `android:debug`, `android:release` (signing in Known issues). The emulator AVD and SDK paths are in the private notes §4.
 Everything from Stages 1–6 still applies (`pnpm dev`, `pnpm check`, `pnpm e2e`, `pnpm build`, `pnpm guard:all`, …). New:
 
 - **Release a new version:**
@@ -74,49 +74,26 @@ Everything from Stages 1–6 still applies (`pnpm dev`, `pnpm check`, `pnpm e2e`
 - `guard:all` is clean with 8036 terms, and so is the store-clone guard (only allowed findings).
 - No migration this stage (still 6).
 
-## Live state on the Umbrel (at the Stage 8 close)
-- **Apps:**
-  - Joinr Registry 2.8.3, loopback only (tags 1.0.0-rc.1, 1.0.0, 1.1.0-rc.1, 1.1.0).
-  - Joinr Finance 1.1.0 (`sha256:5f8bf817d6a7…`), healthy, behind the Umbrel login on port 4932.
-- **NAS copy:** set up and ready; the first copy put 7 files on the NAS, and the next scheduled copy is Sunday 04/10/2026 03:00 (the October DST day).
-- **Data and import:**
-  - The cutover import reconciled with **0 unexplained**.
-  - The D98 one-off ran once.
-  - August 2026 was recorded from the sheet.
-- **Auto-record** is on; the next run is **30/09/2026 23:00** Melbourne time (D84, D89).
-- **Backups:** the manual, pre-import, nightly and pre-restore copies from the demo. The first scheduled nightly with data runs at 02:30 on 29/09.
-- **Owner test data:** the owner's step-17 test trade (an app-added ETF buy of 100 units, dated the demo day) is still in the database. The owner deletes it if it was only a test.
-- **Leftovers:** the `1.0.0-rc.1` tag stays in the registry (harmless), and `~/joinr-build/` on the Umbrel holds the build contexts (the release script prunes old ones).
+## Live state on the Umbrel (at the Stage 9 close)
+- Joinr Finance **1.2.0** (`sha256:36f2bbb4…`), healthy, migrations 7; Joinr Registry 2.8.3 (tags up to 1.2.0 and 1.2.0-rc.1).
+- Backups: the nightly copies from 29/09 onward, the 1.2.0 pre-migrate copy (03/10 06:42), and earlier manual and pre-restore copies.
+- The owner's phone is paired; removed demo entries stay listed in Settings → Phone (newest 20).
 
 ## Known issues / carried forward
-- **E2E and a running dev server:** `playwright.config.ts` has `reuseExistingServer: true`. With `pnpm dev` running on `data/`, `pnpm e2e` would run against the real archive (the mutating projects write to it). **Stop the dev server first** so e2e starts its own on `artifacts/e2e/data`.
-- **An interrupted first start leaves a broken DB:** a `pnpm dev` killed during its first start left a 20 KB `artifacts/e2e/data/finance.db`. Every later start then failed with "The pre-update backup failed: The copy could not be written", and deleting the scratch file fixed it. This is worth a look: a half-created database should not block start-up. It is unrelated to 1.1.1.
-- **Check with the owner:** on the live data after 1.1.1, the two loan accounts are listed under Bank accounts, not "Loans you've made", so they count toward the emergency fund. This is how the accounts are configured, not the layout; the owner may not have meant it (details in `docs/private/stage-8-private.md` §11).
-- **Owner's test trade:** the demo-day app-added ETF buy is still in the database (see "Live state" below).
-- **Check next session:**
-  - After Sunday 04/10/2026 03:00, Settings → Backups shows a scheduled NAS copy that succeeded.
-  - Settings → Backups shows a `Nightly` row from 02:30 on 29/09, with the last run Succeeded (plan §9 step 20).
-  - After 30/09 23:00, History shows September recorded automatically.
-- **Deferred:**
-  - The JSON export (D121) and encryption at rest (D133: plain files accepted).
-  - **Access from a second PC and the phone** (D124): a dedicated Android app later.
-  - HTTPS (the app is plain HTTP behind the Umbrel login on the tailnet and LAN).
-- **Data to correct in the app** (the sheet fixes were skipped, D123):
-  - the mortgage payment and compounding (D76)
-  - the undated other assets (D73)
-  - the budget rows' stale account names (D65; the 3 "suspect" rows in the reconciliation)
-- **Uninstall deletes the database and every backup** (D113). Download a backup before any uninstall, and never change the store or app ids.
-- **`reference/`:** the cutover export is in `reference/cutover/` so that the goldens still find a single `.xlsx` in `reference/`. The goldens remain tied to the 2026-09-24 export.
+- **APK updates:** bump `versionCode` and `versionName` in `apps/android/app/build.gradle.kts`, then sign with `pnpm android:release` with `JOINR_ANDROID_SIGNING` set to the owner's `signing.properties` (its path is in the private notes §5). Every APK must show the same certificate digest (private §8). Install with `adb -s <phone> install -r --user 0 <apk>` after the owner turns on wireless debugging; the phone's port changes each time (`adb mdns services` finds it). **Never `gradlew installDebug`** while the phone is visible to adb.
+- **Agents and adb:** adb can see the owner's phone; agents use only `-s emulator-NNNN`.
+- **Stray folder:** a Git Bash path slip made `C:\c\Users\…\artifacts\stage9\verifier\prod\finance.db` (a generic seed only); the owner deletes `C:\c`.
+- **Unverified:** whether a live 2-day Yahoo answer on a Monday morning carries the Sunday-evening futures bars (private §6). Only the bullion line could miss a few hours of points.
+- **Accepted limits (Stage 9):** crypto may read `no_base` for up to 15 minutes after midnight; with `INTRADAY_REFRESH=false` crypto has no day figure; bullion is flat at weekends; a futures roll can show a false jump; the phone uses plain HTTP inside Tailscale.
+- **E2E and a running dev server:** stop `pnpm dev` before `pnpm e2e` (`reuseExistingServer: true`). A few read-only e2e tests can need one retry on a cold load when the PC is busy.
+- **An interrupted first start leaves a broken DB** (from Stage 8): delete the scratch `finance.db` and start again.
+- **Check with the owner:** the two loan accounts listed under Bank accounts (they count toward the emergency fund); the Stage 7 demo-day test ETF buy.
+- **Check next session:** the first scheduled NAS copy (Sunday 04/10/2026 03:00) in Settings → Backups; September's auto-record in History.
+- **Deferred:** the JSON export (D121); encryption at rest (D133); HTTPS; an in-app APK updater (D145).
+- **Data to correct in the app:** the mortgage payment and compounding (D76), undated other assets (D73), the budget rows' stale account names (D65).
+- **Uninstall deletes the database and every backup** (D113). Download a backup before any uninstall; never change the store or app ids.
 - **Still open from earlier stages:** Yahoo is unofficial, and CoinGecko ids are resolved by search; TypeScript stays pinned to ~6.0; never run `pnpm deploy` in the dev checkout.
-- **Density rule (D109)** and **privacy:** as before. Stages 7–8 added guard terms for the Umbrel home path, the SSH key name, this PC's user paths, the NAS rsync accounts, the NAS model and vendor, and the private repo name.
-- **Node outside this app:** Node was installed from inside the Claude desktop app, which is a packaged (MSIX) app, so it lives in that app's redirected `LocalCache` folder and is invisible to ordinary terminals (RUNBOOK, "Placing the files").
-
-## Next step
-No Stage 9 is defined yet. Candidates, for the owner to choose and scope:
-1. **The Android app** (D124).
-2. **Post-cutover data fixes** in the app (D76, D73, D65).
-
-Start by checking the first nightly, the September auto-record and the first scheduled NAS copy (above).
+- **Privacy:** Stage 9 added guard terms for the tailnet name, the AVD, the keystore folder and the phone model.
 
 ## Environment facts (generic)
 - **Tooling:** Windows 11 with PowerShell and Git Bash, Node v24.20.0, pnpm 11.23. No local Docker, `gh` or Python. `ssh umbrel` works with key auth, and the deploy scripts resolve Windows OpenSSH or Git's ssh.

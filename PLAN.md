@@ -28,7 +28,8 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 6 | FIRE planner & polish | ✅ done 2026-09-27 |
 | 7 | Umbrel deployment & cutover | ✅ done 2026-09-27/28 |
 | 8 | Weekly backup copy to the NAS | ✅ done 2026-09-27/28 |
-| 9 | Android app: holdings at a glance | 📝 planned (design D137, login D138) |
+| 9 | Android app: holdings at a glance | ✅ done 2026-10-03 (server 1.2.0, APK 1.0.2) |
+| 10 | Phone app: period selector | 📝 next (D156, D158) |
 
 Every stage ends with a **demo**, a **handoff update**, a **local commit** (with the owner's OK) and a **`/clear`**. Pushes happen only when the owner asks (D10). See `docs/STAGE_PROCESS.md`.
 
@@ -255,15 +256,15 @@ Each stage lists its scope, acceptance criteria and demo. The stage Planner agen
 A read-only Android app that shows today's change in the owner's holdings (cash excluded) at a glance, plus home-screen widgets. It talks to the Umbrel over Tailscale. The approved design is **D: Console + cards** (D137); the mock-ups use made-up holdings and live on a private canvas (link in `docs/private/`).
 
 **Scope — server** (a 1.2.0 release through the Stage 7 path)
-- **Day change per holding:** store each instrument's previous close (Yahoo `regularMarketPreviousClose`; CoinGecko's 24-hour change for crypto), with a migration. Day $ = units × (price − previous close) in AUD, in integer cents.
-- **Intraday series:** today's 5-minute prices per listed holding (Yahoo chart data) and the last 24 hours for crypto, fetched by the server and cached for the day. The portfolio's intraday line is built from them.
+- **Day change per holding:** store each instrument's previous close (the Yahoo chart's `chartPreviousClose`) and its day series, with a migration (0006). Crypto and bullion are measured from 00:00 Melbourne time (D142, D153), not over a rolling 24 hours. Bullion is included as its own class (D148); managed funds use their latest NAV move (D141, D150). Day $ = units × (price − previous close) in AUD, in integer cents.
+- **Intraday series:** today's 5-minute prices per listed holding (Yahoo chart data) and crypto and bullion since midnight Melbourne time (every 15 minutes, D144), fetched by the server and cached for the day. The portfolio's intraday line is built from them.
 - **`GET /api/mobile/today`:** totals (day $, day %, value excluding cash), up/down counts, market status and price freshness, and per holding: symbol, name, class, price, change per unit, day $, day %, value, weight and its intraday series.
 - **Phone pairing (D138):** Settings → Phone shows a QR code (server address plus a one-time pairing code, valid for minutes). The app exchanges it for a long-lived, read-only device key. Keys are stored hashed, listed with their last use, and revocable. Only `/api/mobile/*` skips the Umbrel login (`PROXY_AUTH_WHITELIST` in the store compose), and there the app checks the key; every other path keeps the Umbrel login.
 
 **Scope — Android app** (`apps/android`, Kotlin, Jetpack Compose, Glance widgets)
-- **Today screen:** the day figure, up/down count and value; the portfolio's intraday line; tabs **CARDS** (two-column cards with price, change, intraday line against a dashed previous-close line, day $ and weight), **LIST** (the dense table with a total row) and **MOVERS** (contribution bars either side of zero); sort by day $, day % or value.
+- **Today screen:** the day figure, up/down count, and a VAL · INVESTED · GAIN row (D155); a TODAY / SETTINGS bottom bar (D146); the portfolio's intraday line; tabs **CARDS** (two-column cards with price, change, intraday line against a dashed previous-close line, day $ and weight), **LIST** (the dense table with a total row) and **MOVERS** (contribution bars either side of zero); sort by day $, day % or value.
 - **Holding detail** (tap a card): a larger intraday chart and the position figures.
-- **Widgets:** Today (day total plus the six largest holdings as mini cards), a single holding, and best/worst. They refresh in the background with WorkManager and show their age.
+- **Widgets:** Today (day total plus the six biggest day moves as mini cards (D157)), a single holding, and best/worst. They refresh in the background with WorkManager and show their age.
 - **App lock (D139):** a fingerprint or device PIN to open the app; widgets show dollar figures.
 - **States:** "Can't reach the Umbrel — is Tailscale on?", stale prices with their age, a revoked key (re-pair), and an empty portfolio.
 - The Joinr dark style in native form: the colour tokens, monospaced tabular figures, gain/loss shown with a sign and arrow as well as colour, and no wordmark rebuilt in another font.
@@ -277,3 +278,6 @@ A read-only Android app that shows today's change in the owner's holdings (cash 
 - No owner data in the repo; the APK keystore and pairing details are git-ignored.
 
 **Demo:** on the owner's phone over Tailscale: pair by QR, the Today tabs, a holding's detail, the three widgets, and revoking the phone in Settings.
+
+### Stage 10 — Phone app: period selector
+A quick selector at the top of the app's Today screen: **1D · 1W · 2W · 1M · 3M · 6M · 12M · ALL** (D156, D158). For a period, units held at its start count from that day's close and units bought within it from their purchase price (the day rule generalised); ALL is the unrealised gain (value − the cost of current holdings). The server fetches and caches daily closes for every held instrument, the FX series and bullion (a 1.3.0 release); the app gets the selector, period figures on cards, list and movers, and a period line. **Widgets stay daily.** Kickoff questions in `docs/private/OPEN_QUESTIONS.md` → Stage 10.

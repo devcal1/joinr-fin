@@ -48,6 +48,7 @@ function marketWithStatus(status: MarketDataStatus): MarketDataService {
     setPriceSource: fail,
     notifyInstrumentsChanged: () => undefined,
     status: () => status,
+    stop: () => undefined,
   };
 }
 

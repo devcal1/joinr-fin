@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 30 widget picker preview: a plain surface card with placeholder bars (no figures). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="144dp"
+    android:viewportWidth="250"
+    android:viewportHeight="180">
+    <path
+        android:fillColor="#FF191A24"
+        android:pathData="M24,0 L226,0 A24,24 0 0,1 250,24 L250,156 A24,24 0 0,1 226,180 L24,180 A24,24 0 0,1 0,156 L0,24 A24,24 0 0,1 24,0 Z" />
+    <path
+        android:fillColor="#FF9A9BA8"
+        android:pathData="M14,16 L110,16 L110,24 L14,24 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M14,34 L110,34 L110,52 L14,52 Z" />
+    <path
+        android:fillColor="#FF4ADE80"
+        android:pathData="M118,40 L200,40 L200,52 L118,52 Z" />
+    <path
+        android:fillColor="#FF101019"
+        android:pathData="M14,66 L80,66 L80,110 L14,110 Z M92,66 L158,66 L158,110 L92,110 Z M170,66 L236,66 L236,110 L170,110 Z" />
+    <path
+        android:fillColor="#FF838494"
+        android:pathData="M14,156 L150,156 L150,164 L14,164 Z" />
+</vector>

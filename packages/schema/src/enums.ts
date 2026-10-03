@@ -94,9 +94,17 @@ export type JobTrigger = (typeof JOB_TRIGGERS)[number];
 
 /**
  * Stage 3 adds 'dividends' (the dividend-events job); Stage 5 adds 'snapshot', Stage 7 'backup',
- * Stage 8 'nas-copy' (the weekly copy to the NAS; `job_runs.job` is plain text, so no migration).
+ * Stage 8 'nas-copy' (the weekly copy to the NAS), Stage 9 'intraday' (the 5- and 15-minute ASX,
+ * crypto and bullion refresh; stage-9.md §5.6). `job_runs.job` is plain text, so no migration.
  */
-export const JOB_NAMES = ['prices', 'dividends', 'snapshot', 'backup', 'nas-copy'] as const;
+export const JOB_NAMES = [
+  'prices',
+  'dividends',
+  'snapshot',
+  'backup',
+  'nas-copy',
+  'intraday',
+] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
 export const CHECK_STATUSES = ['match', 'explained', 'unexplained', 'suspect', 'info'] as const;
@@ -367,3 +375,25 @@ export const SNAPSHOT_CHECK_COLUMNS = [
   'mfMovementsCents',
 ] as const;
 export type SnapshotCheckColumn = (typeof SNAPSHOT_CHECK_COLUMNS)[number];
+
+// ─── Stage 9: the phone app (stage-9.md §3.5) ───────────────────────────────────────────────────
+
+/** A holding's day figure (stage-9.md §2.2, in rule order after `ok`). */
+export const DAY_STATUSES = ['ok', 'no_base', 'manual', 'stale', 'unpriced'] as const;
+export type DayStatus = (typeof DAY_STATUSES)[number];
+
+/** The ASX market state the phone shows (stage-9.md §6.6). */
+export const MARKET_STATES = ['open', 'pre_open', 'closed'] as const;
+export type MarketState = (typeof MARKET_STATES)[number];
+
+/** D148: the phone's holding kinds, the four instrument kinds plus bullion (not an instrument). */
+export const MOBILE_HOLDING_KINDS = [...INSTRUMENT_KINDS, 'bullion'] as const;
+export type MobileHoldingKind = (typeof MOBILE_HOLDING_KINDS)[number];
+
+/** A stored day's bar size (`day_quotes.granularity`, stage-9.md §3.1). */
+export const DAY_GRANULARITIES = ['5m', '1d'] as const;
+export type DayGranularity = (typeof DAY_GRANULARITIES)[number];
+
+/** Where a stored day came from (`day_quotes.source`, stage-9.md §3.1). */
+export const DAY_QUOTE_SOURCES = ['yahoo', 'coingecko', 'fake'] as const;
+export type DayQuoteSource = (typeof DAY_QUOTE_SOURCES)[number];

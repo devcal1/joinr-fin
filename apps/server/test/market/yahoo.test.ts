@@ -35,11 +35,12 @@ const run = () => new AbortController().signal;
 
 describe('yahooChartUrl', () => {
   it('uses the fixed host and encodes the symbol', () => {
+    // Stage 9 (§5.1): one-day five-minute charts; the bullion inputs two-day ones.
     expect(yahooChartUrl('ABC.AX')).toBe(
-      'https://query1.finance.yahoo.com/v8/finance/chart/ABC.AX?range=5d&interval=1d',
+      'https://query1.finance.yahoo.com/v8/finance/chart/ABC.AX?range=1d&interval=5m',
     );
     expect(yahooChartUrl('SI=F')).toBe(
-      'https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF?range=5d&interval=1d',
+      'https://query1.finance.yahoo.com/v8/finance/chart/SI%3DF?range=2d&interval=5m',
     );
     // A hostile symbol cannot change the host or the path.
     expect(new URL(yahooChartUrl('../../evil.example/x?y=1#')).host).toBe(
@@ -55,6 +56,7 @@ describe('parseYahooChart', () => {
       parseYahooChart(
         'k',
         yahooChart({ symbol: 'ABC.AX', price: 45.67, time: '2026-09-24T06:10:00.000Z' }),
+        'none',
       ),
     ).toEqual({ key: 'k', price: '45.67', currency: 'AUD', asOf: '2026-09-24T06:10:00.000Z' });
   });
@@ -75,7 +77,7 @@ describe('parseYahooChart', () => {
       ],
       closes: [10, 11, null],
     });
-    expect(parseYahooChart('k', body)).toEqual({
+    expect(parseYahooChart('k', body, 'none')).toEqual({
       key: 'k',
       price: '11',
       currency: 'AUD',
@@ -98,7 +100,7 @@ describe('parseYahooChart', () => {
       ],
       closes: [61.17, 60.62, null],
     });
-    expect(parseYahooChart('k', body)).toEqual({
+    expect(parseYahooChart('k', body, 'none')).toEqual({
       key: 'k',
       price: '60.62',
       currency: 'AUD',
@@ -170,8 +172,10 @@ describe('createYahooProvider', () => {
     expect(headers['User-Agent']).toMatch(/^Mozilla\/5\.0/);
     expect(headers.Accept).toBe('application/json');
     expect(calls[0]!.url.host).toBe('query1.finance.yahoo.com');
-    expect(calls[0]!.url.searchParams.get('range')).toBe('5d');
-    expect(calls[0]!.url.searchParams.get('interval')).toBe('1d');
+    expect(calls[0]!.url.searchParams.get('range')).toBe('1d');
+    expect(calls[0]!.url.searchParams.get('interval')).toBe('5m');
+    const gold = calls.find((c) => yahooSymbolOf(c.url) === 'GC=F')!;
+    expect(gold.url.searchParams.get('range')).toBe('2d');
   });
 
   it('maps a 404 to "Symbol not found" (not retryable)', async () => {

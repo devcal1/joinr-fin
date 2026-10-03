@@ -110,7 +110,10 @@ export function toPriceItem(
       fetched: price
         ? {
             price: fetched ? fetched.price : null,
-            asOf: fetched ? fetched.asOf : null,
+            // The stored as-of only: a source change clears it (service.ts `setPriceSource`), so
+            // the kept price of the old source reads stale until the next fetch, not fresh by
+            // its `fetchedAt` fallback.
+            asOf: fetched ? (price?.asOf ?? null) : null,
             source: price.source,
             lastStatus: price.lastStatus,
           }

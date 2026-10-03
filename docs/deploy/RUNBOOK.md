@@ -21,6 +21,18 @@ How to install, release, back up, restore and troubleshoot Joinr Finance on an [
   - [Removing it](#removing-it)
   - [Troubleshooting the copy](#troubleshooting-the-copy)
   - [Restore from the NAS copy](#restore-from-the-nas-copy)
+- [Phone](#phone)
+  - [What the whitelist opens](#what-the-whitelist-opens)
+  - [The address to pair with](#the-address-to-pair-with)
+  - [Pairing](#pairing)
+  - [Removing a phone](#removing-a-phone)
+  - [After a restore, and after a rebuilt Umbrel](#after-a-restore-and-after-a-rebuilt-umbrel)
+  - [The live proxy probes and the rollback](#the-live-proxy-probes-and-the-rollback)
+  - [Faster prices and the intraday kill switch](#faster-prices-and-the-intraday-kill-switch)
+  - [Troubleshooting the phone](#troubleshooting-the-phone)
+- [The Android app](#the-android-app)
+  - [The signing keystore](#the-signing-keystore)
+  - [Check and sideload the APK](#check-and-sideload-the-apk)
 - [Restore](#restore)
 - [Restore after a reinstall](#restore-after-a-reinstall)
 - [Rollback](#rollback)
@@ -90,7 +102,7 @@ A **prerelease** for testing (`--prerelease rc.1 --skip-store`) is tagged `<vers
 ## First start checks
 
 - `pnpm umbrel:status`: the app is `running` and `healthy`; its image digest is the release's.
-- On the Umbrel: `ls -ln <app-data>/data` shows `backups/` owned by uid 1000; `docker logs tenon-joinr-finance_app_1` shows the database ready with 6 migrations.
+- On the Umbrel: `ls -ln <app-data>/data` shows `backups/` owned by uid 1000; `docker logs tenon-joinr-finance_app_1` shows the database ready with 7 migrations (1.2.0; 6 before it).
 - Open `http://umbrel:4932` from the dev PC: the Umbrel login, then the app (not a 502).
 - Settings → About: the app and server versions match, the database level, the time zone `Australia/Melbourne`.
 - Settings → Backups: "No backups yet" and the next run. Click **Back up now**: a "By hand" row appears (this also proves the write guard lets the app's own pages through the proxy; a 403 here is [troubleshooting](#troubleshooting)).
@@ -199,6 +211,114 @@ The NAS files are ordinary backup files, with the same names as in Settings → 
 2. Umbrel → Joinr Finance → **Stop**; `pnpm umbrel:restore --from-file <path to the file>` (as in [Restore after a reinstall](#restore-after-a-reinstall); `--from-file` accepts a bare backup name); Umbrel → **Start**. Or restore it into a development copy on the PC: `pnpm restore:backup <path> --yes` with a scratch `DATA_DIR`.
 3. **After a reinstall** this is the way back (D113). A reinstall also deletes `data/secrets/`, so the copy is off until you [place the files again](#placing-the-files); the first copy after that sends only what the NAS lacks.
 
+## Phone
+
+From 1.2.0 a read-only Android app shows today's change in the holdings and bullion, with three home-screen widgets ([The Android app](#the-android-app)). This section is the server side.
+
+### What the whitelist opens
+
+The store compose carries one line in the app proxy's environment: `PROXY_AUTH_WHITELIST: "/api/mobile/*"`. Rules match paths, not methods, and a `/*` glob matches below the path.
+
+- **`/api/mobile/` answers anyone on the home network or the tailnet without the Umbrel login.** It returns data only for a paired phone's key (`GET /api/mobile/today`, `GET /api/mobile/device`); every other method there answers 405 and changes nothing. The one write is the pairing exchange (`POST /api/mobile/pair`), which needs a code the owner opened in Settings → Phone in the last 5 minutes (5 wrong codes cancel it; 20 attempts per 10 minutes at most).
+- **Everything else keeps the Umbrel login:** the web app, the rest of the API, the backup downloads and Settings → Phone itself.
+- The server keeps only a SHA-256 of each key, in `<app-data>/data/devices/devices.json` (folder 0700, file 0600, owned by uid 1000), **outside the database**: a database restore never brings back a removed phone, and the key hashes never travel to the NAS. umbrelOS Backups skip the folder (`backupIgnore`).
+- **Never widen the whitelist.** A new path under `/api/mobile/` that the phone plugin did not declare stops the server at start-up.
+
+### The address to pair with
+
+Pair with **the Umbrel's full Tailscale name, `http://<host>.<tailnet>.ts.net:4932`**, never the short name (`http://umbrel:4932`) or a LAN address. The key travels in plain HTTP on every request; inside Tailscale that is encrypted, but a short name or a LAN address can also be answered by the home network's DNS when Tailscale is off on the phone, and the widget worker would then send the key unencrypted over Wi-Fi. A full `.ts.net` name resolves only through Tailscale, so it fails closed. Settings → Phone prefills the address from the browser's address bar and shows an important callout for a short name, a LAN or a loopback address until it is changed; the app warns the same way before it pairs.
+
+### Pairing
+
+1. On the PC: Settings → Phone → **Pair a phone**. A QR code, the code as text (`XXXXX-XXXXX`) and a 5-minute countdown appear. Set **Address the phone will use** to the full Tailscale name ([above](#the-address-to-pair-with)).
+2. On the phone: open Joinr Finance, pass the lock, tap **Scan** in its pairing screen and scan the QR, then confirm. **Use the app's own Scan button, never the phone's camera app**: a camera app hands the pairing link to whichever app claims `joinrfinance://`.
+3. **If the first scan fails**, wait a minute (Google Play services installs the scanner on first use) and scan again, or pair by hand: the address and the code typed into the app.
+4. The page shows **"Paired: <name>."** and the phone in the list, with "Last used" from its first refresh. A pairing you did not make shows the same way: remove that phone.
+
+**New code** replaces the open code; **Cancel** closes it. After 5 wrong codes from anywhere the code is cancelled and the page says so ("cancelled after 5 wrong attempts from another device"): open a new one, and if it keeps happening, look for what is guessing.
+
+### Removing a phone
+
+Settings → Phone → **Remove** (it asks first). The key stops working at once; the app shows "removed" at its next refresh and the widgets show "Open Joinr Finance to pair." at theirs. Unpairing inside the app only forgets the key on the phone (the phone cannot write): remove it here too. **A lost phone:** remove it here. Removed phones stay listed (the newest 20) with the date.
+
+If the server cannot save the list (disk full, a permission problem after a restore), a removal still takes effect at once and the page says the removal is not saved yet: a restart of the app before the next successful save would bring the phone back. Fix the folder (owner uid 1000, `devices/` 0700, `devices.json` 0600) and the next write saves it; pairing refuses until then.
+
+### After a restore, and after a rebuilt Umbrel
+
+- **A database restore** (Settings, the CLI or `pnpm umbrel:restore`) does not touch `data/devices/`: phones stay paired and removed phones stay removed.
+- **A rebuilt Umbrel or a reinstall** deletes `<app-data>`, the device list with it: pair the phone again (it shows "removed" or "not known" until then).
+- **An unreadable device list** is set aside as `data/devices/devices.unreadable-<time>.json` (never deleted) and the page asks you to pair again.
+
+### The live proxy probes and the rollback
+
+Before the first pairing on a new release, prove the proxy from the dev PC with no Umbrel session (read-only):
+
+- `curl -s -i http://umbrel:4932/api/mobile/today` → **401 JSON** `DEVICE_KEY_MISSING` (from the app, not the login page);
+- `curl -s -i http://umbrel:4932/api/status` → the Umbrel login page or its redirect, **not** JSON;
+- `curl -s -i -X POST http://umbrel:4932/api/mobile/today` → 405 JSON;
+- the traversal corpus of `pnpm umbrel:smoke mobile` (`/api/mobile/../backups`, the `%2e%2e` and `%2F` forms, `;`, a backslash, a trailing `..`, and upper case), each with GET, HEAD, POST and DELETE, sent with **`curl --path-as-is -s -i`** (plain curl normalises `..` and proves nothing). Every answer must be the login page or its redirect, or an app 401/404/405 JSON: **never** status, backup or page data.
+
+**Any data → roll back at once:** release a compose-only version (a patch) with the `PROXY_AUTH_WHITELIST` line removed. The phone stops working; nothing else changes. Then revisit the design before pairing again.
+
+### Faster prices and the intraday kill switch
+
+From 1.2.0 the `intraday` job refreshes ASX holdings every 5 minutes on weekdays from 10:00 to 16:25, crypto every 15 minutes around the clock, and bullion every 15 minutes from Monday 06:00 to Saturday 10:00 (server time). Runs appear in the job history (about 150 a weekday). If Yahoo starts refusing (prices go stale with "rate limited"), turn the job off without a new image: add `INTRADAY_REFRESH: "false"` to the app service's `environment` in the store compose and release it as a compose-only patch. The hourly `prices` job keeps running. With the switch off, crypto shows no day change on the phone (its day chart is fetched only by the intraday job). ASX and US listings, funds and bullion keep their day figures from the `prices` job, refreshed at its interval (hourly by default) instead of every 5 or 15 minutes.
+
+**A downgrade below 1.2.0 means restoring the pre-update backup:** 1.2.0 migrates the database (migration 0006, with the automatic pre-update backup), and 1.1.1 refuses a database a newer version migrated ([Rollback](#rollback)).
+
+### Troubleshooting the phone
+
+- **"Unreachable" in the app:** Tailscale is off on the phone, or the address is wrong. Turn Tailscale on; check the address in the app's Settings against [the address to pair with](#the-address-to-pair-with).
+- **The app shows the Umbrel login page, or "not the Joinr Finance API":** the whitelist line is missing from the running compose (an older release, or a rolled-back one). `pnpm umbrel:status` shows the installed version.
+- **"This phone was removed":** it was removed in Settings → Phone. Pair it again.
+- **"This server does not know this phone's key":** the device list was set aside or the Umbrel was rebuilt. Pair again.
+- **Stale prices on the phone:** the same as on the web ([Prices stale after install](#prices-stale-after-install)); the app shows each holding's price age.
+- **Widgets not updating:** Android may delay background work for apps under battery optimisation. Settings → Apps → Joinr Finance → Battery → **Unrestricted**. Opening the app refreshes them.
+- **Widgets show "Open Joinr Finance to update":** no fetch has succeeded for 24 hours (the phone was off Tailscale, or Doze held the worker). Open the app.
+
+## The Android app
+
+The app (`apps/android`, Kotlin and Compose, package `com.tenon.joinrfinance`) is built on the dev PC with Gradle (no Android Studio needed: JDK 17 and the Android SDK) and **sideloaded**: there is no store listing and no in-app updater.
+
+| Script | What it runs |
+|---|---|
+| `pnpm android:test` | `gradlew testDebugUnitTest` (the JVM tests) |
+| `pnpm android:debug` | `gradlew assembleDebug` |
+| `pnpm android:lint` | `gradlew lint` |
+| `pnpm android:release` | `gradlew assembleRelease`, then the APK copied to `dist/android/joinr-finance-<version>.apk` with its SHA-256 and the signing certificate's SHA-256 printed, then `gradlew --stop` |
+| `pnpm android:stop` | `gradlew --stop` (Windows keeps lint caches locked until the daemons stop) |
+| `pnpm android:fixtures` | re-exports the JSON fixtures the app's tests read |
+
+The script writes `apps/android/local.properties` (git-ignored) when it is missing, from `ANDROID_HOME`, `ANDROID_SDK_ROOT` or `%LOCALAPPDATA%\Android\Sdk`.
+
+### The signing keystore
+
+A release APK is signed with your own keystore. **Create it once and keep it**: Android installs an update only when it is signed with the same key, so **a lost keystore means uninstalling the app to update it, then pairing again**.
+
+1. In your own PowerShell (type the passwords yourself; never paste them into a chat, a file in the repo or a ticket), in a folder **outside the repo**:
+   ```powershell
+   & "<JDK 17>\bin\keytool.exe" -genkeypair -v -keystore joinr-release.jks -alias joinr -keyalg RSA -keysize 4096 -validity 10000
+   ```
+2. Beside it, a properties file (any name, e.g. `joinr-signing.properties`), also outside the repo:
+   ```properties
+   storeFile=<absolute path to>/joinr-release.jks
+   storePassword=<the store password>
+   keyAlias=joinr
+   keyPassword=<the key password>
+   ```
+3. **Back up both files and the passwords** somewhere safe and off this PC (a password manager and an offline copy).
+4. Build: `$env:JOINR_ANDROID_SIGNING = "<absolute path to the properties file>"; pnpm android:release`. Without the variable, or with a path that is not an existing absolute file, the script refuses and nothing is built; the build never produces an unsigned APK. The script never reads or prints the file.
+
+`.gitignore` ignores `*.jks`, `*.keystore`, `keystore.properties`, `signing.properties`, `*.apk` and `*.aab` anywhere as a backstop; keep the real files outside the repo anyway.
+
+### Check and sideload the APK
+
+1. Note the two digests `pnpm android:release` prints. The certificate digest must be the same for every release (it is your keystore's); a different one means a different key.
+2. Copy `dist/android/joinr-finance-<version>.apk` to the phone (USB, or a file share).
+3. On the phone, open it with a file manager; when Android asks, allow **Install unknown apps** for that file manager, install, then **turn that permission off again**.
+4. If Play Protect warns about an unknown developer, choose to scan the app, or **Install anyway**.
+5. An update installs over the old version (same key): the pairing and the widgets stay.
+
 ## Restore
 
 A restore replaces the database with a backup while the app is stopped. The current database is copied first (a `pre-restore` backup), so a restore can always be undone.
@@ -240,6 +360,8 @@ Tags are never overwritten, so an older image stays in the registry.
 4. `pnpm umbrel:restore <the pre-migrate backup the update took> --stop`. The script treats `restarting` as running, so `--stop` is needed. The older image's CLI accepts a pre-migrate copy (its level is not newer than the app's).
 5. The app comes up healthy: check `/api/health` and Settings → About.
 
+**Below 1.2.0:** 1.2.0 migrated the database (0006) and took a pre-update backup; going back to 1.1.1 is step 4 with that backup. Remove the `PROXY_AUTH_WHITELIST` line in the same compose: 1.1.1 has no phone API, so nothing needs it. Phones stay paired (the device list is not in the database) and work again once 1.2.0 or later and the line are back.
+
 ## The import override
 
 A real import over data entered in the app is refused on the Import page (D34); only the CLI can replace it, and only with the app stopped:
@@ -263,7 +385,7 @@ A real import over data entered in the app is refused on the Import page (D34); 
 
 - [ ] `pnpm check`, `pnpm build`, `pnpm guard:all` green; `ssh umbrel true` works.
 - [ ] Joinr Registry installed; `pnpm umbrel:registry status` answers `/v2/: 200`, loopback only.
-- [ ] A live smoke of a prerelease (`pnpm umbrel:smoke start | check | remove`): healthy, the time zone, market-data egress, back up now, a download, a planted symlink refused, a foreign Origin refused, and a restore round trip on the host (by name, `--from-file`, and with the container removed).
+- [ ] A live smoke of a prerelease (`pnpm umbrel:smoke start --image <ref> | check | remove`): healthy, the time zone, market-data egress, back up now, a download, a planted symlink refused, a foreign Origin refused, and a restore round trip on the host (by name, `--from-file`, and with the container removed).
 - [ ] Release written into the store and pushed; `pnpm umbrel:status` says safe; Joinr Finance installed.
 - [ ] First open through the app proxy (no 502); About shows the versions, level and zone; **Back up now** works.
 - [ ] Import and reconciliation (zero unexplained); a backup straight after; auto-record on; missing months recorded or skipped.
@@ -273,11 +395,13 @@ A real import over data entered in the app is refused on the Import page (D34); 
 - [ ] The first nightly backup succeeded (Settings → Backups the next morning).
 - [ ] The NAS copy: a live smoke of a prerelease with `pnpm umbrel:smoke nas` (every probe passes); the NAS folder, module and account created; `--prompt-test` rehearsed; `pnpm umbrel:nas-secrets` placed the files and `--check` says ready; **Copy to NAS now** succeeded and the NAS folder holds the same names; a second click sent nothing; a file fetched from the NAS restores.
 - [ ] The first Sunday copy succeeded (Settings → Backups → Copy to the NAS, trigger "schedule").
+- [ ] The phone (1.2.0): a live smoke of a prerelease with `pnpm umbrel:smoke mobile` (every probe passes); after the update, [the live proxy probes](#the-live-proxy-probes-and-the-rollback) pass with no session; the keystore made and backed up; the APK built, its certificate digest noted, sideloaded; paired by QR with the full Tailscale name; a removal stops the app and the widgets; paired again.
 
 ## Accepted risks
 
 - **The app has no login of its own.** It relies on Umbrel's login, which the app proxy puts in front of every path. With the private network, only the app proxy can reach the app. **If the private-network fallback was taken** (see [502 from the app proxy](#502-from-the-app-proxy)), any container on `umbrel_main_network`, i.e. any other installed app, can call the API directly without a session, including the backup downloads.
 - **Plain HTTP.** Browsers send no `Sec-Fetch-*` headers over HTTP, so the cross-site write guard relies on the `Origin` header (and `PUBLIC_PORT`). If the app proxy rewrites `Host` and sends no `X-Forwarded-Host`, an `Origin` on port 4932 passes whatever its host (the server logs "the public port alone decides" once, with the `Host` it saw): a page on another host served from port 4932 could then post to the app, if the browser sends it the Umbrel login cookie.
+- **The phone API skips the Umbrel login** (from 1.2.0): anyone on the home network or the tailnet can reach `/api/mobile/`. It is read-only, returns data only for a paired key (256-bit, stored on the server as a SHA-256 only, removable in Settings → Phone), and pairing needs a 5-minute code the owner opens. Keys travel in plain HTTP: pair with the full Tailscale name ([Phone](#the-address-to-pair-with)).
 - **Backups live on the server** until the NAS copy is set up: uninstalling the app deletes them. Download one regularly until then.
 - **The NAS copy's exposures:** the address (`rsync://<account>@<host>/<module>/`, no password) is in the rsync process's arguments, inside the app's own container, while a copy runs. **The password is in the rsync child's environment for the length of a copy**, readable by the same uid (1000), which already owns `nas-password`, and by root; it is never in its arguments, a log, a run record or an API body. `app_proxy` mounts the app-data parent read-only, so it can read `data/secrets/` (as for every Umbrel app that keeps a credential in its data folder). The copies on the NAS are plain SQLite files, protected by the NAS folder's access list; the rsync protocol is unencrypted and relies on Tailscale.
 

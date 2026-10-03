@@ -1,12 +1,33 @@
 // Price provider contract (stage-1.md §5.2). Every provider takes an injected `fetchImpl`, so unit
 // tests never touch the network.
-import type { DecimalString, IsoDate } from '@joinr/schema';
+import type { DayGranularity, DecimalString, IsoDate } from '@joinr/schema';
 
 export interface QuoteRequest {
   /** The caller's key (an instrument id, a series id); echoed back on the quote or failure. */
   key: string;
   /** The provider's symbol: `ABC.AX`, `SI=F`, `AUDUSD=X`, `bitcoin`. */
   symbol: string;
+  /**
+   * Stage 9 (stage-9.md §5.1, owner review O8): a daily request (a managed fund). Yahoo fetches it
+   * with the five-day daily chart and takes its day from the last two finite NAVs.
+   */
+  daily?: true;
+}
+
+/**
+ * Stage 9 (stage-9.md §5.1): the latest session a quote's chart carried: its date and zone, the
+ * previous close and its bars (unix seconds, native decimals, ascending, one per time).
+ */
+export interface QuoteDay {
+  sessionDate: IsoDate;
+  timeZone: string;
+  granularity: DayGranularity;
+  nativeCurrency: string;
+  previousClose: DecimalString | null;
+  /** UTC ISO of the session's regular period; null when unknown (daily requests, crypto). */
+  regularStart: string | null;
+  regularEnd: string | null;
+  points: Array<[number, DecimalString]>;
 }
 
 export interface Quote {
@@ -17,6 +38,25 @@ export interface Quote {
   currency: string;
   /** Market time of the price (ISO-8601 UTC). */
   asOf: string;
+  /** Stage 9: the session's day (charts with bars; never from the five-day fallback). */
+  day?: QuoteDay;
+  /**
+   * Stage 9 (D153): every finite bar of a two-day request (`AUDUSD=X`, `SI=F`, `GC=F`) across both
+   * trading periods (unix seconds, ascending), for `bullionDayFrom`.
+   */
+  bars?: Array<[number, DecimalString]>;
+}
+
+/**
+ * Stage 9 (stage-9.md §5.2): a CoinGecko day chart (`/coins/<id>/market_chart?days=1`): its raw
+ * `[epochMs, priceAud]` points, or why it failed (the QuoteFailure flags).
+ */
+export type DayChartResult =
+  | { ok: true; prices: Array<[number, number]> }
+  | { ok: false; error: string; rateLimited?: boolean; retryAfterMs?: number; skipped?: boolean };
+
+export interface CoinDayChartClient {
+  fetchDayChart(id: string, signal: AbortSignal): Promise<DayChartResult>;
 }
 
 export interface QuoteFailure {

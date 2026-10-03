@@ -37,9 +37,15 @@ describe('fake provider', () => {
       [{ key: '1', symbol: 'ABC.AX' }],
       new AbortController().signal,
     );
-    expect(quotes).toEqual([
-      { key: '1', price: fakePrice('ABC.AX'), currency: 'AUD', asOf: now.toISOString() },
-    ]);
+    // Stage 9 (§5.3): the as-of is the last point of the fake session (16:10 Sydney; now is 17:00).
+    expect(quotes).toHaveLength(1);
+    expect(quotes[0]).toMatchObject({
+      key: '1',
+      price: fakePrice('ABC.AX'),
+      currency: 'AUD',
+      asOf: '2026-09-24T06:10:00.000Z',
+      day: { sessionDate: '2026-09-24' },
+    });
     const n = Number(fakePrice('bitcoin'));
     expect(n).toBeGreaterThanOrEqual(1);
     expect(n).toBeLessThan(1000);

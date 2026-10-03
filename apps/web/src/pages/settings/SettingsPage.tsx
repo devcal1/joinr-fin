@@ -5,11 +5,13 @@
 // values (D86). Stage 7 (stage-7.md §6.2, §6.3): the Backups and About sections follow the groups, each
 // with its own query states, and render whatever the settings query does (so `#backups` and `#about`
 // always exist); the hash target waits for both queries to settle. Stage 8 (stage-8.md §8.3): the
-// index gains "NAS copy" (`#nas-copy`, the NAS block's subheading inside Backups).
+// index gains "NAS copy" (`#nas-copy`, the NAS block's subheading inside Backups). Stage 9
+// (stage-9.md §8.1, §8.2): the Phone section sits between Backups and About, with its own query
+// (`#phone`, before About in the index); the hash target waits for the phone query too.
 import type { SettingsPageResponse } from '@joinr/schema';
 import { Callout, MEDIA, PageHeader, SectionBar, useMediaQuery } from '@joinr/ui';
 import { useState, type JSX } from 'react';
-import { useBackups, useSettingsPage } from '../../api/hooks';
+import { useBackups, usePhone, useSettingsPage } from '../../api/hooks';
 import { LiveRegion } from '../../components/LiveRegion';
 import { QueryStates } from '../../components/QueryStates';
 import { useHashTarget } from '../history/useHashTarget';
@@ -17,6 +19,8 @@ import { AboutSection } from './AboutSection';
 import { BackupsSection } from './BackupsSection';
 import { ABOUT_SECTION_ID, BACKUPS_SECTION_ID } from './backupsDisplay';
 import { NAS_COPY_INDEX_LABEL, NAS_COPY_SECTION_ID } from './nasCopyDisplay';
+import { PhoneSection } from './PhoneSection';
+import { PHONE_INDEX_LABEL, PHONE_SECTION_ID } from './phoneDisplay';
 import { SettingsGroupForm, type SettingsGroup } from './SettingsGroupForm';
 
 /** The groups in page order with their settings in registry order. */
@@ -31,13 +35,14 @@ function groupsOf(page: SettingsPageResponse): SettingsGroup[] {
   }));
 }
 
-/** The in-page index: every group, then Backups, NAS copy (stage-8.md §8.3) and About. */
+/** The in-page index: every group, then Backups, NAS copy (stage-8.md §8.3), Phone and About. */
 function GroupIndex({ groups }: { groups: readonly SettingsGroup[] }): JSX.Element {
   const phone = useMediaQuery(MEDIA.phone);
   const entries: { id: string; label: string }[] = [
     ...groups.map((group) => ({ id: group.id, label: group.label })),
     { id: BACKUPS_SECTION_ID, label: 'Backups' },
     { id: NAS_COPY_SECTION_ID, label: NAS_COPY_INDEX_LABEL },
+    { id: PHONE_SECTION_ID, label: PHONE_INDEX_LABEL },
     { id: ABOUT_SECTION_ID, label: 'About' },
   ];
   const links = (
@@ -64,10 +69,11 @@ export function SettingsPage(): JSX.Element {
   const query = useSettingsPage();
   const page = query.data;
   const backups = useBackups();
+  const phone = usePhone();
   const [notice, setNotice] = useState<string | null>(null);
-  // Both queries settled (loaded or failed), so a target lower down does not drift as the page grows.
+  // Every query settled (loaded or failed), so a target lower down does not drift as the page grows.
   const settingsSettled = !query.isPending;
-  useHashTarget(settingsSettled && !backups.isPending);
+  useHashTarget(settingsSettled && !backups.isPending && !phone.isPending);
   const groups = page ? groupsOf(page) : [];
   return (
     <>
@@ -97,6 +103,7 @@ export function SettingsPage(): JSX.Element {
         </>
       ) : null}
       <BackupsSection query={backups} />
+      <PhoneSection query={phone} timeZone={backups.data?.schedule.timeZone} />
       <AboutSection query={backups} />
     </>
   );

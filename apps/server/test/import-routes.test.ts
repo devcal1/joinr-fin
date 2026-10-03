@@ -137,6 +137,7 @@ function fakeMarket(notify: () => void): MarketDataService {
     setPriceSource: fail,
     notifyInstrumentsChanged: notify,
     status: () => ({ mode: 'off', running: false, lastRefreshAt: null, nextRefreshAt: null }),
+    stop: () => undefined,
   };
 }
 

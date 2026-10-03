@@ -1,0 +1,117 @@
+{
+  "parsePairingUrl": [
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345",
+      "expected": { "serverUrl": "http://umbrel:4932", "code": "ABCDE12345" }
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel.example-tailnet.ts.net%3A4932&c=ABCDE12345",
+      "expected": { "serverUrl": "http://umbrel.example-tailnet.ts.net:4932", "code": "ABCDE12345" }
+    },
+    {
+      "input": "JoinrFinance://pair?v=1&u=http%3A%2F%2F127.0.0.1%3A3001&c=ABCDE12345",
+      "expected": { "serverUrl": "http://127.0.0.1:3001", "code": "ABCDE12345" }
+    },
+    {
+      "input": "joinrfinance://pair?c=abcde-12345&u=https%3A%2F%2Fexample.test%2F&v=1&x=ignored",
+      "expected": { "serverUrl": "https://example.test", "code": "ABCDE12345" }
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2FUMBREL%3A4932&c=0O1IL23456",
+      "expected": { "serverUrl": "http://umbrel:4932", "code": "0011123456" }
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2F192.0.2.10&c=ABCDE12345",
+      "expected": { "serverUrl": "http://192.0.2.10", "code": "ABCDE12345" }
+    },
+    { "input": "https://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345", "expected": null },
+    {
+      "input": "joinrfinance://pairing?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair/?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345#x",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=2&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345",
+      "expected": null
+    },
+    { "input": "joinrfinance://pair?u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345", "expected": null },
+    { "input": "joinrfinance://pair?v=1&c=ABCDE12345", "expected": null },
+    { "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932", "expected": null },
+    { "input": "joinrfinance://pair?v=1&u=ftp%3A%2F%2Fumbrel&c=ABCDE12345", "expected": null },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932%2Fapi&c=ABCDE12345",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fuser%40umbrel%3A4932&c=ABCDE12345",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE1234U",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE1234",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=1&v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345",
+      "expected": null
+    },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345&c=ABCDE12346",
+      "expected": null
+    },
+    { "input": "joinrfinance://pair?v=1&u=%E0%A4%A&c=ABCDE12345", "expected": null },
+    {
+      "input": "joinrfinance://pair?v=1&u=http%3A%2F%2Fumbrel%3A4932&c=ABCDE12345&pad=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": null
+    },
+    { "input": "", "expected": null },
+    { "input": "ABCDE12345", "expected": null }
+  ],
+  "normaliseServerUrl": [
+    { "raw": "http://umbrel:4932", "expected": { "ok": true, "url": "http://umbrel:4932" } },
+    { "raw": "http://umbrel:4932/", "expected": { "ok": true, "url": "http://umbrel:4932" } },
+    { "raw": "  HTTP://Umbrel:4932  ", "expected": { "ok": true, "url": "http://umbrel:4932" } },
+    {
+      "raw": "http://umbrel.example-tailnet.ts.net:4932",
+      "expected": { "ok": true, "url": "http://umbrel.example-tailnet.ts.net:4932" }
+    },
+    { "raw": "https://example.test", "expected": { "ok": true, "url": "https://example.test" } },
+    { "raw": "http://127.0.0.1:3001", "expected": { "ok": true, "url": "http://127.0.0.1:3001" } },
+    { "raw": "http://[::1]:3001", "expected": { "ok": true, "url": "http://[::1]:3001" } },
+    { "raw": "http://umbrel:04932", "expected": { "ok": true, "url": "http://umbrel:4932" } },
+    { "raw": "umbrel:4932", "expected": { "ok": false } },
+    { "raw": "ftp://umbrel", "expected": { "ok": false } },
+    { "raw": "http://umbrel:4932/api", "expected": { "ok": false } },
+    { "raw": "http://umbrel:4932?x=1", "expected": { "ok": false } },
+    { "raw": "http://umbrel:4932#x", "expected": { "ok": false } },
+    { "raw": "http://user@umbrel:4932", "expected": { "ok": false } },
+    { "raw": "http://umbrel:0", "expected": { "ok": false } },
+    { "raw": "http://umbrel:65536", "expected": { "ok": false } },
+    { "raw": "http://-umbrel", "expected": { "ok": false } },
+    { "raw": "http://um brel", "expected": { "ok": false } },
+    { "raw": "http://", "expected": { "ok": false } },
+    { "raw": "", "expected": { "ok": false } }
+  ],
+  "normalisePairingCode": [
+    { "raw": "ABCDE12345", "expected": "ABCDE12345" },
+    { "raw": "abcde12345", "expected": "ABCDE12345" },
+    { "raw": "ABCDE-12345", "expected": "ABCDE12345" },
+    { "raw": " abcde 12345 ", "expected": "ABCDE12345" },
+    { "raw": "OIL0123456", "expected": "0110123456" },
+    { "raw": "ABCDE1234", "expected": null },
+    { "raw": "ABCDE123456", "expected": null },
+    { "raw": "ABCDE1234U", "expected": null },
+    { "raw": "ABCDE1234!", "expected": null },
+    { "raw": "", "expected": null }
+  ]
+}

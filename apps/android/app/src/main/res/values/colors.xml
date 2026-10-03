@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- STYLE_GUIDE section 1 tokens used by resources (the Compose theme has the full set). -->
+    <color name="ink">#FF101019</color>
+    <color name="surface">#FF191A24</color>
+    <color name="text">#FFD3D4DC</color>
+    <color name="text_secondary">#FF9A9BA8</color>
+    <color name="text_muted">#FF838494</color>
+    <color name="go_tint">#FF4ADE80</color>
+    <color name="stop_tint">#FFF87171</color>
+    <color name="text_bright">#FFFFFFFF</color>
+</resources>

@@ -476,7 +476,7 @@ describe('coverage and error bodies (§3.6)', () => {
       expect(isApiErrorBody(body)).toBe(true);
       expect(API_ERROR_CODES).toContain(body.error.code);
     }
-    expect(bodies.map((b) => b.error.code).slice(0, 4)).toEqual(API_ERROR_CODES.slice(-8, -4));
+    expect(bodies.map((b) => b.error.code).slice(0, 4)).toEqual(API_ERROR_CODES.slice(-17, -13));
   });
 
   it('keeps the records fixtures in step with the registry (the snapshot audit page)', () => {

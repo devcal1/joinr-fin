@@ -148,6 +148,7 @@ export function fakeMarket(
     clearManualPrice: unsupported,
     setPriceSource: unsupported,
     notifyInstrumentsChanged: () => {},
+    stop: () => {},
     status() {
       return {
         mode: market.mode,

@@ -71,5 +71,7 @@ docker-compose.yml
 # the docs are never built. tools/privacy-guard stays: it is a workspace package in the lockfile.
 tools/deploy
 e2e
+# The Android app (stage-9.md §7.4): built on the dev PC with Gradle, never in the image.
+apps/android
 docs
 playwright.config.ts

@@ -782,3 +782,14 @@ describe('scheduling', () => {
     expect(h.market.getPrices().nextRefreshAt).toBe(h.market.status().nextRefreshAt);
   });
 });
+
+describe('stop (stage-9.md §5.6)', () => {
+  it('is idempotent and leaves the service readable (a no-op until the intraday job lands)', () => {
+    const h = setup({ mode: 'fake' });
+    expect(() => {
+      h.market.stop();
+      h.market.stop();
+    }).not.toThrow();
+    expect(h.market.getPrices().items.length).toBeGreaterThan(0);
+  });
+});

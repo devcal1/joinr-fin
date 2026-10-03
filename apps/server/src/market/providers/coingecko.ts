@@ -1,10 +1,14 @@
 // CoinGecko provider (stage-1.md §5.2): one batched /simple/price call (≤ 100 ids) in AUD, and a
 // /search call to resolve a coin symbol to an id (lowest market-cap rank among exact symbol matches).
+// Stage 9 (stage-9.md §5.2): a per-coin day chart (`/coins/<id>/market_chart?days=1`) for crypto's
+// day since 00:00 (D142; `cryptoDayFrom` in ../day.ts turns it into a row).
 import { decimalFromNumber } from '@joinr/schema';
 import { failureFor, finitePositive, getJson, isRecord, unixToIso } from './http';
 import type {
+  CoinDayChartClient,
   CoinIdResolver,
   CoinSearchResult,
+  DayChartResult,
   PriceProviderClient,
   Quote,
   QuoteBatch,
@@ -22,6 +26,25 @@ export function coinGeckoPriceUrl(ids: readonly string[]): string {
 
 export function coinGeckoSearchUrl(query: string): string {
   return `${COINGECKO_API_BASE}/search?query=${encodeURIComponent(query)}`;
+}
+
+/** Stage 9: one coin's AUD prices over the last day (five-minute points on UTC marks). */
+export function coinGeckoDayChartUrl(id: string): string {
+  return `${COINGECKO_API_BASE}/coins/${encodeURIComponent(id)}/market_chart?vs_currency=aud&days=1`;
+}
+
+/** The `prices` of a /market_chart body: `[epochMs, aud]` pairs with finite values; null when malformed. */
+export function parseMarketChart(body: unknown): Array<[number, number]> | null {
+  if (!isRecord(body) || !Array.isArray(body.prices)) return null;
+  const out: Array<[number, number]> = [];
+  for (const item of body.prices as unknown[]) {
+    if (!Array.isArray(item) || item.length < 2) continue;
+    const [t, p] = item as [unknown, unknown];
+    if (typeof t !== 'number' || !Number.isFinite(t) || t <= 0) continue;
+    if (finitePositive(p) === null) continue;
+    out.push([t, p as number]);
+  }
+  return out;
 }
 
 export interface CoinGeckoOptions {
@@ -86,7 +109,9 @@ export function pickCoinId(symbol: string, body: unknown): string | null {
   return best?.id ?? null;
 }
 
-export function createCoinGeckoProvider(o: CoinGeckoOptions): PriceProviderClient & CoinIdResolver {
+export function createCoinGeckoProvider(
+  o: CoinGeckoOptions,
+): PriceProviderClient & CoinIdResolver & CoinDayChartClient {
   return {
     id: 'coingecko',
 
@@ -128,6 +153,27 @@ export function createCoinGeckoProvider(o: CoinGeckoOptions): PriceProviderClien
         failures.push(...batch.failures);
       }
       return { quotes, failures };
+    },
+
+    async fetchDayChart(id, signal): Promise<DayChartResult> {
+      const outcome = await getJson({
+        fetchImpl: o.fetchImpl,
+        url: coinGeckoDayChartUrl(id),
+        headers: HEADERS,
+        runSignal: signal,
+        timeoutMs: o.timeoutMs,
+        now: o.now,
+      });
+      if (outcome.kind !== 'ok') {
+        const failure = failureFor(id, outcome, 'Unknown CoinGecko id');
+        const result: DayChartResult = { ok: false, error: failure.error };
+        if (failure.rateLimited) result.rateLimited = true;
+        if (failure.retryAfterMs !== undefined) result.retryAfterMs = failure.retryAfterMs;
+        if (failure.skipped) result.skipped = true;
+        return result;
+      }
+      const prices = parseMarketChart(outcome.body);
+      return prices === null ? { ok: false, error: 'Malformed response' } : { ok: true, prices };
     },
 
     async searchId(symbol, signal): Promise<CoinSearchResult> {

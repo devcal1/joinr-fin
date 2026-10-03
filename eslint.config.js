@@ -18,6 +18,8 @@ export default defineConfig([
     'playwright-report/',
     'test-results/',
     'apps/server/migrations/',
+    // Kotlin and Gradle (stage-9.md §7.4): nothing for ESLint there.
+    'apps/android/',
   ]),
 
   js.configs.recommended,

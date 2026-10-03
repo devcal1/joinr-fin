@@ -77,16 +77,17 @@ describe('backup constants (§3.2)', () => {
 
 describe('enums and error codes (§3.3)', () => {
   it("appends the 'backup' job and the two Stage 7 codes", () => {
-    // Stage 8 appends 'nas-copy' and two codes after these (test/nasCopy.test.ts).
+    // Stage 8 appends 'nas-copy' and two codes after these (test/nasCopy.test.ts), Stage 9
+    // 'intraday' and nine codes (test/mobile-rules.test.ts).
     expect(JOB_NAMES.slice(0, 4)).toEqual(['prices', 'dividends', 'snapshot', 'backup']);
-    expect(API_ERROR_CODES.slice(-4, -2)).toEqual(['BACKUP_FAILED', 'CROSS_SITE_REQUEST']);
+    expect(API_ERROR_CODES.slice(-13, -11)).toEqual(['BACKUP_FAILED', 'CROSS_SITE_REQUEST']);
     expect(new Set(API_ERROR_CODES).size).toBe(API_ERROR_CODES.length);
   });
 
   it('has an error body for each Stage 7 code', () => {
     const bodies = [f.apiErrors.backupFailed, f.apiErrors.crossSiteRequest];
     for (const body of bodies) expect(isApiErrorBody(body)).toBe(true);
-    expect(bodies.map((b) => b.error.code)).toEqual(API_ERROR_CODES.slice(-4, -2));
+    expect(bodies.map((b) => b.error.code)).toEqual(API_ERROR_CODES.slice(-13, -11));
     expect(Object.values(BACKUP_FAILURE_MESSAGES)).toContain(
       f.apiErrors.backupFailed.error.message,
     );

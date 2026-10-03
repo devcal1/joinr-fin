@@ -35,6 +35,11 @@ export interface MarketDataService {
   /** Schedules a refresh in ~5 s (mode live/fake), coalesced. */
   notifyInstrumentsChanged(): void;
   status(): MarketDataStatus;
+  /**
+   * Stage 9 (stage-9.md §5.6, FROZEN): clears the `intraday` timer; idempotent. server-api calls it
+   * first in `preClose`. A no-op until the intraday job lands.
+   */
+  stop(): void;
 }
 
 /** `POST /api/prices/refresh` in mode `off` → 503 MARKET_DATA_DISABLED. */

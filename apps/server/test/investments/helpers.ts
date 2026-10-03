@@ -769,6 +769,7 @@ export function fakeMarket(
     setPriceSource: unused,
     notifyInstrumentsChanged: notify,
     status: () => st,
+    stop: () => undefined,
     notify,
   };
 }

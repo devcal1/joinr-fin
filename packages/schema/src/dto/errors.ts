@@ -36,6 +36,17 @@ export const API_ERROR_CODES = [
   // refusal lock holds). The message is a fixed sentence, never a value.
   'NAS_COPY_NOT_READY',
   'NAS_COPY_FIX_FIRST',
+  // Stage 9 (stage-9.md §3.5, §4.1, §4.5): 401 · 401 · 401 · 429 · 405 · 401 · 429 · 409 · 503. The
+  // message is a fixed sentence (MOBILE_ERROR_MESSAGES), never a value.
+  'DEVICE_KEY_MISSING',
+  'DEVICE_KEY_INVALID',
+  'DEVICE_KEY_REVOKED',
+  'MOBILE_RATE_LIMITED',
+  'MOBILE_READ_ONLY',
+  'PAIRING_CODE_INVALID',
+  'PAIRING_RATE_LIMITED',
+  'PHONE_LIMIT_REACHED',
+  'PHONE_STORE_FAILED',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 

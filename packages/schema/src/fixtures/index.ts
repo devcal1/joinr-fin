@@ -7,4 +7,6 @@ export * from './history';
 export * from './fire';
 export * from './backups';
 export * from './nasCopy';
+export * from './mobile';
+export * from './phone';
 export * from './coverage';

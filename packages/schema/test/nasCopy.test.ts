@@ -104,15 +104,22 @@ describe('NAS-copy constants (§3.2)', () => {
 
 describe('enums and error codes (§3.4)', () => {
   it("appends the 'nas-copy' job and the two Stage 8 codes", () => {
-    expect(JOB_NAMES).toEqual(['prices', 'dividends', 'snapshot', 'backup', 'nas-copy']);
-    expect(API_ERROR_CODES.slice(-2)).toEqual(['NAS_COPY_NOT_READY', 'NAS_COPY_FIX_FIRST']);
+    // Stage 9 appends 'intraday' and nine codes after these (test/mobile-rules.test.ts).
+    expect(JOB_NAMES.slice(0, 5)).toEqual([
+      'prices',
+      'dividends',
+      'snapshot',
+      'backup',
+      'nas-copy',
+    ]);
+    expect(API_ERROR_CODES.slice(-11, -9)).toEqual(['NAS_COPY_NOT_READY', 'NAS_COPY_FIX_FIRST']);
     expect(new Set(API_ERROR_CODES).size).toBe(API_ERROR_CODES.length);
   });
 
   it('has an error body for each Stage 8 code, with the fixed messages', () => {
     const bodies = [f.apiErrors.nasCopyNotReady, f.apiErrors.nasCopyFixFirst];
     for (const body of bodies) expect(isApiErrorBody(body)).toBe(true);
-    expect(bodies.map((b) => b.error.code)).toEqual(API_ERROR_CODES.slice(-2));
+    expect(bodies.map((b) => b.error.code)).toEqual(API_ERROR_CODES.slice(-11, -9));
     expect(f.apiErrors.nasCopyNotReady.error.message).toBe(NAS_COPY_OFF_MESSAGE);
     expect(f.apiErrors.nasCopyFixFirst.error.message).toBe(NAS_COPY_FIX_FIRST_MESSAGE);
   });

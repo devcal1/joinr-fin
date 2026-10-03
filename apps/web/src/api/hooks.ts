@@ -6,6 +6,7 @@
 // ['property']. Stage 5 (stage-5.md §6.2): ['net-worth', unit, count], ['history'],
 // ['history-series', unit, count], ['settings']. Stage 6 (stage-6.md §6.2): ['fire', query].
 // Stage 7 (stage-7.md §6.1): ['backups']. Stage 8 (stage-8.md §8.1): the NAS copy shares ['backups'].
+// Stage 9 (stage-9.md §8.1): ['phone'] (Settings → Phone).
 import type {
   BackupNowResponse,
   BackupsResponse,
@@ -78,6 +79,7 @@ import type {
   IncomeStreamMutationResponse,
   IsoMonth,
   PeriodNoteResponse,
+  PhoneSectionResponse,
   SavingsAdjustmentDto,
   SavingsAdjustmentInput,
   SavingsGoalInput,
@@ -150,6 +152,8 @@ export const queryKeys = {
   firePage: (query: FireQuery | null) => ['fire', query ?? {}] as const,
   /** The Settings Backups and About sections (stage-7.md §6.1). */
   backups: ['backups'] as const,
+  /** Settings → Phone (stage-9.md §8.1). */
+  phone: ['phone'] as const,
 };
 
 /**
@@ -481,6 +485,19 @@ export function useBackups(): UseQueryResult<BackupsResponse> {
     queryFn: () => apiGet<BackupsResponse>('/api/backups'),
     refetchInterval: (query) =>
       query.state.data?.running || query.state.data?.nasCopy?.running ? BUSY_POLL_MS : false,
+  });
+}
+
+/**
+ * `GET /api/phone` (stage-9.md §8.1): the paired and removed phones and the open pairing code.
+ * Polled every 2 s while a code is open (so "Paired:" shows as the phone pairs), and not at all
+ * once it closes.
+ */
+export function usePhone(): UseQueryResult<PhoneSectionResponse> {
+  return useQuery({
+    queryKey: queryKeys.phone,
+    queryFn: () => apiGet<PhoneSectionResponse>('/api/phone'),
+    refetchInterval: (query) => (query.state.data?.pairing ? BUSY_POLL_MS : false),
   });
 }
 
@@ -1116,6 +1133,39 @@ export function useNasCopyNow(): UseMutationResult<NasCopyNowResponse, Error, vo
         queryClient.invalidateQueries({ queryKey: queryKeys.status }),
       ]),
   });
+}
+
+// Settings → Phone (stage-9.md §8.1): every mutation answers the whole section; it is written
+// into ['phone'] at once (so the new code shows without waiting), and ['phone'] refetches on settle.
+
+function usePhoneMutation<V>(
+  send: (variables: V) => Promise<PhoneSectionResponse>,
+): UseMutationResult<PhoneSectionResponse, Error, V> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: send,
+    onSuccess: (section) => queryClient.setQueryData(queryKeys.phone, section),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.phone }),
+  });
+}
+
+/** `POST /api/phone/pairing`: opens a code (any open code is replaced). */
+export function useOpenPairing(): UseMutationResult<PhoneSectionResponse, Error, void> {
+  return usePhoneMutation<void>(() => apiSend<PhoneSectionResponse>('POST', '/api/phone/pairing'));
+}
+
+/** `DELETE /api/phone/pairing`: cancels the open code. */
+export function useCancelPairing(): UseMutationResult<PhoneSectionResponse, Error, void> {
+  return usePhoneMutation<void>(() =>
+    apiSend<PhoneSectionResponse>('DELETE', '/api/phone/pairing'),
+  );
+}
+
+/** `POST /api/phone/devices/:id/revoke`: removes a phone (its key stops working at once). */
+export function useRevokePhone(): UseMutationResult<PhoneSectionResponse, Error, string> {
+  return usePhoneMutation<string>((id) =>
+    apiSend<PhoneSectionResponse>('POST', `/api/phone/devices/${encodeURIComponent(id)}/revoke`),
+  );
 }
 
 // ─── Assets (stage-4.md §4.2, §6.2) ──────────────────────────────────────────────────────────────

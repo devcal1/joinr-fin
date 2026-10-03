@@ -43,3 +43,19 @@ artifacts/
 *.xls
 *.xlsm
 .claude/settings.local.json
+
+# Android (stage-9.md §7.4): Gradle and IDE output, local SDK paths, signing material and packages.
+# The release keystore and its properties file live outside the repo; these rules are a backstop.
+apps/android/**/build/
+apps/android/.gradle/
+apps/android/.kotlin/
+apps/android/local.properties
+apps/android/captures/
+.idea/
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+*.apk
+*.aab
+*.idsig

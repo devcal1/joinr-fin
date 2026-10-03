@@ -1676,3 +1676,118 @@ describe('foreign keys and unique keys', () => {
     ).toThrow(/UNIQUE/);
   });
 });
+
+// ─── Stage 9: 0006 (stage-9.md §3.1, §3.1a, §3.2) ──────────────────────────────────────────────
+
+const STAGE5_TAGS = [...STAGE4_TAGS, '0005_stage5_history'];
+
+/** The columns `day_quotes` and `series_day_quotes` share after their key. */
+const DAY_QUOTE_COLUMNS = [
+  'session_date',
+  'time_zone',
+  'granularity',
+  'native_currency',
+  'previous_close',
+  'regular_start',
+  'regular_end',
+  'points',
+  'source',
+  'fetched_at',
+];
+
+describe('0006 (stage-9.md §3)', () => {
+  it('holds only the two CREATE TABLEs and the two market_quotes columns', () => {
+    const text = readFileSync(join(MIGRATIONS_DIR, '0006_stage9_mobile.sql'), 'utf8');
+    expect(text).not.toMatch(/__new_|PRAGMA|DROP /i);
+    expect(text).not.toMatch(/^(INSERT|UPDATE|DELETE)/im);
+    const statements = text
+      .split('--> statement-breakpoint')
+      .map((chunk) =>
+        chunk
+          .split('\n')
+          .filter((line) => !line.trim().startsWith('--'))
+          .join('\n')
+          .trim(),
+      )
+      .filter((chunk) => chunk !== '');
+    expect(statements.map((st) => st.split('(')[0]!.trim())).toEqual([
+      'CREATE TABLE `day_quotes`',
+      'CREATE TABLE `series_day_quotes`',
+      'ALTER TABLE `market_quotes` ADD `previous_close` text;',
+      'ALTER TABLE `market_quotes` ADD `previous_close_date` text;',
+    ]);
+  });
+
+  it('gives a fresh database the two caches and the two columns', () => {
+    const database = open();
+    runMigrations(database, MIGRATIONS_DIR);
+    expect(columnNames(database, 'day_quotes')).toEqual(['instrument_id', ...DAY_QUOTE_COLUMNS]);
+    expect(columnNames(database, 'series_day_quotes')).toEqual(['series_id', ...DAY_QUOTE_COLUMNS]);
+    expect(columnNames(database, 'market_quotes').slice(-2)).toEqual([
+      'previous_close',
+      'previous_close_date',
+    ]);
+    // `points` defaults to an empty list; a deleted instrument takes its day row with it.
+    database.sqlite
+      .prepare(
+        "INSERT INTO instruments (id, kind, symbol, code, sort_order, origin) VALUES (1, 'etf', 'ASX:ABC', 'ABC', 1, 'app')",
+      )
+      .run();
+    database.sqlite
+      .prepare(
+        "INSERT INTO day_quotes (instrument_id, session_date, time_zone, granularity, native_currency, source, fetched_at) VALUES (1, '2030-09-12', 'Australia/Sydney', '5m', 'AUD', 'fake', '2030-09-12T05:20:00.000Z')",
+      )
+      .run();
+    expect(database.sqlite.prepare('SELECT points, previous_close FROM day_quotes').get()).toEqual({
+      points: '[]',
+      previous_close: null,
+    });
+    database.sqlite.prepare('DELETE FROM instruments WHERE id = 1').run();
+    expect(database.sqlite.prepare('SELECT COUNT(*) AS n FROM day_quotes').get()).toEqual({ n: 0 });
+  });
+
+  it('upgrades a Stage 5 database with data: rows kept, the new columns null, the caches empty', () => {
+    const dir = join(tempDir, 'stage5');
+    const first = open(dir);
+    expect(runMigrations(first, migrationsDirUpTo(STAGE5_TAGS))).toEqual({ applied: 6, total: 6 });
+    expect(tableNames(first)).not.toContain('day_quotes');
+    // Raw rows: the seed cannot write to a database stopped before 0006 (Drizzle's insert names
+    // every column of the current table definition).
+    const run = (text: string) => first.sqlite.prepare(text).run();
+    run(
+      "INSERT INTO instruments (id, kind, symbol, code, sort_order, origin) VALUES (1, 'etf', 'ASX:ABC', 'ABC', 1, 'import')",
+    );
+    run(
+      "INSERT INTO prices (instrument_id, price, native_price, native_currency, fx_rate, as_of, fetched_at, source, last_status) VALUES (1, '50.5', '50.5', 'AUD', '1', '2026-09-24T04:30:00.000Z', '2026-09-24T04:31:00.000Z', 'fake', 'ok')",
+    );
+    run(
+      "INSERT INTO market_quotes (series_id, value, unit, as_of, fetched_at, source, last_status) VALUES ('AUDUSD', '0.65', 'USD per AUD', '2026-09-24T04:30:00.000Z', '2026-09-24T04:31:00.000Z', 'fake', 'ok')",
+    );
+    run(
+      "INSERT INTO market_quotes (series_id, value, unit, last_status) VALUES ('XAU_AUD_OZ', NULL, 'AUD per oz', 'never')",
+    );
+    const pricesBefore = first.sqlite.prepare('SELECT * FROM prices ORDER BY instrument_id').all();
+    const quotesBefore = first.sqlite
+      .prepare('SELECT * FROM market_quotes ORDER BY series_id')
+      .all() as Row[];
+    expect(quotesBefore).toHaveLength(2);
+    const dumpBefore = dumpDomainTables(first.db);
+    closeDatabase(first);
+
+    const second = open(dir);
+    expect(runMigrations(second, MIGRATIONS_DIR)).toEqual({
+      applied: COMMITTED_MIGRATION_COUNT - 6,
+      total: COMMITTED_MIGRATION_COUNT,
+    });
+    expect(second.sqlite.prepare('SELECT * FROM market_quotes ORDER BY series_id').all()).toEqual(
+      quotesBefore.map((row) => ({ ...row, previous_close: null, previous_close_date: null })),
+    );
+    expect(second.sqlite.prepare('SELECT * FROM prices ORDER BY instrument_id').all()).toEqual(
+      pricesBefore,
+    );
+    expect(dumpDomainTables(second.db)).toEqual(dumpBefore);
+    for (const table of ['day_quotes', 'series_day_quotes'])
+      expect(second.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
+    expect(hasAppData(second.db)).toBe(false);
+  });
+});

@@ -71,6 +71,12 @@ export interface Config {
    * works. The NAS files are the copy's only other configuration.
    */
   weeklyNasCopy: boolean;
+  /**
+   * Stage 9 (stage-9.md §5.7): `INTRADAY_REFRESH` (true|false|1|0|yes|no); default on, off under
+   * NODE_ENV=test. Off means no intraday timer and no start-up run (a manual run still works): the
+   * live kill switch if the five-minute cadence draws Yahoo 429s.
+   */
+  intradayRefresh: boolean;
 }
 
 export const DEFAULTS = {
@@ -89,6 +95,7 @@ export const TEST_DEFAULTS = {
   marketDataMode: 'off',
   nightlyBackups: false,
   weeklyNasCopy: false,
+  intradayRefresh: false,
 } as const;
 
 /** The nightly backup default outside NODE_ENV=test (stage-7.md §5.1). */
@@ -96,6 +103,9 @@ export const DEFAULT_NIGHTLY_BACKUPS = true;
 
 /** The weekly NAS copy default outside NODE_ENV=test (stage-8.md §5.1). */
 export const DEFAULT_WEEKLY_NAS_COPY = true;
+
+/** The intraday job default outside NODE_ENV=test (stage-9.md §5.7). */
+export const DEFAULT_INTRADAY_REFRESH = true;
 
 /** The largest PRICE_REFRESH_MINUTES (one day). */
 export const MAX_PRICE_REFRESH_MINUTES = 1440;
@@ -145,6 +155,7 @@ const envSchema = z.object({
   AUTO_RECORD: booleanFlag.optional(),
   NIGHTLY_BACKUPS: booleanFlag.optional(),
   WEEKLY_NAS_COPY: booleanFlag.optional(),
+  INTRADAY_REFRESH: booleanFlag.optional(),
   PUBLIC_PORT: z
     .string()
     .regex(/^\d{1,5}$/, { error: 'must be a whole number from 1 to 65535' })
@@ -252,5 +263,7 @@ export function loadConfig(
     publicPort: e.PUBLIC_PORT ?? null,
     weeklyNasCopy:
       e.WEEKLY_NAS_COPY ?? (isTest ? TEST_DEFAULTS.weeklyNasCopy : DEFAULT_WEEKLY_NAS_COPY),
+    intradayRefresh:
+      e.INTRADAY_REFRESH ?? (isTest ? TEST_DEFAULTS.intradayRefresh : DEFAULT_INTRADAY_REFRESH),
   };
 }

@@ -18,8 +18,14 @@ import { createMarketDataService } from './market/index';
 import type { RsyncRunner } from './nascopy/runner';
 import { createNasCopyService, type NasCopyService } from './nascopy/service';
 import { Cooldowns } from './market/refresh';
+import { KeyCheck } from './mobile/auth';
+import { DeviceStore, type DeviceStoreFs } from './mobile/devices';
+import { PairingService } from './mobile/pairing';
+import { assertDeclaredMobileRoute, mobileRoutes } from './routes/mobile';
+import { phoneRoutes } from './routes/phone';
 import { createService } from './market/service';
 import type { MarketDataService } from './market/types';
+import { financeDeps } from './cashflow/context';
 import { budgetRoutes } from './routes/budget';
 import { cashRoutes } from './routes/cash';
 import { dividendsRoutes } from './routes/dividends';
@@ -53,6 +59,11 @@ export interface AppServices {
    * factories keep compiling; buildApp falls back to the off-mode service.
    */
   dividendEvents?: DividendEventsService;
+  /**
+   * Stage 9 (stage-9.md §6.6): the provider cool-downs the price jobs share, so the phone's market
+   * state stays `open` while Yahoo is cooling down. Optional (test factories omit it: never cooling).
+   */
+  cooldowns?: Cooldowns;
 }
 
 export interface ServiceDeps {
@@ -74,6 +85,8 @@ declare module 'fastify' {
     backups: BackupService;
     /** Stage 8 (stage-8.md §5.11): the weekly copy to the NAS; index.ts starts it. */
     nasCopy: NasCopyService;
+    /** Stage 9 (stage-9.md §6.1): the paired phones (`<DATA_DIR>/devices/devices.json`). */
+    devices: DeviceStore;
   }
 }
 
@@ -110,6 +123,16 @@ export interface BuildAppOptions {
    * leak test can read every line the app wrote.
    */
   logStream?: { write(line: string): void };
+  /**
+   * Stage 9 (tests only): the device store's file system calls (e.g. a `renameSync` that throws),
+   * the server's zone (default: the process zone, as the response's `timeZone`) and a route listener.
+   */
+  mobile?: {
+    fs?: Partial<DeviceStoreFs>;
+    timeZone?: string;
+    /** Sees every route as it is added (the route-set test). */
+    onRoute?: (route: { method: string | string[]; url: string }) => void;
+  };
 }
 
 export const SECURITY_HEADERS = {
@@ -133,7 +156,7 @@ export function defaultServices({ database, log, config }: ServiceDeps): AppServ
     scheduler,
     cooldowns,
   });
-  return { scheduler, market, dividendEvents };
+  return { scheduler, market, dividendEvents, cooldowns };
 }
 
 /** Market data off and no refresh timer: the default when `services` is omitted (tests). */
@@ -161,6 +184,7 @@ export async function buildApp({
   nasCopyClock,
   nasCopyRunner,
   logStream,
+  mobile,
 }: BuildAppOptions): Promise<FastifyInstance> {
   // Fail before creating anything, so the caller only has the database to clean up.
   if (config.serveWeb) assertWebDist(config.webDistDir);
@@ -209,6 +233,23 @@ export async function buildApp({
     runner: nasCopyRunner,
   });
   app.decorate('nasCopy', nasCopy);
+  // Stage 9 (stage-9.md §6.1–§6.3, §6.7): the device store (loaded once, now), the pairing code (in
+  // memory only), the key check and the deny-by-default guard for `/api/mobile`.
+  const clock = now ?? (() => new Date());
+  const devices = new DeviceStore({
+    dataDir: config.dataDir,
+    fs: mobile?.fs,
+    log: app.log,
+    now: clock,
+  });
+  app.decorate('devices', devices);
+  const pairing = new PairingService({ store: devices, now: clock, serverVersion: version });
+  const keyCheck = new KeyCheck({ store: devices, now: clock });
+  const mobileDeclared = new Set<string>();
+  app.addHook('onRoute', (route) => {
+    mobile?.onRoute?.(route);
+    assertDeclaredMobileRoute(mobileDeclared, route);
+  });
 
   app.addHook('onSend', async (request, reply, payload) => {
     reply.headers(SECURITY_HEADERS);
@@ -223,6 +264,10 @@ export async function buildApp({
   // backups, the recorder (it aborts its own price wait) and then the scheduler (abort and await
   // an in-flight job) before the database closes (stage-5.md §4.6).
   app.addHook('preClose', async () => {
+    // Stage 9 (stage-9.md §6.7): the intraday timer and the device store (last-used times and any
+    // removal not yet saved) first, then the Stage 8 order.
+    market.stop();
+    devices.flush();
     await nasCopy.stop();
     await backups.stop();
     await recorder.stop();
@@ -288,6 +333,18 @@ export async function buildApp({
     nasCopy,
     version,
     now,
+  });
+  // Stage 9 (stage-9.md §6.7): Settings → Phone and the phone API, before the SPA.
+  await app.register(phoneRoutes, { prefix: '/api', store: devices, pairing });
+  await app.register(mobileRoutes, {
+    prefix: '/api',
+    deps: financeDeps({ database: db, market, now, engine }),
+    keyCheck,
+    pairing,
+    timeZone: mobile?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    version,
+    yahooCooling: (at) => built.cooldowns?.isCooling('yahoo', at) ?? false,
+    declared: mobileDeclared,
   });
   if (config.serveWeb) await registerWebApp(app, config.webDistDir);
   app.setNotFoundHandler(createNotFoundHandler(config.serveWeb));

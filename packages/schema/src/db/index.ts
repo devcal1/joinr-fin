@@ -62,7 +62,9 @@ export type JoinrDb = BetterSQLite3Database<typeof tables>;
  * a re-import keeps them and they never count as app data (stage-3.md §3.4). Stage 4 adds its logs
  * (the offset links first: they reference both accounts and loans); the `super_sg_overrides`
  * overlay and the `market_quote_history` cache are not listed (stage-4.md §3.2, §3.4). Stage 5's
- * `snapshot_audit` log is not listed either: an import never deletes it (stage-5.md §3.2).
+ * `snapshot_audit` log is not listed either: an import never deletes it (stage-5.md §3.2). Stage 9's
+ * `day_quotes` and `series_day_quotes` caches follow `prices`: not listed, kept by a re-import,
+ * never app data (stage-9.md §3.1, §3.1a).
  */
 export const DOMAIN_TABLES_DELETE_ORDER = [
   loanOffsetLinks,

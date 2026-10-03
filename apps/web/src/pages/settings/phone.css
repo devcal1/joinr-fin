@@ -1,0 +1,156 @@
+/*
+ * Settings → Phone (stage-9.md §8.2): `jf-app-phone-*` rules only. Dense per D109; the tables fit
+ * their content (D136). The pairing block is two columns (the QR code, then the address, the code
+ * and its buttons) and one column on a phone. The QR tile is the app's one white surface (§15 item
+ * 13: scanners need dark modules on a light ground); its modules are the ink colour.
+ */
+@layer app {
+  .jf-app-phone-lead,
+  .jf-app-phone-note,
+  .jf-app-phone-expired,
+  .jf-app-phone-done {
+    max-width: var(--measure);
+  }
+
+  /* The subheadings are focus targets (after a removal): the ring fits the words. */
+  .jf-app-phone-list > .jf-app-subhead__title,
+  .jf-app-phone-pair > .jf-app-subhead__title {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .jf-app-phone-time {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .jf-app-phone-time--split {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Phone width: the app version as a second, muted line under the phone's name. */
+  .jf-app-phone-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .jf-app-phone-label__app {
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    font-weight: 400;
+  }
+
+  .jf-app-phone-removed {
+    align-self: flex-start;
+    max-width: 100%;
+  }
+
+  .jf-app-phone-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  /*
+   * The pairing block: the QR column sizes to the tile, the details take the rest. It is a focus
+   * target when it opens, so it fits its content and the ring hugs the two columns.
+   */
+  .jf-app-phone-pairing {
+    width: fit-content;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-4) var(--space-6);
+    align-items: start;
+  }
+
+  .jf-app-phone-pairing__qr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-width: 220px;
+  }
+
+  .jf-app-phone-pairing__details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+    max-width: var(--measure);
+  }
+
+  /* The tile: a whole number of pixels per module (set by the component), never stretched. */
+  .jf-app-phone-qr {
+    display: block;
+    flex: none;
+  }
+
+  .jf-app-phone-qr__tile {
+    fill: var(--text-bright);
+  }
+
+  .jf-app-phone-qr__modules {
+    fill: var(--ink);
+  }
+
+  .jf-app-phone-qr-missing {
+    display: grid;
+    place-items: center;
+    width: 196px;
+    height: 196px;
+    padding: var(--space-3);
+    border: 1px dashed var(--raised);
+    border-radius: var(--radius-card);
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  /* The code for pairing by hand: monospaced, with the countdown beside it. */
+  .jf-app-phone-code {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .jf-app-phone-code__label {
+    flex: 1 0 100%;
+    color: var(--text-secondary);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .jf-app-phone-code__value {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 20px;
+    letter-spacing: 0.08em;
+  }
+
+  .jf-app-phone-code__left {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The confirmation sits under the list (its question is a sentence, too long for a cell). */
+  .jf-app-phone-confirm .jf-app-confirm {
+    max-width: var(--measure);
+  }
+
+  @media (max-width: 767.98px) {
+    .jf-app-phone-pairing {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .jf-app-phone-actions > .jf-button {
+      flex: 1 1 auto;
+    }
+  }
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only (never in release): a widget host for the emulator smoke (plan section 9.14). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".debug.WidgetHostActivity"
+            android:exported="true"
+            android:label="Widget host (debug)"
+            android:theme="@style/Theme.JoinrFinance" />
+    </application>
+</manifest>

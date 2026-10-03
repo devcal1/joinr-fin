@@ -3,7 +3,11 @@
 // returned as rate-limited (skipped) and the service starts a cool-down.
 // Stage 4 (stage-4.md §4.6) adds the daily FX closes for the purchase-date FX backfill
 // (`parseYahooCloses`, `createYahooFxClosesClient`).
+// Stage 9 (stage-9.md §5.1): every quote is a one-day five-minute chart (the bullion inputs a
+// two-day one) carrying the session's `day`; managed funds are daily requests on the five-day
+// daily chart; and a refused five-minute request falls back once to the five-day daily chart.
 import { decimalFromNumber, type DecimalString, type IsoDate } from '@joinr/schema';
+import { chartResultOf, parseYahooBars, parseYahooDailyDay, parseYahooDay } from '../day';
 import { currencyFromSymbol, localDateResolver } from './exchangeTime';
 import {
   BROWSER_USER_AGENT,
@@ -36,9 +40,35 @@ export const YAHOO_CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/cha
 export const YAHOO_CONCURRENCY = 2;
 export const YAHOO_SPACING_MS = 250;
 
+/**
+ * Stage 9 (D153): the bullion inputs, fetched with a two-day five-minute chart so the bars reach
+ * back to 00:00 Melbourne at any hour.
+ */
+export const YAHOO_TWO_DAY_SYMBOLS: ReadonlySet<string> = new Set(['AUDUSD=X', 'SI=F', 'GC=F']);
+
+/**
+ * Stage 9 (§5.1): the price request: a one-day five-minute chart (price, previous close and today's
+ * bars in one call); the bullion inputs a two-day one. Daily requests use `yahooDailyChartUrl`.
+ */
 export function yahooChartUrl(symbol: string): string {
+  const range = YAHOO_TWO_DAY_SYMBOLS.has(symbol) ? '2d' : '1d';
+  return `${YAHOO_CHART_BASE}${encodeURIComponent(symbol)}?range=${range}&interval=5m`;
+}
+
+/** The five-day daily chart: a managed fund's daily request and the five-minute fallback (§5.1). */
+export function yahooDailyChartUrl(symbol: string): string {
   return `${YAHOO_CHART_BASE}${encodeURIComponent(symbol)}?range=5d&interval=1d`;
 }
+
+/**
+ * Which day a parsed chart carries (§5.1): `intraday` (a one-day five-minute chart), `twoDay` (the
+ * bullion inputs: `previousClose` read first, plus every bar), `daily` (a fund's five-day chart:
+ * the last two NAVs) or `none` (the five-day fallback: no day).
+ */
+export type YahooDayMode = 'intraday' | 'twoDay' | 'daily' | 'none';
+
+/** Parse failures of a five-minute answer that send the request to the five-day fallback. */
+const FALLBACK_ERRORS: ReadonlySet<string> = new Set(['No price in response', 'Symbol not found']);
 
 /**
  * Stage 3 (stage-3.md §4.6): the chart request for dividend events and daily closes between two
@@ -66,7 +96,27 @@ export interface YahooOptions {
  * A degraded `meta` (no currency, market time 0, a stale or wrong price) therefore falls back to
  * the daily bars, with the currency inferred from the exchange suffix.
  */
-export function parseYahooChart(key: string, body: unknown): Quote | QuoteFailure {
+export function parseYahooChart(
+  key: string,
+  body: unknown,
+  mode: YahooDayMode = 'intraday',
+): Quote | QuoteFailure {
+  const parsed = parseYahooPrice(key, body);
+  if (!isQuote(parsed) || mode === 'none') return parsed;
+  const result = chartResultOf(body);
+  if (result === null) return parsed;
+  const day =
+    mode === 'daily'
+      ? parseYahooDailyDay(result, parsed.currency)
+      : parseYahooDay(result, parsed.currency, { previousCloseFirst: mode === 'twoDay' });
+  const quote: Quote = { ...parsed };
+  if (day !== null) quote.day = day;
+  if (mode === 'twoDay') quote.bars = parseYahooBars(result);
+  return quote;
+}
+
+/** The price rules (Stage 1, unchanged). */
+function parseYahooPrice(key: string, body: unknown): Quote | QuoteFailure {
   if (!isRecord(body) || !isRecord(body.chart)) {
     return { key, error: 'Malformed response', retryable: true };
   }
@@ -117,17 +167,43 @@ export function createYahooProvider(o: YahooOptions): PriceProviderClient {
   const spacingMs = o.spacingMs ?? YAHOO_SPACING_MS;
   const headers = { 'User-Agent': BROWSER_USER_AGENT, Accept: 'application/json' };
 
-  async function fetchOne(req: QuoteRequest, signal: AbortSignal): Promise<Quote | QuoteFailure> {
-    const outcome = await getJson({
+  const get = (url: string, signal: AbortSignal) =>
+    getJson({
       fetchImpl: o.fetchImpl,
-      url: yahooChartUrl(req.symbol),
+      url,
       headers,
       runSignal: signal,
       timeoutMs: o.timeoutMs,
       now: o.now,
     });
-    if (outcome.kind !== 'ok') return failureFor(req.key, outcome);
-    return parseYahooChart(req.key, outcome.body);
+
+  async function fetchOne(
+    req: QuoteRequest,
+    signal: AbortSignal,
+    isLimited: () => QuoteFailure | null,
+  ): Promise<Quote | QuoteFailure> {
+    if (req.daily) {
+      const outcome = await get(yahooDailyChartUrl(req.symbol), signal);
+      if (outcome.kind !== 'ok') return failureFor(req.key, outcome);
+      return parseYahooChart(req.key, outcome.body, 'daily');
+    }
+    const outcome = await get(yahooChartUrl(req.symbol), signal);
+    if (outcome.kind === 'ok') {
+      const mode = YAHOO_TWO_DAY_SYMBOLS.has(req.symbol) ? 'twoDay' : 'intraday';
+      const parsed = parseYahooChart(req.key, outcome.body, mode);
+      if (isQuote(parsed) || !FALLBACK_ERRORS.has(parsed.error)) return parsed;
+    } else if (outcome.kind !== 'http' || outcome.status === 429 || outcome.status === 403) {
+      return failureFor(req.key, outcome);
+    }
+    // The five-day fallback (§5.1): once, with the same spacing and cool-down, one attempt; only
+    // its failure is recorded. Its quote carries no day.
+    if (spacingMs > 0 && !signal.aborted) await o.sleep(spacingMs, signal);
+    const limited = isLimited();
+    if (limited) return { ...limited, key: req.key };
+    if (signal.aborted) return { key: req.key, error: 'Aborted', retryable: true, skipped: true };
+    const fallback = await get(yahooDailyChartUrl(req.symbol), signal);
+    if (fallback.kind !== 'ok') return failureFor(req.key, fallback);
+    return parseYahooChart(req.key, fallback.body, 'none');
   }
 
   return {
@@ -160,7 +236,7 @@ export function createYahooProvider(o: YahooOptions): PriceProviderClient {
             skip(req);
             continue;
           }
-          const result = await fetchOne(req, signal);
+          const result = await fetchOne(req, signal, () => limited);
           if (isQuote(result)) {
             quotes.push(result);
           } else {

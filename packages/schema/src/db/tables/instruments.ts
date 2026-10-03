@@ -1,8 +1,10 @@
 // Instruments and their pricing: instruments, price_sources, prices, market_quotes (§2.4), the
-// Stage 3 dividend-events cache (stage-3.md §3.1, §4.6) and the Stage 4 series history
-// (stage-4.md §3.1, §4.6).
+// Stage 3 dividend-events cache (stage-3.md §3.1, §4.6), the Stage 4 series history
+// (stage-4.md §3.1, §4.6) and the Stage 9 day caches (stage-9.md §3.1, §3.1a, §3.2).
 import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 import {
+  DAY_GRANULARITIES,
+  DAY_QUOTE_SOURCES,
   FETCH_STATUSES,
   INSTRUMENT_KINDS,
   MANUAL_ORIGINS,
@@ -105,6 +107,10 @@ export const marketQuotes = sqliteTable('market_quotes', {
   lastStatus: text('last_status', { enum: FETCH_STATUSES }).notNull().default('never'),
   lastError: text('last_error'),
   consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  // Stage 9 (migration 0006, stage-9.md §3.2): the FX series' own previous close and its session
+  // date (`AUDUSD` and `FX_<CCY>AUD` only; the bullion series leave both null).
+  previousClose: text('previous_close'),
+  previousCloseDate: text('previous_close_date'),
 });
 
 /**
@@ -146,3 +152,48 @@ export const marketQuoteHistory = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.seriesId, t.date] })],
 );
+
+/** The columns `day_quotes` and `series_day_quotes` share (stage-9.md §3.1). */
+function dayQuoteColumns() {
+  return {
+    /** `YYYY-MM-DD` in `time_zone`. */
+    sessionDate: text('session_date').notNull(),
+    /** IANA zone of the session (crypto and bullion: the server's zone). */
+    timeZone: text('time_zone').notNull(),
+    granularity: text('granularity', { enum: DAY_GRANULARITIES }).notNull(),
+    /** As Yahoo/CoinGecko report it (`AUD`, `USD`, `GBp`). */
+    nativeCurrency: text('native_currency').notNull(),
+    /** Native decimal; null = unknown. Crypto and bullion: the 00:00 price. */
+    previousClose: text('previous_close'),
+    /** UTC ISO of the session's regular period (null when unknown). */
+    regularStart: text('regular_start'),
+    regularEnd: text('regular_end'),
+    /** JSON `[[unixSeconds,"price"],…]`, ascending, unique times, ≤ DAY_POINTS_MAX. */
+    points: text('points').notNull().default('[]'),
+    source: text('source', { enum: DAY_QUOTE_SOURCES }).notNull(),
+    /** UTC ISO. */
+    fetchedAt: text('fetched_at').notNull(),
+  };
+}
+
+/**
+ * Stage 9 (stage-9.md §3.1): each instrument's latest session (1:1): its date and zone, its
+ * previous close and its bars. A cache: no provenance, never app data, not in
+ * DOMAIN_TABLES_DELETE_ORDER (a re-import keeps it, like `prices`), never dumped.
+ */
+export const dayQuotes = sqliteTable('day_quotes', {
+  instrumentId: integer('instrument_id')
+    .primaryKey()
+    .references(() => instruments.id, { onDelete: 'cascade' }),
+  ...dayQuoteColumns(),
+});
+
+/**
+ * Stage 9 (stage-9.md §3.1a, D148, D153): bullion's day since 00:00 Melbourne, by series id: the
+ * AUD spots `XAG_AUD_OZ`/`XAU_AUD_OZ` and the futures `SI_USD_OZ`/`GC_USD_OZ` (four rows at most;
+ * no foreign key). A cache exactly like `day_quotes`.
+ */
+export const seriesDayQuotes = sqliteTable('series_day_quotes', {
+  seriesId: text('series_id').primaryKey(),
+  ...dayQuoteColumns(),
+});

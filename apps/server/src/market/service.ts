@@ -2,8 +2,12 @@
 // live/fake), runs refreshes through it (so runs never overlap and every run is logged), and
 // serves prices, series, manual overrides and source edits. `createMarketDataService` (index.ts)
 // is the frozen entry point; this module adds test-only knobs (deadline, spacing, delays).
+// Stage 9 (stage-9.md §5.6): it also registers the `intraday` job (intraday/service.ts) and arms its
+// timer when INTRADAY_REFRESH is on; `stop()` clears that timer; the `prices` job waits for an
+// in-flight intraday run before it selects its targets.
 import {
   derivePriceSource,
+  INTRADAY_RUN_DEADLINE_MS,
   type JobTrigger,
   type ManualPriceInput,
   type MarketDataMode,
@@ -11,13 +15,22 @@ import {
   type PriceSourceInput,
   type RefreshSummary,
 } from '@joinr/schema';
-import { instruments, jobRuns, prices, priceSources, type JoinrDb } from '@joinr/schema/db';
+import {
+  dayQuotes,
+  instruments,
+  jobRuns,
+  prices,
+  priceSources,
+  type JoinrDb,
+} from '@joinr/schema/db';
 import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config';
 import { HttpError } from '../errors';
 import { SchedulerStoppedError, systemClock } from '../scheduler/index';
 import type { JobContext, JobResult, Scheduler } from '../scheduler/types';
+import { serverTimeZone } from './day';
+import { createIntraday, type IntradayService } from './intraday/service';
 import { listPriceItems, listSeries, priceItemFor } from './items';
 import { createCoinGeckoProvider } from './providers/coingecko';
 import { createFakeFxClosesClient, createFakeProvider } from './providers/fake';
@@ -33,6 +46,10 @@ import {
 } from './refresh';
 import { MarketDataDisabledError, type Clock, type MarketDataService } from './types';
 
+type Tx = Parameters<Parameters<JoinrDb['transaction']>[0]>[0];
+/** An instrument's effective price source (the stored row, else the derived default). */
+type SourcePair = { provider: PriceSourceInput['provider']; providerSymbol: string | null };
+
 export const PRICES_JOB = 'prices' as const;
 /** First scheduled refresh after start(). */
 export const PRICES_INITIAL_DELAY_MS = 15_000;
@@ -41,11 +58,15 @@ export const NOTIFY_DELAY_MS = 5_000;
 
 export interface MarketDataServiceOptions {
   db: JoinrDb;
-  config: Pick<Config, 'marketDataMode' | 'priceRefreshMinutes'>;
+  /** Stage 9: `intradayRefresh` arms the intraday timer (absent → off, as under NODE_ENV=test). */
+  config: Pick<Config, 'marketDataMode' | 'priceRefreshMinutes'> &
+    Partial<Pick<Config, 'intradayRefresh'>>;
   log: FastifyBaseLogger;
   scheduler: Scheduler;
   fetchImpl?: typeof fetch;
   clock?: Clock;
+  /** Stage 9: the server's IANA zone (default: Intl's resolved zone). */
+  timeZone?: string;
   /**
    * Stage 3 (stage-3.md §4.6): provider cool-downs shared with the dividend-events service, so a
    * 429/403 seen by either job pauses Yahoo for both. Omitted → a private instance (as before).
@@ -58,6 +79,9 @@ export interface MarketDataServiceOptions {
   requestTimeoutMs?: number;
   notifyDelayMs?: number;
   providers?: Providers;
+  intradayDeadlineMs?: number;
+  coinChartSpacingMs?: number;
+  intradayStartupDelayMs?: number;
 }
 
 function buildProviders(
@@ -121,6 +145,39 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
   const cooldowns = o.cooldowns ?? new Cooldowns();
   const providers = mode === 'off' ? null : (o.providers ?? buildProviders(mode, o, clock));
   const sleep = clockSleep(clock);
+  const timeZone = o.timeZone ?? serverTimeZone();
+
+  /** Stage 9: the intraday job (modes live and fake; its timer only with INTRADAY_REFRESH). */
+  const intraday: IntradayService | null = providers
+    ? createIntraday({
+        db,
+        scheduler,
+        providers,
+        cooldowns,
+        clock,
+        sleep,
+        log,
+        timeZone,
+        timerEnabled: o.config.intradayRefresh === true,
+        isPricesRunning: () => scheduler.isRunning(PRICES_JOB),
+        runDeadlineMs: o.intradayDeadlineMs,
+        coinChartSpacingMs: o.coinChartSpacingMs,
+        startupDelayMs: o.intradayStartupDelayMs,
+      })
+    : null;
+
+  /** Waits (bounded) for an intraday run in flight, so two runs never fetch the same ids. */
+  async function awaitIntraday(signal: AbortSignal): Promise<void> {
+    const flight = intraday?.inFlight();
+    if (!flight) return;
+    const wait = new AbortController();
+    const both = AbortSignal.any([signal, wait.signal]);
+    try {
+      await Promise.race([flight, sleep(INTRADAY_RUN_DEADLINE_MS, both)]);
+    } finally {
+      wait.abort();
+    }
+  }
 
   /** Options for the next run; consumed synchronously when the job starts. */
   let nextRunOptions: RefreshOptions | null = null;
@@ -130,6 +187,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
     const options = nextRunOptions ?? {};
     nextRunOptions = null;
     if (!providers) return { status: 'failed', error: 'Market data is switched off' };
+    await awaitIntraday(ctx.signal);
 
     const deadline = new AbortController();
     const deadlineHandle = clock.setTimeout(() => deadline.abort(), deadlineMs);
@@ -146,6 +204,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
           signal,
           log,
           searchSpacingMs: o.searchSpacingMs,
+          timeZone,
         },
         options,
       );
@@ -175,6 +234,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
           series: outcome.series,
           searches: outcome.searches,
           fxBackfill: outcome.fxBackfill,
+          dayRows: outcome.dayRows,
           deadlineHit: deadline.signal.aborted,
           durationMs,
         },
@@ -233,10 +293,15 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
     return item;
   }
 
-  /** Updates the instrument's `price_sources` row, creating it from the derived default. */
+  /**
+   * Updates the instrument's `price_sources` row, creating it from the derived default. `after`
+   * runs in the same transaction with the effective (provider, providerSymbol) from before the
+   * write (the stored row's, else the derived default).
+   */
   function upsertSource(
     instrumentId: number,
     patch: Partial<typeof priceSources.$inferInsert>,
+    after?: (tx: Tx, before: SourcePair) => void,
   ): void {
     // Read-then-write: IMMEDIATE so a concurrent writer (a CLI import) is waited for via
     // busy_timeout instead of failing at once with SQLITE_BUSY.
@@ -250,10 +315,11 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
         if (!instrument) throw new HttpError(404, `No instrument ${instrumentId}`, 'NOT_FOUND');
         const updatedAt = clock.now().toISOString();
         const existing = tx
-          .select({ id: priceSources.instrumentId })
+          .select({ provider: priceSources.provider, providerSymbol: priceSources.providerSymbol })
           .from(priceSources)
           .where(eq(priceSources.instrumentId, instrumentId))
           .get();
+        const before: SourcePair = existing ?? derivePriceSource(instrument);
         if (existing) {
           tx.update(priceSources)
             .set({ ...patch, updatedAt })
@@ -270,6 +336,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
             })
             .run();
         }
+        after?.(tx, before);
       },
       { behavior: 'immediate' },
     );
@@ -342,16 +409,25 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
 
     setPriceSource(instrumentId, input: PriceSourceInput) {
       requireInstrument(instrumentId);
-      upsertSource(instrumentId, {
+      const next: SourcePair = {
         provider: input.provider,
         providerSymbol: input.provider === 'none' ? null : input.providerSymbol,
-        symbolOrigin: 'user',
+      };
+      upsertSource(instrumentId, { ...next, symbolOrigin: 'user' }, (tx, before) => {
+        // A new source gets a fresh start: clear the backoff (the last good price is kept).
+        tx.update(prices)
+          .set({ consecutiveFailures: 0 })
+          .where(eq(prices.instrumentId, instrumentId))
+          .run();
+        if (before.provider === next.provider && before.providerSymbol === next.providerSymbol)
+          return;
+        // A real change (another symbol, provider or none): the kept price belongs to the old
+        // source, so its as-of is cleared (status stale until the next fetch, which the
+        // never-backwards write then always accepts), and the old source's day row is dropped
+        // so it never merges with the new one's (Stage 9, §5.4).
+        tx.update(prices).set({ asOf: null }).where(eq(prices.instrumentId, instrumentId)).run();
+        tx.delete(dayQuotes).where(eq(dayQuotes.instrumentId, instrumentId)).run();
       });
-      // A new source gets a fresh start: clear the backoff (the last good price is kept).
-      db.update(prices)
-        .set({ consecutiveFailures: 0 })
-        .where(eq(prices.instrumentId, instrumentId))
-        .run();
       return itemOrThrow(instrumentId);
     },
 
@@ -380,6 +456,11 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
         lastRefreshAt: lastRefreshAt(),
         nextRefreshAt: nextRefreshAt(),
       };
+    },
+
+    stop() {
+      // Stage 9 (stage-9.md §5.6): clears the intraday timer; idempotent.
+      intraday?.stop();
     },
   };
 }

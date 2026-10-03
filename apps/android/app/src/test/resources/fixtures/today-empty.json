@@ -1,0 +1,29 @@
+{
+  "apiVersion": 1,
+  "serverVersion": "1.2.0",
+  "generatedAt": "2030-09-12T05:20:00.000Z",
+  "timeZone": "Australia/Melbourne",
+  "localDate": "2030-09-12",
+  "market": { "asx": "open", "asxSessionDate": null },
+  "freshness": {
+    "latestPriceAt": null,
+    "oldestPriceAt": null,
+    "lastFetchAt": null,
+    "stale": 0,
+    "failed": 0,
+    "manual": 0,
+    "unpriced": 0
+  },
+  "totals": {
+    "valueCents": 0,
+    "dayCents": null,
+    "dayRatio": null,
+    "up": 0,
+    "down": 0,
+    "flat": 0,
+    "noChange": 0,
+    "holdings": 0
+  },
+  "portfolioLine": null,
+  "holdings": []
+}

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   cashAccounts,
   cashBalanceEntries,
+  dayQuotes,
   dividendEvents,
   DOMAIN_TABLES_DELETE_ORDER,
   incomeStreams,
@@ -20,6 +21,7 @@ import {
   propertyValuations,
   savingsAdjustments,
   savingsGoals,
+  seriesDayQuotes,
   sideIncomeDeposits,
   sideIncomeEntries,
   snapshotAudit,
@@ -71,9 +73,12 @@ describe('createTestDb', () => {
  * Tables the seed leaves empty on purpose: the Stage 3 overlays and events cache (§3.6), the
  * Stage 1 side-income period entries (never written again: the server reads deposits), and the
  * Stage 4 sales, SG statements (an overlay), offset links and series history (stage-4.md §3.6),
- * and the Stage 5 snapshot audit log (only `seedRecordedMonth` writes it; stage-5.md §3.6).
+ * and the Stage 5 snapshot audit log (only `seedRecordedMonth` writes it; stage-5.md §3.6), and
+ * the Stage 9 day caches (only a price refresh writes them; stage-9.md §3.1, §3.1a).
  */
 const UNSEEDED: ReadonlySet<unknown> = new Set([
+  dayQuotes,
+  seriesDayQuotes,
   savingsAdjustments,
   savingsGoals,
   dividendEvents,
@@ -122,6 +127,49 @@ describe('seedGenericData', () => {
       .all();
     expect(statuses).toContainEqual({ s: 'error', src: null });
     expect(statuses).toContainEqual({ s: 'ok', src: 'sheet' });
+  });
+
+  it('clears both Stage 9 day caches when it re-seeds (series_day_quotes has no FK)', () => {
+    const now = new Date('2026-09-24T04:32:00.000Z');
+    const { instrumentIds } = seedGenericData(testDb.db, { now });
+    const row = {
+      sessionDate: '2026-09-24',
+      timeZone: 'Australia/Melbourne',
+      granularity: '5m' as const,
+      nativeCurrency: 'AUD',
+      previousClose: '1',
+      regularStart: null,
+      regularEnd: null,
+      points: '[]',
+      source: 'fake' as const,
+      fetchedAt: now.toISOString(),
+    };
+    testDb.db
+      .insert(seriesDayQuotes)
+      .values({ seriesId: 'XAG_AUD_OZ', ...row })
+      .run();
+    testDb.db
+      .insert(dayQuotes)
+      .values({ instrumentId: instrumentIds['ASX:ABC']!, ...row })
+      .run();
+    seedGenericData(testDb.db, { now });
+    expect(count('series_day_quotes')).toBe(0);
+    expect(count('day_quotes')).toBe(0);
+  });
+
+  it('dates the fetched Yahoo-style price and series at 00:00 on the previous weekday', () => {
+    // Thursday → Wednesday 00:00 local: fresh under the market rule, older than any fake bar.
+    const now = new Date(2026, 8, 24, 14, 32);
+    const { instrumentIds } = seedGenericData(testDb.db, { now });
+    const start = new Date(2026, 8, 23).toISOString();
+    const abc = testDb.db
+      .select()
+      .from(prices)
+      .where(eq(prices.instrumentId, instrumentIds['ASX:ABC']!))
+      .get();
+    expect(abc).toMatchObject({ asOf: start, fetchedAt: start, lastAttemptAt: start });
+    const series = testDb.sqlite.prepare('SELECT DISTINCT as_of AS a FROM market_quotes').all();
+    expect(series).toEqual([{ a: start }]);
   });
 });
 

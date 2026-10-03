@@ -105,8 +105,10 @@ describe('POST /api/prices/refresh', () => {
     expect(body.summary).toMatchObject({ requested: 5, ok: 5, failed: 0, skipped: 0 });
     expect(body.summary.jobRunId).toEqual(expect.any(Number));
     expect(body.prices.lastRun).toMatchObject({ id: body.summary.jobRunId, trigger: 'manual' });
-    const abc = body.prices.items.find((i) => i.symbol === 'ASX:ABC')!;
-    expect(abc).toMatchObject({ status: 'fresh', priceSource: 'fake' });
+    // Stage 9: DEF had no price (ABC's seeded price may be newer than the fake's last session
+    // point, and a price never goes backwards, stage-9.md §5.4).
+    const def = body.prices.items.find((i) => i.symbol === 'ASX:DEF')!;
+    expect(def).toMatchObject({ status: 'fresh', priceSource: 'fake' });
   });
 
   it('accepts a JSON body with ids and force', async () => {

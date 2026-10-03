@@ -366,14 +366,16 @@ describe('Back up now (§6.2 item 4)', () => {
 });
 
 describe('Backups and the rest of Settings (§6.2)', () => {
-  it('the in-page index ends with Backups, NAS copy and About (stage-8.md §8.3)', async () => {
+  it('the in-page index ends with Backups, NAS copy, Phone and About (stage-8.md §8.3, stage-9.md §8.2)', async () => {
     await openBackups();
     const index = screen.getByRole('navigation', { name: 'On this page' });
     const links = within(index).getAllByRole('link');
-    expect(links.at(-3)).toHaveTextContent('Backups');
-    expect(links.at(-3)).toHaveAttribute('href', '#backups');
-    expect(links.at(-2)).toHaveTextContent('NAS copy');
-    expect(links.at(-2)).toHaveAttribute('href', '#nas-copy');
+    expect(links.at(-4)).toHaveTextContent('Backups');
+    expect(links.at(-4)).toHaveAttribute('href', '#backups');
+    expect(links.at(-3)).toHaveTextContent('NAS copy');
+    expect(links.at(-3)).toHaveAttribute('href', '#nas-copy');
+    expect(links.at(-2)).toHaveTextContent('Phone');
+    expect(links.at(-2)).toHaveAttribute('href', '#phone');
     expect(links.at(-1)).toHaveTextContent('About');
     expect(links.at(-1)).toHaveAttribute('href', '#about');
   });

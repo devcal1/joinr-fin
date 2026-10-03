@@ -1,6 +1,6 @@
 {
   "name": "joinr-finance",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Joinr Finance: a self-hosted personal-finance web app.",
@@ -32,7 +32,13 @@
     "umbrel:restore": "node tools/deploy/restore-remote.mjs",
     "umbrel:status": "node tools/deploy/status.mjs",
     "umbrel:smoke": "node tools/deploy/smoke.mjs",
-    "umbrel:nas-secrets": "node tools/deploy/nas-secrets.mjs"
+    "umbrel:nas-secrets": "node tools/deploy/nas-secrets.mjs",
+    "android:test": "node tools/deploy/android.mjs test",
+    "android:debug": "node tools/deploy/android.mjs debug",
+    "android:release": "node tools/deploy/android.mjs release",
+    "android:lint": "node tools/deploy/android.mjs lint",
+    "android:stop": "node tools/deploy/android.mjs stop",
+    "android:fixtures": "tsx packages/schema/scripts/exportMobileFixtures.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

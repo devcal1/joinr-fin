@@ -5,7 +5,12 @@
 // Stage 4 (stage-4.md §4.6): the other assets' currencies join the extra FX, the purchase-date FX
 // backfill runs after the instruments (fxHistory.ts), and every series written `ok` also lands in
 // the daily `market_quote_history`.
+// Stage 9 (stage-9.md §5.4): lite runs (the `intraday` scopes: only the given instruments, or only
+// the bullion series, with no other series, cross FX, backfill or id search, and a failure writes
+// nothing), the day rows (the newer-session rule), the FX series' previous closes, bullion's day
+// since 00:00 (`bullionDayFrom`) and a price write that never goes backwards.
 import {
+  BULLION_HOLDINGS,
   MARKET_SERIES,
   type InstrumentKind,
   type MarketSeriesId,
@@ -22,9 +27,18 @@ import {
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { heldUnitsByInstrument, isHeld as isHeldUnits } from '../db/queries/holdings';
+import { bullionDayFrom, serverTimeZone, type DayPoint } from './day';
+import {
+  writeFxPreviousCloses,
+  writeInstrumentDays,
+  writeSeriesDays,
+  type InstrumentDayWrite,
+  type SeriesDayWrite,
+} from './dayWrites';
 import {
   convertToAud,
   deriveSeries,
+  fxCurrencyOfSeries,
   fxNeedFor,
   fxSeriesId,
   fxYahooSymbol,
@@ -41,11 +55,14 @@ import {
 import { effectiveSource, loadInstrumentPriceRows, type InstrumentPriceRow } from './items';
 import { truncateError } from './providers/http';
 import type {
+  CoinDayChartClient,
   CoinIdResolver,
   FxClosesClient,
   PriceProviderClient,
   Quote,
+  QuoteDay,
   QuoteFailure,
+  QuoteRequest,
   Sleep,
 } from './providers/types';
 
@@ -67,7 +84,8 @@ export type ProviderKey = 'yahoo' | 'coingecko';
 export interface Providers {
   /** Instruments with provider `yahoo`, the built-in series and FX. */
   yahoo: PriceProviderClient;
-  coingecko: PriceProviderClient & CoinIdResolver;
+  /** Stage 9: `fetchDayChart` (crypto's day chart, §5.2); without it the charts are skipped. */
+  coingecko: PriceProviderClient & CoinIdResolver & Partial<CoinDayChartClient>;
   /**
    * Stage 4 (stage-4.md §4.6): the daily FX closes for the purchase-date FX backfill (Yahoo in
    * mode live, the fake in mode fake). Absent → the backfill is skipped.
@@ -131,6 +149,8 @@ export interface RefreshOutcome extends Counts {
   aborted: boolean;
   /** Stage 4: the purchase-date FX backfill (all 0 when `providers.fxCloses` is absent). */
   fxBackfill: FxBackfillCounts;
+  /** Stage 9: day rows written (`day_quotes` and `series_day_quotes`). */
+  dayRows: number;
 }
 
 export interface RefreshContext {
@@ -143,11 +163,25 @@ export interface RefreshContext {
   log: FastifyBaseLogger;
   maxSearches?: number;
   searchSpacingMs?: number;
+  /** Stage 9: the server's IANA zone for bullion's 00:00 (default: Intl's resolved zone). */
+  timeZone?: string;
 }
+
+/** Stage 9 (§5.4): the series a lite bullion run may fetch. */
+export const BULLION_INPUT_SERIES: readonly MarketSeriesId[] = ['AUDUSD', 'SI_USD_OZ', 'GC_USD_OZ'];
 
 export interface RefreshOptions {
   instrumentIds?: number[];
   force?: boolean;
+  /**
+   * Stage 9 (stage-9.md §5.4): a lite run (the `intraday` scopes): only `instrumentIds`, or only
+   * `seriesIds` (the bullion inputs, with their derived spot and `bullionDayFrom`); no other
+   * series, cross FX, derived bullion, FX backfill or id search; conversion uses the stored FX.
+   * Backoff is read but never advanced: a failure writes nothing.
+   */
+  lite?: true;
+  /** Lite only: the bullion inputs to fetch (`AUDUSD` and the futures of the metals in use). */
+  seriesIds?: MarketSeriesId[];
 }
 
 interface Target {
@@ -158,6 +192,12 @@ interface Target {
   kind: InstrumentKind;
   symbol: string;
 }
+
+/** A metal's futures series and its derived AUD spot (§5.4a). */
+const BULLION_SERIES = Object.values(BULLION_HOLDINGS).map((h) => ({
+  futures: h.futuresSeries,
+  spot: h.spotSeries,
+}));
 
 type InstrumentResult =
   | {
@@ -186,7 +226,12 @@ function selectTargets(
   held: Map<number, string>,
   opts: RefreshOptions,
 ): Array<{ target: Target; row: InstrumentPriceRow }> {
-  const wanted = opts.instrumentIds ? new Set(opts.instrumentIds) : null;
+  // A lite run touches only the instruments it names (none for the bullion scope).
+  const wanted = opts.instrumentIds
+    ? new Set(opts.instrumentIds)
+    : opts.lite
+      ? new Set<number>()
+      : null;
   const out: Array<{ target: Target; row: InstrumentPriceRow }> = [];
   for (const row of rows) {
     const src = effectiveSource(row);
@@ -225,6 +270,10 @@ export async function runRefresh(
   const skipped = new Set<number>();
   const resolvedIds = new Map<number, string>();
   const seriesResults = new Map<string, SeriesResult>();
+  /** Stage 9: this run's series quotes (their `day` and two-day `bars`). */
+  const seriesQuotes = new Map<string, Quote>();
+  /** Stage 9: the `day` of each instrument quote converted ok this run. */
+  const quoteDays = new Map<number, QuoteDay>();
   let searches = 0;
 
   const startedAt = ctx.now();
@@ -256,10 +305,15 @@ export async function runRefresh(
     }
   };
 
-  // 4. Resolve missing CoinGecko ids (≤ maxSearches per run, spaced).
+  // 4. Resolve missing CoinGecko ids (≤ maxSearches per run, spaced; never in a lite run).
   for (const target of active) {
     if (target.provider !== 'coingecko' || target.providerSymbol !== null) continue;
-    if (signal.aborted || cooldowns.isCooling('coingecko', ctx.now()) || searches >= maxSearches) {
+    if (
+      opts.lite ||
+      signal.aborted ||
+      cooldowns.isCooling('coingecko', ctx.now()) ||
+      searches >= maxSearches
+    ) {
       skipped.add(target.id);
       continue;
     }
@@ -301,6 +355,7 @@ export async function runRefresh(
         asOf: q.asOf,
         source: providers.yahoo.id,
       });
+      seriesQuotes.set(q.key, q);
     }
     for (const f of batch.failures) {
       if (f.rateLimited) {
@@ -313,8 +368,12 @@ export async function runRefresh(
       }
     }
   };
+  // A lite run fetches only the bullion inputs it was given (none for an instrument scope).
+  const seriesToFetch = opts.lite
+    ? BUILT_IN_FETCHED.filter((id) => opts.seriesIds?.includes(id) === true)
+    : BUILT_IN_FETCHED;
   await fetchSeries(
-    BUILT_IN_FETCHED.map((id) => ({ seriesId: id, symbol: MARKET_SERIES[id].yahoo! })),
+    seriesToFetch.map((id) => ({ seriesId: id, symbol: MARKET_SERIES[id].yahoo! })),
   );
 
   // 5b. Instruments by provider (different hosts, so in parallel).
@@ -337,8 +396,13 @@ export async function runRefresh(
       for (const t of targets) skipped.add(t.id);
       return [];
     }
+    // Stage 9 (§5.1, O8): a managed fund on Yahoo is a daily request (the five-day daily chart).
     const batch = await client.fetchQuotes(
-      targets.map((t) => ({ key: String(t.id), symbol: t.providerSymbol! })),
+      targets.map((t): QuoteRequest => {
+        const req: QuoteRequest = { key: String(t.id), symbol: t.providerSymbol! };
+        if (key === 'yahoo' && t.kind === 'managed_fund') req.daily = true;
+        return req;
+      }),
       signal,
     );
     for (const f of batch.failures) handleFailure(key, Number(f.key), f);
@@ -352,19 +416,22 @@ export async function runRefresh(
   // 5c. Extra FX for currencies other than AUD/USD: the quotes' currencies and (Stage 4) every
   //     other asset's currency (`GBX` → `GBP`; USD uses AUDUSD), so `FX_<CCY>AUD` stays current
   //     while an asset uses it.
+  //     A lite run fetches no cross FX (conversion uses the stored rates).
   const crossNeeded = new Set<string>();
-  const otherAssetCurrencies = db
-    .selectDistinct({ currency: otherAssets.currency })
-    .from(otherAssets)
-    .all()
-    .map((r) => r.currency);
+  const otherAssetCurrencies = opts.lite
+    ? []
+    : db
+        .selectDistinct({ currency: otherAssets.currency })
+        .from(otherAssets)
+        .all()
+        .map((r) => r.currency);
   for (const currency of [
     ...yahooQuotes.map((q) => q.currency),
     ...coinQuotes.map((q) => q.currency),
     ...otherAssetCurrencies,
   ]) {
     const need = fxNeedFor(currency);
-    if (need?.kind === 'cross') crossNeeded.add(need.ccy);
+    if (need?.kind === 'cross' && !opts.lite) crossNeeded.add(need.ccy);
   }
   await fetchSeries(
     [...crossNeeded]
@@ -390,9 +457,10 @@ export async function runRefresh(
   };
 
   // 5d. Derived bullion series (only when an input was fetched this run; otherwise the stored
-  // value simply ages into stale).
+  // value simply ages into stale). A lite run derives only the metals whose futures it fetched.
   for (const id of DERIVED) {
     const [num, den] = MARKET_SERIES[id].derivedFrom!;
+    if (opts.lite && !seriesToFetch.includes(num as MarketSeriesId)) continue;
     if (seriesResults.get(num)?.kind !== 'ok' && seriesResults.get(den)?.kind !== 'ok') continue;
     const derived = deriveSeries(point(num), point(den));
     seriesResults.set(
@@ -425,25 +493,59 @@ export async function runRefresh(
         fxRate: conversion.fxRate,
         asOf: q.asOf,
       });
+      if (q.day) quoteDays.set(id, q.day);
     }
   };
   record(yahooQuotes, providers.yahoo.id);
+  // CoinGecko quotes carry no day: crypto's day comes from its own chart (§5.5).
   record(coinQuotes, providers.coingecko.id);
+  for (const q of coinQuotes) quoteDays.delete(Number(q.key));
 
   // Anything neither fetched nor failed (e.g. aborted mid-flight) is skipped.
   for (const t of active) if (!results.has(t.id)) skipped.add(t.id);
 
+  // 6a. Stage 9 (§5.4a): bullion's day since 00:00 for each metal whose futures were fetched.
+  const timeZone = ctx.timeZone ?? serverTimeZone();
+  const seriesDays: SeriesDayWrite[] = [];
+  const audUsdBars: DayPoint[] = seriesQuotes.get('AUDUSD')?.bars ?? [];
+  for (const { futures, spot } of BULLION_SERIES) {
+    const futuresQuote = seriesQuotes.get(futures);
+    if (futuresQuote === undefined) continue;
+    const spotResult = seriesResults.get(spot);
+    const day = bullionDayFrom({
+      futuresBars: futuresQuote.bars ?? [],
+      audUsdBars,
+      futures: { price: futuresQuote.price, asOf: futuresQuote.asOf },
+      spot: spotResult?.kind === 'ok' ? { value: spotResult.value, asOf: spotResult.asOf } : null,
+      now: ctx.now(),
+      timeZone,
+    });
+    const source = providers.yahoo.id;
+    if (day.aud) seriesDays.push({ seriesId: spot, row: day.aud, source });
+    if (day.usd) seriesDays.push({ seriesId: futures, row: day.usd, source });
+  }
+  // The FX series' own previous closes (D143; §3.2): `AUDUSD` and `FX_<CCY>AUD` only.
+  const fxCloses: Array<{ seriesId: string; value: string; date: string }> = [];
+  for (const [seriesId, q] of seriesQuotes) {
+    if (seriesId !== 'AUDUSD' && fxCurrencyOfSeries(seriesId) === null) continue;
+    if (q.day?.previousClose) {
+      fxCloses.push({ seriesId, value: q.day.previousClose, date: q.day.sessionDate });
+    }
+  }
+
   // 6b. Stage 4: the purchase-date FX backfill (after the instruments; shares the Yahoo cool-down
-  //     and the run deadline). Skipped when the providers have no FX-closes client.
-  const backfill: FxBackfillFetch | null = providers.fxCloses
-    ? await fetchFxBackfill({
-        db,
-        client: providers.fxCloses,
-        cooldowns,
-        now: ctx.now,
-        signal,
-      })
-    : null;
+  //     and the run deadline). Skipped when the providers have no FX-closes client, and in a lite
+  //     run.
+  const backfill: FxBackfillFetch | null =
+    providers.fxCloses && !opts.lite
+      ? await fetchFxBackfill({
+          db,
+          client: providers.fxCloses,
+          cooldowns,
+          now: ctx.now,
+          signal,
+        })
+      : null;
   let fxBackfill = emptyFxBackfillCounts();
 
   // 7. One synchronous write transaction. IMMEDIATE takes the write lock up front: a deferred
@@ -451,6 +553,8 @@ export async function runRefresh(
   //    while another connection, e.g. a CLI import, holds the write lock.
   const nowIso = ctx.now().toISOString();
   const touched = [...new Set([...results.keys(), ...resolvedIds.keys()])];
+  const instrumentDays: InstrumentDayWrite[] = [];
+  let dayRows = 0;
   db.transaction(
     (tx) => {
       // Only instruments that still exist with the kind and symbol captured when the run chose
@@ -503,7 +607,13 @@ export async function runRefresh(
           continue;
         }
         if (result.kind === 'ok') {
-          const values = {
+          const attempt = {
+            lastAttemptAt: nowIso,
+            lastStatus: 'ok' as const,
+            lastError: null,
+            consecutiveFailures: 0,
+          };
+          const priceColumns = {
             price: result.price,
             nativePrice: result.nativePrice,
             nativeCurrency: result.nativeCurrency,
@@ -511,16 +621,33 @@ export async function runRefresh(
             asOf: result.asOf,
             fetchedAt: nowIso,
             source: result.source,
-            lastAttemptAt: nowIso,
-            lastStatus: 'ok' as const,
-            lastError: null,
-            consecutiveFailures: 0,
           };
+          // Stage 9 (§5.4): the price never goes backwards. A stored price with a later as-of (a
+          // fresher intraday run committed first) is kept; only the attempt columns move.
+          const stored = tx
+            .select({ asOf: prices.asOf })
+            .from(prices)
+            .where(eq(prices.instrumentId, id))
+            .get();
+          const keep = stored?.asOf != null && Date.parse(stored.asOf) > Date.parse(result.asOf);
+          const values = keep ? attempt : { ...priceColumns, ...attempt };
           tx.insert(prices)
-            .values({ instrumentId: id, ...values })
+            .values({ instrumentId: id, ...priceColumns, ...attempt })
             .onConflictDoUpdate({ target: prices.instrumentId, set: values })
             .run();
           byProvider[provider].ok += 1;
+          const day = quoteDays.get(id);
+          if (day) {
+            instrumentDays.push({
+              instrumentId: id,
+              row: day,
+              rule: 'session',
+              source: providers.yahoo.id,
+            });
+          }
+        } else if (opts.lite) {
+          // A lite failure writes nothing (backoff is never advanced by the intraday job).
+          byProvider[provider].failed += 1;
         } else {
           tx.insert(prices)
             .values({
@@ -565,6 +692,8 @@ export async function runRefresh(
             .onConflictDoUpdate({ target: marketQuotes.seriesId, set: values })
             .run();
           seriesCounts.ok += 1;
+        } else if (opts.lite) {
+          seriesCounts.failed += 1;
         } else {
           tx.insert(marketQuotes)
             .values({
@@ -609,6 +738,11 @@ export async function runRefresh(
         }
       }
       writeSeriesHistory(tx, okSeries, nowIso);
+
+      // Stage 9: the day rows (the newer-session rule, §5.4) and the FX previous closes.
+      dayRows += writeInstrumentDays(tx, instrumentDays, nowIso);
+      dayRows += writeSeriesDays(tx, seriesDays, nowIso);
+      writeFxPreviousCloses(tx, fxCloses);
     },
     { behavior: 'immediate' },
   );
@@ -634,5 +768,6 @@ export async function runRefresh(
     searches,
     aborted: signal.aborted,
     fxBackfill,
+    dayRows,
   };
 }

@@ -2,6 +2,9 @@
 // somewhere (stage-1.md §7.6, stage-2.md §3.4).
 import type {
   CashAccountKind,
+  DayStatus,
+  MarketState,
+  MobileHoldingKind,
   ConsiderReason,
   CountdownState,
   DividendSuggestionStatus,
@@ -33,11 +36,14 @@ import type { FireInputSource, FireMilestoneKind, FirePhase, FireStatus } from '
 import type { NasCopyJobDetail } from '../dto/nasCopy';
 import type { NasCopyConfigReason, NasCopyConfigState, NasCopyFailureReason } from '../nasCopy';
 import type { SettingGroupId } from '../settings';
+import type { PhoneSectionResponse } from '../dto/phone';
 import { otherAssetsPages, propertyPages, superPages } from './assets';
 import { cashPages, dividendsPages } from './cashflow';
 import { backupNowResponses, backupsPages } from './backups';
 import { firePages } from './fire';
 import { nasCopyStates } from './nasCopy';
+import { mobileToday } from './mobile';
+import { phoneSections } from './phone';
 import { historyPages, netWorthPages, settingsPages } from './history';
 import { allInvestmentPageFixtures } from './investments';
 import { importRunDetails, priceItems } from './sampleDtos';
@@ -72,7 +78,9 @@ export function fireInputSourcesOf(i: FireInputsDto): FireInputSource[] {
  * phase, milestone kind and input source in the FIRE fixtures (stage-6.md §3.6); every backup kind,
  * kept-as reason, last-run status and skip reason in the Backups fixtures (stage-7.md §3.4); every
  * NAS-copy configuration state and reason, both lock values and the failure reasons that have a
- * fixture (stage-8.md §3.5; no heartbeat outcomes: D132).
+ * fixture (stage-8.md §3.5; no heartbeat outcomes: D132); every day status, ASX market state and
+ * phone holding kind in the `mobileToday` fixtures, and every store problem and cancel reason in
+ * the Settings → Phone fixtures (stage-9.md §3.6).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -112,6 +120,11 @@ export const FIXTURE_COVERAGE: {
   nasCopyConfigReasons: Array<NasCopyConfigReason | null>;
   nasCopyBlocked: boolean[];
   nasCopyFailureReasons: NasCopyFailureReason[];
+  dayStatuses: DayStatus[];
+  marketStates: MarketState[];
+  mobileHoldingKinds: MobileHoldingKind[];
+  phoneStoreProblems: Array<PhoneSectionResponse['storeProblem']>;
+  phoneCancelReasons: Array<NonNullable<PhoneSectionResponse['lastCancelled']>['reason']>;
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -207,6 +220,19 @@ export const FIXTURE_COVERAGE: {
       const reason = (s.lastRun.detail as NasCopyJobDetail | null)?.reason;
       return [reason ?? 'stopped'];
     }),
+  ),
+  dayStatuses: unique(
+    Object.values(mobileToday).flatMap((t) => t.holdings.map((h): DayStatus => h.dayStatus)),
+  ),
+  marketStates: unique(Object.values(mobileToday).map((t): MarketState => t.market.asx)),
+  mobileHoldingKinds: unique(
+    Object.values(mobileToday).flatMap((t) => t.holdings.map((h): MobileHoldingKind => h.kind)),
+  ),
+  phoneStoreProblems: unique(Object.values(phoneSections).map((p) => p.storeProblem)),
+  phoneCancelReasons: unique(
+    Object.values(phoneSections).flatMap((p) =>
+      p.lastCancelled === null ? [] : [p.lastCancelled.reason],
+    ),
   ),
 };
 

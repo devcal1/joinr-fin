@@ -1,0 +1,56 @@
+{
+  "deviceKeyMissing": {
+    "error": {
+      "code": "DEVICE_KEY_MISSING",
+      "message": "This request needs the phone's key. Pair the phone in Settings → Phone."
+    }
+  },
+  "deviceKeyInvalid": {
+    "error": {
+      "code": "DEVICE_KEY_INVALID",
+      "message": "This server does not know this phone's key. Pair the phone again in Settings → Phone."
+    }
+  },
+  "deviceKeyRevoked": {
+    "error": {
+      "code": "DEVICE_KEY_REVOKED",
+      "message": "This phone was removed in Settings → Phone. Pair it again to use it."
+    }
+  },
+  "mobileRateLimited": {
+    "error": {
+      "code": "MOBILE_RATE_LIMITED",
+      "message": "Too many requests with an unknown key. Try again in 10 minutes."
+    }
+  },
+  "mobileReadOnly": {
+    "error": {
+      "code": "MOBILE_READ_ONLY",
+      "message": "The phone app can only read. Nothing was changed."
+    }
+  },
+  "pairingCodeInvalid": {
+    "error": {
+      "code": "PAIRING_CODE_INVALID",
+      "message": "The pairing code is wrong or has expired. Show a new code in Settings → Phone."
+    }
+  },
+  "pairingRateLimited": {
+    "error": {
+      "code": "PAIRING_RATE_LIMITED",
+      "message": "Too many pairing attempts. Wait 10 minutes, then show a new code."
+    }
+  },
+  "phoneLimitReached": {
+    "error": {
+      "code": "PHONE_LIMIT_REACHED",
+      "message": "Ten phones are paired already. Remove one in Settings → Phone first."
+    }
+  },
+  "phoneStoreFailed": {
+    "error": {
+      "code": "PHONE_STORE_FAILED",
+      "message": "The list of phones could not be saved on the server. Nothing was changed."
+    }
+  }
+}

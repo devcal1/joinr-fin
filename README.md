@@ -1,8 +1,8 @@
 # Joinr Finance
 
-A self-hosted personal-finance web app. It tracks net worth, investments (shares, ETFs, managed funds and crypto), cash flow, super, property and a FIRE plan. It rebuilds a personal-wealth spreadsheet template as a web app that runs on a home server and opens in a browser on any PC or phone. It is styled to the Joinr brand in dark mode.
+A self-hosted personal-finance web app. It tracks net worth, investments (shares, ETFs, managed funds and crypto), cash flow, super, property and a FIRE plan. It rebuilds a personal-wealth spreadsheet template as a web app that runs on a home server and opens in a browser on any PC or phone. It is styled to the Joinr brand in dark mode. A read-only Android app with home-screen widgets shows today's change in the holdings (see [The phone app](#the-phone-app)).
 
-**Status:** Stages 0–6 are done (foundations, data and importer, investments, cash flow and income, other assets, super and property, history and the net worth dashboard, the FIRE planner); Stage 7 (backups, restore and the deployment to an Umbrel home server) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
+**Status:** Stages 0–8 are done (foundations, data and importer, investments, cash flow and income, other assets, super and property, history and the net worth dashboard, the FIRE planner, backups and the deployment to an Umbrel home server, the weekly copy to a NAS); Stage 9 (the Android phone app) is being built. See [`PLAN.md`](PLAN.md) for the stages, and [`docs/HANDOFF.md`](docs/HANDOFF.md) for where work stopped.
 
 > [!IMPORTANT]
 > **This repository is public.** It holds code and generic documentation only. The owner's workbook, specs, notes and data live in git-ignored folders, and a pre-commit **privacy guard** blocks them (see [Privacy](#privacy)). Code, tests, seeds and docs use obviously generic values such as "Example Co", `$12,480.00` and `user@example.com`.
@@ -52,7 +52,9 @@ Run these from the repo root.
 | `pnpm umbrel:status` | Read-only: the app, the registry, and whether it is safe to click Update in Umbrel. |
 | `pnpm umbrel:restore <backup> | --from-file <file>` | Restores a backup on the Umbrel with the app stopped. |
 | `pnpm umbrel:registry ensure | status` | Checks (or, in the fallback mode, starts) the loopback image registry on the Umbrel. |
-| `pnpm umbrel:smoke start | check | nas | remove` | A scratch run of an image on the Umbrel, on a loopback port, with checks; `nas` proves the NAS copy against a scratch rsync server on a private Docker network. |
+| `pnpm umbrel:smoke start --image <ref> | check | nas | mobile | remove` | A scratch run of an image on the Umbrel, on a loopback port, with checks (`start` refuses without `--image`); `nas` proves the NAS copy against a scratch rsync server on a private Docker network; `mobile` proves the phone API (pairing, the key, read-only, the traversal corpus, revoke) with the code and key kept in shell variables on the Umbrel. |
+| `pnpm android:test` / `android:debug` / `android:lint` / `android:release` / `android:stop` | The Android app's Gradle build (`tools/deploy/android.mjs`): the JVM tests, a debug APK, Android lint, a signed release APK in `dist/android/` (needs `JOINR_ANDROID_SIGNING`, see [The phone app](#the-phone-app)), and stopping the Gradle daemons. |
+| `pnpm android:fixtures` | Re-exports the shared JSON fixtures the Android tests read (`apps/android/app/src/test/resources/fixtures/`). |
 | `pnpm umbrel:nas-secrets [--check | --remove [--yes] | --prompt-test] [--dry-run]` | Places (or checks, or removes) the two NAS copy files on the Umbrel over SSH. Run it yourself in PowerShell or Windows Terminal: it asks for the password in a hidden prompt (see [Copy to the NAS](#copy-to-the-nas)). |
 
 To scope a run while working: `pnpm exec vitest run --project server`, or `pnpm exec eslint apps/server`.
@@ -79,6 +81,7 @@ Everything is set through environment variables. The server validates them at st
 | `AUTO_RECORD` | server | unset | `true`/`false` (also `1`/`0`, `yes`/`no`). Records each month automatically on its last day at 23:00 server time, and catches up missed months at start-up. Unset: the **Record each month automatically** setting decides (off by default); set, it overrides the setting and locks it. Leave it unset while you still re-import the workbook: a recorded month blocks a re-import. Ignored under `NODE_ENV=test`. |
 | `NIGHTLY_BACKUPS` | server | on (`false` under `NODE_ENV=test`) | `true`/`false` (also `1`/`0`, `yes`/`no`). The nightly backup at 02:30 server time, with a catch-up at start-up. Off: no timer and no catch-up; **Back up now** and the backups before an import, a restore and an update still work. Playwright sets `false`. |
 | `WEEKLY_NAS_COPY` | server | on (`false` under `NODE_ENV=test`) | `true`/`false` (also `1`/`0`, `yes`/`no`). The weekly copy to the NAS, Sunday 03:00 server time, with a catch-up at start-up. Off: no timer and no catch-up; **Copy to NAS now** still works. The copy does nothing either way until its files exist ([Copy to the NAS](#copy-to-the-nas)). Playwright sets `false`. |
+| `INTRADAY_REFRESH` | server | on (`false` under `NODE_ENV=test`) | `true`/`false` (also `1`/`0`, `yes`/`no`). The `intraday` job: ASX holdings every 5 minutes on weekdays 10:00–16:25, crypto every 15 minutes, bullion every 15 minutes from Monday 06:00 to Saturday 10:00 (server time). Off: no timer and no start-up run; the hourly price refresh still runs. Playwright sets `false`. |
 | `PUBLIC_PORT` | server | unset | The port browsers use to reach the app when it sits behind a proxy (the Umbrel store compose sets `4932`). The cross-site write guard accepts a browser `Origin` on this port whose host is the one the browser used (`X-Forwarded-Host`, or `Host` when not rewritten). |
 | `PW_CHANNEL` | Playwright | `chrome` | Uses an installed browser: `chrome`, `msedge`, or `chromium` (the cached build). Browsers are never downloaded. |
 
@@ -101,6 +104,7 @@ apps/
   web/                 @joinr/web      React + Vite SPA (TanStack Router + Query)
   server/              @joinr/server   Fastify API, SQLite (better-sqlite3 + Drizzle), serves the SPA in production
     migrations/        generated SQL migrations (applied at start-up)
+  android/             the phone app (Kotlin, Compose, Glance widgets; Gradle, not a pnpm package)
 packages/
   ui/                  @joinr/ui       design tokens, CSS, components, brand, ECharts wrappers
   engine/              @joinr/engine   pure calculation functions (from Stage 2)
@@ -108,7 +112,7 @@ packages/
   importer/            @joinr/importer workbook importer and reconciliation report (CLI and upload)
 tools/
   privacy-guard/       @joinr/privacy-guard  the pre-commit privacy check
-  deploy/              the Umbrel release, restore, status and smoke scripts (plain Node, run from the dev PC)
+  deploy/              the Umbrel release, restore, status and smoke scripts, and the Android build script (plain Node, run from the dev PC)
 .githooks/pre-commit   runs the guard on staged content
 e2e/                   Playwright specs
 docs/                  decisions, handoff, process, stage plans, style guide, architecture, deploy/RUNBOOK.md
@@ -182,6 +186,11 @@ Every route is under `/api`, answers JSON and sends `cache-control: no-store`. E
 | `GET /api/backups` | Every backup file, newest first (name, kind, time with the server's offset, size, why retention keeps it), the total size and the free space, the schedule and its next run, the last run, `stale`, the retention numbers, the app block (version, database level, the backup a restore came from), and `nasCopy`: the copy to the NAS (`off`, `partial`, `invalid` or `ready`, and why; whether it is locked after a refusal; the schedule and next run; the last run and last success; `stale`). Nothing in it carries the address, the account, the module or the password. |
 | `POST /api/backups` | **Back up now**: no body (or `{}`). `201` with the new file, or the run already in flight (`joined: true`). `409 IMPORT_IN_PROGRESS` during an upload import; `500 BACKUP_FAILED` with a reason (no space, the copy failed its check, the copy could not be written). |
 | `POST /api/backups/nas-copy` | **Copy to NAS now**: no body (or `{}`). `202` at once with `{ joined, nasCopy }` (the copy runs in the background; the page follows `nasCopy.lastRun.id`). `409 NAS_COPY_NOT_READY` while the NAS files are absent, half placed or unusable; `409 NAS_COPY_FIX_FIRST` after the NAS refused the password or module, until the files are placed again. Neither 409 writes a run. |
+| `GET /api/phone` | Settings → Phone: the paired phones (newest first, with their last use and app version), the removed ones (newest 20), the open pairing code, the last pairing and the last cancelled code (both within 10 minutes), and any problem saving the list. No key or key hash is ever in it. |
+| `POST`/`DELETE /api/phone/pairing` | Opens a pairing code (valid 5 minutes; any open code is replaced; `409 PHONE_LIMIT_REACHED` at 10 phones) or cancels it. |
+| `POST /api/phone/devices/:id/revoke` | Removes a phone: its key stops working at once (idempotent; `404` for an unknown id). |
+| `GET /api/mobile/today`, `GET /api/mobile/device` | **The phone app's API** (see [The phone app](#the-phone-app)): today's holdings with their day change, totals and the portfolio line; the paired device. A paired key is required (`Authorization: Bearer` or `X-Joinr-Key`): `401 DEVICE_KEY_MISSING`, `DEVICE_KEY_INVALID` or `DEVICE_KEY_REVOKED`, `429 MOBILE_RATE_LIMITED` after too many unknown keys. |
+| `POST /api/mobile/pair` | The pairing exchange: `{ "code", "deviceName"?, "appVersion"? }` → `201` with the device's key, shown once. `401 PAIRING_CODE_INVALID`, `429 PAIRING_RATE_LIMITED`, `409 PHONE_LIMIT_REACHED`, `503 PHONE_STORE_FAILED`. Every other method under `/api/mobile/` answers `405 MOBILE_READ_ONLY`. |
 | `GET /api/backups/:name` | Downloads one backup (`application/vnd.sqlite3`, saved as `joinr-finance-<name>`). The name must match the backup name rule (`400` otherwise; never a path) and be a regular file in the backups folder (`404`). |
 
 **Writes from another site are refused.** A `POST`, `PUT`, `PATCH` or `DELETE` under `/api` answers `403 CROSS_SITE_REQUEST` when the browser marks it as cross-site (`Sec-Fetch-Site` other than `same-origin` or `none`), or, over plain HTTP where browsers send no `Sec-Fetch-*` header, when its `Origin` names another host or another port (the request's `Host`, `X-Forwarded-Host`, or `PUBLIC_PORT` are accepted; a loopback origin also outside production, for the Vite proxy). Requests with neither header (curl, the CLIs) pass.
@@ -196,7 +205,7 @@ GET /api/health
   "version": "1.0.0",
   "uptimeSeconds": 42,
   "time": "2026-08-18T04:32:00.000Z",
-  "db": { "ok": true, "journalMode": "wal", "migrations": 6 }
+  "db": { "ok": true, "journalMode": "wal", "migrations": 7 }
 }
 ```
 
@@ -362,6 +371,15 @@ Optional, and off until it is set up: once a week the server copies every backup
 
 The set-up on the NAS and the Umbrel, troubleshooting and a restore from the NAS copy are in [`docs/deploy/RUNBOOK.md`](docs/deploy/RUNBOOK.md#copy-to-the-nas).
 
+## The phone app
+
+A read-only Android app (`apps/android`) shows today's change in the holdings: each stock, ETF, managed fund and crypto holding, and bullion as one holding per metal, in AUD including the currency move, with totals that are exact sums and a portfolio line through the day. Three home-screen widgets refresh every 30 minutes. It never changes anything on the server.
+
+- **Pairing:** Settings → Phone → **Pair a phone** shows a QR code (the server address and a one-time code, valid 5 minutes) for the app's own Scan button, and the code as text for pairing by hand. The server keeps only a SHA-256 of each phone's key, in `<DATA_DIR>/devices/devices.json`, **outside the database**, so a restore never brings back a removed phone. Settings → Phone lists the phones with their last use and removes one.
+- **The `/api/mobile` boundary:** on the Umbrel, `/api/mobile/` is the one path the app proxy lets through without the Umbrel login. Every route there checks the key, and only `GET /api/mobile/today`, `GET /api/mobile/device` and the pairing exchange exist; a route under `/api/mobile` that the phone plugin did not declare stops the server at start-up. Pair with the Umbrel's full Tailscale name (`*.ts.net`): the key travels in plain HTTP.
+- **Day prices:** Yahoo prices come from a one-day, five-minute chart (the previous close and today's bars in one call; managed funds keep the daily chart and take their day from the last two prices), CoinGecko adds a per-coin day chart, and the `intraday` job refreshes them often during the day (`INTRADAY_REFRESH`). Each instrument's latest session is cached in `day_quotes` (bullion's in `series_day_quotes`); the day-change rules are one pure engine function.
+- **Building and installing:** `pnpm android:test`, `pnpm android:debug`; a release APK is signed with the owner's own keystore, kept outside the repo (`JOINR_ANDROID_SIGNING` names its properties file), and sideloaded. The steps are in [`docs/deploy/RUNBOOK.md`](docs/deploy/RUNBOOK.md#the-android-app).
+
 ## Testing
 
 - **Unit and component tests** use Vitest. Each app, package and tool is a Vitest project, and `pnpm test` runs them all. Server tests use Fastify's `inject` against a temporary `DATA_DIR`.
@@ -410,7 +428,7 @@ The app runs on an [Umbrel](https://umbrel.com) home server as **Joinr Finance**
 - **The image** (`Dockerfile`) is a two-stage build on `node:24-bookworm-slim`, pinned by tag and digest. pnpm comes from corepack with the frozen lockfile; the runtime has production dependencies only, runs as the non-root `node` user (uid 1000) with a root-owned `/app` and a `/data` volume, and checks `/api/health` with Node's `fetch`. The runtime installs `rsync` from Debian bookworm for the copy to the NAS (the build prints its version and Debian revision, and fails if a popt alias file exists). The build fails unless both CLIs (`dist/cli/import.js`, `dist/cli/restore.js`) run and the `Australia/Melbourne` zone resolves correctly. The image sets no `TZ`; the compose file does.
 - **Where it is built:** the development PC has no Docker. `pnpm umbrel:release` ships the committed tree (or, with `--allow-dirty`, the working copy: exactly the files `pnpm guard:all` scans, after the guard passes) to the Umbrel over SSH, builds it there, and pushes it to a registry on the Umbrel's loopback (`127.0.0.1:4930`, the **Joinr Registry** store app). umbrelOS pulls every image at install and update, so the image must come from a registry; nothing leaves the Umbrel. No GitHub Actions, no ghcr.
 - **Versions:** `version` in the root `package.json` is the app version everywhere: the footer, Settings → About, `/api/health`, the image tag and label, and the store manifest's `version:`. Every release that changes the image bumps it; the scripts refuse to overwrite a tag or to pin a new image under an old version.
-- **The store compose** puts Umbrel's app proxy (and its login) in front of every path, publishes no port, runs the app as uid 1000 on a private Docker network that only the proxy joins, and sets `TZ=Australia/Melbourne` and `PUBLIC_PORT=4932`. `DATA_DIR` is the app's Umbrel data folder: **uninstalling the app deletes the database and every backup**, so download a backup first.
+- **The store compose** puts Umbrel's app proxy (and its login) in front of every path except the phone API (`PROXY_AUTH_WHITELIST: "/api/mobile/*"`, from 1.2.0; the app checks a paired key there), publishes no port, runs the app as uid 1000 on a private Docker network that only the proxy joins, and sets `TZ=Australia/Melbourne` and `PUBLIC_PORT=4932`. `DATA_DIR` is the app's Umbrel data folder: **uninstalling the app deletes the database and every backup**, so download a backup first.
 - **Scripts** (`tools/deploy`, plain Node, run from the dev PC over the `umbrel` SSH alias with key auth; every one takes `--dry-run`): `pnpm umbrel:release`, `umbrel:status` (prints "Safe to click Update in Umbrel" only when the registry holds the pinned image), `umbrel:restore`, `umbrel:registry`, `umbrel:smoke` and `umbrel:nas-secrets` (the NAS copy's files; run by the owner). Environment: `JOINR_DEPLOY_HOST` (default `umbrel`), `JOINR_STORE_DIR` (default `../tenon-umbrel-store`), `JOINR_REGISTRY_MODE` (`app`, or `container` for a plain registry container), `JOINR_REGISTRY_PORT`, `JOINR_APP_ID`, `JOINR_SSH` and `JOINR_GIT` (the binaries to use).
 - **`docker-compose.yml`** in this repo is a generic local run (`docker compose up -d --build`): loopback-only port (`JOINR_PORT`, default `3001`), `JOINR_DATA_PATH` (default `./data`, writable by uid 1000) and `TZ`. Never publish the port on all interfaces: the app has no login of its own.
 

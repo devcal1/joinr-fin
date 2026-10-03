@@ -1,0 +1,9 @@
+{
+  "validHyphenated": {
+    "body": { "code": "ABCDE-12345", "deviceName": "Android phone", "appVersion": "1.0.0" },
+    "normalisedCode": "ABCDE12345"
+  },
+  "lowercase": { "body": { "code": "abcde12345" }, "normalisedCode": "ABCDE12345" },
+  "tooShort": { "body": { "code": "ABCDE1234" }, "normalisedCode": null },
+  "wrongAlphabet": { "body": { "code": "ABCDE1234U" }, "normalisedCode": null }
+}

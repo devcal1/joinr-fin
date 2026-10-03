@@ -1,0 +1,12 @@
+# Gradle and Android build output, local SDK path and signing material never enter the repo.
+.gradle/
+.kotlin/
+build/
+local.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+captures/
+.idea/
+*.iml

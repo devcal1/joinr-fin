@@ -16,12 +16,15 @@ How Joinr Finance is put together. [`PLAN.md`](../PLAN.md) gives the reasons beh
  │   ├─ price service + cache, job scheduler (Stage 1)           │
  │   └─ month-end snapshots (5), nightly backups (7)             │
  └───────────────────────────────────────────────────────────────┘
- DATA_DIR → the app's data folder on the server: finance.db, backups/
+ DATA_DIR → the app's data folder on the server: finance.db, backups/, devices/
+
+ Android phone app (Stage 9) ──► /api/mobile/* only (a paired key; the one path without
+                                  the Umbrel login on the Umbrel)
 ```
 
 - The app is one process with one database file.
 - The server and the database sit on the same machine, so SQLite never runs over a network filesystem.
-- There is no auth code in the app. When deployed, the Umbrel app proxy puts the Umbrel login in front of it. In local development there is no login.
+- There is no login in the app. When deployed, the Umbrel app proxy puts the Umbrel login in front of it, except `/api/mobile/` (the phone app, see [The phone app](#the-phone-app)), where the app checks a paired device key itself. In local development there is no login.
 - A cross-site write guard refuses writes that a browser sends from another site or another port (see [Security](#security)).
 
 ## Packages
@@ -36,6 +39,7 @@ packages/importer ► @joinr/schema, xlsx (SheetJS)
 packages/schema   ► drizzle-orm, zod, decimal.js     (the root entry has no drizzle import)
 tools/privacy-guard  (standalone, Node built-ins only)
 tools/deploy         (not a workspace package: plain .mjs scripts, Node built-ins only)
+apps/android         (not a workspace package: Gradle, Kotlin; reads the schema's fixtures as JSON copies)
 ```
 
 | Package | Role |
@@ -358,7 +362,9 @@ scheduler ──(every PRICE_REFRESH_MINUTES, or "Refresh now")──► prices 
 - **Status** is computed, never stored: `fresh`, `stale`, `failed`, `manual` or `none`. Prices seeded from the workbook show as stale until the first refresh.
 - **Bullion** is priced from the built-in series (silver and gold per ounce in AUD), not from holdings.
 - **Other assets (Stage 4):** the job also refreshes the FX rate of every currency an other asset uses, and fills a foreign item's rate on its purchase date from the day's close (at most 10 items a run, each pair tried at most once a day, never over a rate typed in the app). The series written each run are kept as one row per series per day in `market_quote_history`, which draws the spot price charts.
-- **Scheduler:** generic and reusable (Stage 3 adds the `dividends` job, Stage 5 the month-end snapshot job, Stage 7 the `backup` job). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
+- **Day data (Stage 9):** every Yahoo fetch except a managed fund's is a one-day, five-minute chart, which brings the price, the previous close (`chartPreviousClose`) and today's regular-session bars in one call, with the old five-day daily chart as the fallback; managed funds keep the daily chart and take their day from its last two prices; the bullion inputs (`AUDUSD` and the gold and silver futures) use a two-day chart so their bars reach back to 00:00 Melbourne. CoinGecko adds a per-coin day chart. Each instrument's latest session (its date and zone, previous close and bars) is a 1:1 cache row in `day_quotes`; bullion's day since midnight (the AUD spot and the futures) is in `series_day_quotes`; `market_quotes` keeps each FX series' previous close. A fetch for an older session never replaces a newer row, the same session merges, and a fetched price never goes backwards.
+- **The `intraday` job (Stage 9):** its own timer on the 5-minute marks (+20 s) runs the ASX holdings every 5 minutes on weekdays 10:00–16:25, crypto every 15 minutes around the clock, and bullion every 15 minutes from Monday 06:00 to Saturday 10:00, each as a "lite" refresh of just those targets (a failure there writes nothing and never advances the backoff), then the crypto day charts. The scopes come from the slot the timer aimed at, never the wall clock; the hourly `prices` job waits for an in-flight intraday run, so Yahoo is never asked twice at once. `INTRADAY_REFRESH=false` turns it off.
+- **Scheduler:** generic and reusable (Stage 3 adds the `dividends` job, Stage 5 the month-end snapshot job, Stage 7 the `backup` job, Stage 8 `nas-copy`, Stage 9 `intraday`). There are no overlapping runs per job, a manual run joins one already in flight, and every run is logged in `job_runs` (the newest 500 per job are kept).
 
 ## Data
 
@@ -367,6 +373,8 @@ DATA_DIR/
   finance.db          the SQLite database (WAL mode; -wal and -shm files sit beside it while it is open)
   backups/            verified copies: <kind>-YYYYMMDD-HHmmss±HHMM.db (see Backups and restore)
   import-corrections.json   optional: the owner's import corrections (on the server)
+  secrets/            optional: the NAS copy's two files (Stage 8)
+  devices/            devices.json: the paired phones, key hashes only (Stage 9; folder 0700, file 0600)
 ```
 
 - **Money** is stored as integer cents. **Quantities and prices** are decimal strings, handled with decimal.js (crypto needs about 8 dp).
@@ -424,9 +432,31 @@ NasCopyService (apps/server/src/nascopy; own timer, capped at a 1-hour wake)
 - **Shutdown:** `preClose` stops the copy first; rsync gets SIGTERM, then SIGKILL 2 s later, and the service waits at most 4 s, inside the server's 10-second exit budget. The run is recorded `stopped` and is not an attempt; the next start catches up.
 - **rsync in the image:** installed from Debian bookworm in the runtime stage (the build prints the upstream version and the Debian revision). The dev PC has none; the real binary is exercised only by the smoke on the Umbrel (`pnpm umbrel:smoke nas`: the image's own rsync as a scratch daemon on a private Docker network, never the real NAS).
 
+## The phone app
+
+```
+Android app (apps/android: Kotlin, Compose, Glance widgets, WorkManager every 30 min)
+  │  Authorization: Bearer <key>  and  X-Joinr-Key: <key>     (plain HTTP inside Tailscale)
+  ▼
+app_proxy :4932 ── PROXY_AUTH_WHITELIST "/api/mobile/*" ──► app:3001
+  /api/mobile plugin (onRequest: the key check; a root onRoute hook refuses any other
+  │                   /api/mobile route at start-up)
+  ├─ GET  /api/mobile/today   ─► the today builder ─► engine computeDayChange (pure)
+  ├─ GET  /api/mobile/device
+  ├─ POST /api/mobile/pair    (no key; the open code, 5 minutes, in memory only)
+  └─ anything else            ─► 405 MOBILE_READ_ONLY
+/api/phone/* (Settings → Phone, behind the Umbrel login): open or cancel a code, list, remove
+```
+
+- **The device store** (`<DATA_DIR>/devices/devices.json`) is not in the database: a database restore swaps the whole file, so keys kept there would come back after their phone was removed, and they would travel to the NAS. It holds a SHA-256 of each 256-bit key (a fast hash is right for random keys), loaded once into memory and rewritten atomically and synchronously on every change. A failed write refuses a pairing (503) but never a removal: the removal applies in memory at once and is retried until saved. An unreadable file is set aside, never deleted. umbrelOS Backups skip the folder.
+- **The key** appears once, in the 201 body of the pairing exchange, and then lives only in the phone's encrypted store; it is never logged or stored in clear, and no DTO carries a key hash. Unknown keys are rate-limited; a valid key never is.
+- **Pairing** needs a 10-character code (50 bits, Crockford base32) the owner opens in Settings → Phone: valid 5 minutes, cancelled after 5 wrong codes, 20 attempts per 10 minutes while open, compared in constant time and consumed before any `await`. The QR code holds `joinrfinance://pair?v=1&u=<origin>&c=<code>`; the web and the app parse it with the same rule and the same table of cases.
+- **The day figures** are one pure engine function (`computeDayChange`): per holding in AUD cents including the currency move, from each holding's latest session (crypto and bullion from 00:00 Melbourne), lots bought in the session from their trade price, hand-priced, stale and unpriced holdings without a figure, and totals that are exact sums. The values (`valueCents`, units) are the web pages' own, so the phone and the web always agree.
+- **Traversal:** the app matches raw paths and never normalises dot segments, so `/api/mobile/../backups` is a 404 or a 405, never another route (tested over a real socket: `inject` normalises the URL and would hide it). Whether the proxy normalises before matching is proved live before pairing (the runbook's proxy probes), with a compose-only rollback.
+
 ## Security
 
-- **No login in the app.** On the Umbrel, the app proxy puts Umbrel's login in front of every path (no `PROXY_AUTH_WHITELIST`), the backup downloads included.
+- **No login in the app.** On the Umbrel, the app proxy puts Umbrel's login in front of every path, the backup downloads included, except the phone API: `PROXY_AUTH_WHITELIST: "/api/mobile/*"` (from 1.2.0), where every route checks a paired key and nothing writes but the pairing exchange (see [The phone app](#the-phone-app)).
 - **Cross-site write guard** (`security.ts`, an `onRequest` hook on `/api/*` for `POST`, `PUT`, `PATCH`, `DELETE`; "under `/api`" is decided on the route Fastify matched and on the percent-decoded path, never the raw URL, since the router decodes `/%61pi/…` to an `/api` route). The browser sends the Umbrel login cookie to every port of the same host, so a page served by another app could otherwise post to this one. With `Sec-Fetch-Site` present, only `same-origin` and `none` pass. **Browsers send Fetch Metadata only to trustworthy origins (HTTPS or localhost)**, and the app is reached over plain HTTP, so in production the `Origin` header decides: it must match the request's `Host`, its `X-Forwarded-Host` (and port), or `PUBLIC_PORT` (set to the manifest port, because whether the app proxy keeps `Host` could not be checked offline). On `PUBLIC_PORT` the `Origin`'s host must still be the host the browser used: `X-Forwarded-Host`'s host when the proxy sends one, else `Host`'s when `Host` is still on `PUBLIC_PORT`. Only when the proxy rewrites `Host` and sends no `X-Forwarded-Host` does the port alone decide (an accepted residual risk: a page on another host served from port 4932; the server logs this case once at start of use, with the `Host` it saw). Outside production a loopback `Origin` also passes (the Vite proxy rewrites `Host`). `Origin: null` is refused. Requests with neither header (curl, the CLIs, `app.inject`) pass. A refusal is `403 CROSS_SITE_REQUEST`, logged with the three header values only.
 - **Downloads** accept only names matching the backup rule (at most 64 characters, no separators or dot segments after decoding), `lstat` a regular file (not a symlink) whose real parent is the backups folder, and answer with `attachment`, `nosniff` and `no-store`.
 - **Network isolation on the Umbrel.** Every Umbrel app's default network is the shared `umbrel_main_network`, so any container of any installed app could otherwise call the API directly with no session. The store compose puts the app on a private `finance` bridge that only the app proxy joins (the bridge keeps internet egress for market data). If the proxy ever cannot reach the app over it (a 502 at install), the fallback is a compose-only release without the two `networks` blocks, and the risk above is then accepted and documented in the runbook.
@@ -446,7 +476,7 @@ dev PC (Windows)                                    Umbrel (umbrelOS, x86_64)
 - **Why a registry on the Umbrel:** umbreld pulls every compose image at install and at update, so an image that exists only after a local `docker build` cannot install. Docker treats `127.0.0.0/8` as an insecure (HTTP) registry, so a loopback registry needs no TLS and is unreachable from outside the host. It runs as its own store app (`tenon-joinr-registry`), on its own private Docker network rather than the shared `umbrel_main_network` (so other apps' containers cannot reach its unauthenticated API), because umbreld removes every non-app container at each start, and an Update clicked while the registry is down stops the app and bumps its manifest before the pull fails. A plain `joinr-registry` container (`JOINR_REGISTRY_MODE=container`) is the documented fallback.
 - **The image:** `node:24.x-bookworm-slim` pinned by index digest; labels carry the version and the git tree id; build-time checks run both CLIs and assert the `Australia/Melbourne` zone (the app would otherwise record at the wrong hour); the runtime installs `rsync` from Debian for the copy to the NAS; the build stage caps Node's heap (the build shares the Umbrel with other services, and the release script refuses to build with less than 2.5 GiB free).
 - **Versions:** one source of truth, the root `package.json` `version` (`/api/health`, the footer, Settings → About, the image tag, the store manifest). The release refuses an existing tag unless the same tree built it (`--reuse-existing`), and refuses a new digest under an unchanged manifest version. Rollback is a new version that pins the older digest, plus a restore of the `pre-migrate` copy when the newer version migrated.
-- **The data folder** is `${APP_DATA_DIR}/data` on the Umbrel (D113), created as uid 1000 from the store's `data/` skeleton at install. An update never touches it; an uninstall deletes it without asking. The manifest's `backupIgnore` makes umbrelOS's own Backups skip the live database's shared-memory file, every hidden temporary and `data/secrets` (the NAS copy's password).
+- **The data folder** is `${APP_DATA_DIR}/data` on the Umbrel (D113), created as uid 1000 from the store's `data/` skeleton at install. An update never touches it; an uninstall deletes it without asking. The manifest's `backupIgnore` makes umbrelOS's own Backups skip the live database's shared-memory file, every hidden temporary, `data/secrets` (the NAS copy's password) and `data/devices` (the paired phones' key hashes, so an Umbrel-level restore never brings back a removed phone).
 - **Operations** (`tools/deploy`, [`docs/deploy/RUNBOOK.md`](deploy/RUNBOOK.md)): every remote step is one `ssh -o BatchMode=yes <host> -- '<command>'`; every value placed in a command is validated and single-quoted; the remote home is resolved once and never written down; restore reads the image and `TZ` from the app-data compose with `yq` (Umbrel's Stop and Restart remove the container), runs the CLI by image ID in a one-off `--network none` container, and never starts a container umbreld stopped.
 
 ## Styling

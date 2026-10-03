@@ -155,7 +155,9 @@ describe('a round trip', () => {
     expect(r.out).toContain(`Backup:   ${name} (15/09/2030 10:00,`);
     expect(r.out).toContain(`database level ${COMMITTED_MIGRATION_COUNT})`);
     expect(r.out).toMatch(
-      /Current: {2}database level 6; (last import \d{2}\/\d{2}\/\d{4}|no import); /,
+      new RegExp(
+        `Current: {2}database level ${COMMITTED_MIGRATION_COUNT}; (last import \\d{2}/\\d{2}/\\d{4}|no import); `,
+      ),
     );
     expect(r.out).toContain('Running marker: not set');
     expect(r.out).toContain('Re-run with --yes to restore.');

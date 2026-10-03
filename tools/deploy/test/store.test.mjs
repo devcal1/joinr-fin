@@ -155,6 +155,9 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
         'data/backups/.*',
         'data/secrets',
         'data/secrets/*',
+        // Stage 9 (stage-9.md §7.2): the paired phones' key hashes never travel in umbrelOS Backups.
+        'data/devices',
+        'data/devices/*',
       ]);
       // umbreld's own character rule for a backupIgnore entry.
       for (const p of m.backupIgnore) expect(p).toMatch(/^[-a-zA-Z0-9._/*]+$/);
@@ -176,8 +179,21 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
       expect(read('tenon-joinr-finance', 'umbrel-app.yml').toLowerCase()).not.toContain(
         'heartbeat',
       );
-      expect(m.releaseNotes).toContain('1.1.0');
-      expect(m.releaseNotes).toMatch(/rsync/);
+    });
+
+    it('manifest: the phone app in the release notes and the Access paragraph (stage-9.md §7.2)', () => {
+      expect(m.releaseNotes).toContain('1.2.0');
+      expect(m.releaseNotes).toMatch(/phone/);
+      expect(m.releaseNotes).toMatch(/pre-update backup/);
+      const access = m.description.slice(
+        m.description.indexOf('**Access:**'),
+        m.description.indexOf('**Install the Joinr Registry app first.**'),
+      );
+      expect(access).toContain('/api/mobile/');
+      expect(access).toMatch(/without the Umbrel login/);
+      expect(access).toMatch(/paired phone's key/);
+      expect(access).toMatch(/never changes anything/);
+      expect(access).toContain('.ts.net');
     });
 
     it('holds no NAS secret: only .gitkeep files under data/, no secrets folder', () => {
@@ -208,7 +224,12 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
       expect(c.services.app_proxy.environment).toEqual({
         APP_HOST: 'tenon-joinr-finance_app_1',
         APP_PORT: 3001,
+        PROXY_AUTH_WHITELIST: '/api/mobile/*',
       });
+      expect(c.services.app_proxy.environment).not.toHaveProperty('PROXY_AUTH_BLACKLIST');
+      expect(read('tenon-joinr-finance', 'docker-compose.yml')).toContain(
+        'PROXY_AUTH_WHITELIST: "/api/mobile/*"',
+      );
       expect(c.services.app_proxy.networks).toEqual(['default', 'finance']);
       const app = c.services.app;
       expect(app.user).toBe('1000:1000');
@@ -225,9 +246,7 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
         .split('\n')
         .filter((l) => !l.trimStart().startsWith('#'))
         .join('\n');
-      expect(noComments).not.toMatch(
-        /PROXY_AUTH_WHITELIST|NIGHTLY_BACKUPS|WEEKLY_NAS_COPY|AUTO_RECORD|secrets/,
-      );
+      expect(noComments).not.toMatch(/NIGHTLY_BACKUPS|WEEKLY_NAS_COPY|AUTO_RECORD|secrets/);
     });
 
     it('the image line matches the release writer and pins the manifest version', () => {

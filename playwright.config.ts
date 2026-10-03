@@ -8,9 +8,12 @@ const apiPort = process.env.PORT ?? '3001';
 const channelEnv = process.env.PW_CHANNEL ?? 'chrome';
 const channel = channelEnv === 'chromium' ? undefined : channelEnv;
 
-// The setup and warmup projects and the specs that create app rows run in their own projects,
-// never in the read-only desktop and phone runs (D34: an app row makes the import spec's upload
-// answer 409).
+// The real phone flow (pairs and removes a phone; stage-9.md §8.3); never phone-states.spec.ts.
+const PHONE_SPEC = /(^|[\\/])phone\.spec\.ts$/;
+
+// The setup and warmup projects and the specs that create app rows (or pair a phone) run in their
+// own projects, never in the read-only desktop and phone runs (D34: an app row makes the import
+// spec's upload answer 409).
 const MUTATING_SPECS = [
   /.*\.setup\.ts/,
   /trades\.spec\.ts/,
@@ -19,6 +22,7 @@ const MUTATING_SPECS = [
   /history-mutations\.spec\.ts/,
   /fire-mutations\.spec\.ts/,
   /backups-mutations\.spec\.ts/,
+  PHONE_SPEC,
 ];
 
 // The read-only desktop, phone and warmup projects retry a failed test twice: their flakes are
@@ -127,6 +131,22 @@ export default defineConfig({
       testMatch: /backups-mutations\.spec\.ts/,
       dependencies: ['fire-mutations'],
     },
+    // Pairing a phone writes the device store, and opening a code replaces any open one, so the
+    // phone flow runs alone, once on the desktop viewport and then once on the phone viewport, after
+    // the read-only projects (the Settings shots show no phone). It touches no app data, so it does
+    // not wait for the app-row chain above (stage-9.md §8.3).
+    {
+      name: 'phone-mutations',
+      use: { viewport: { width: 1440, height: 900 } },
+      testMatch: PHONE_SPEC,
+      dependencies: ['desktop', 'phone'],
+    },
+    {
+      name: 'phone-mutations-375',
+      use: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true },
+      testMatch: PHONE_SPEC,
+      dependencies: ['phone-mutations'],
+    },
   ],
   webServer: {
     command: 'pnpm dev',
@@ -147,6 +167,9 @@ export default defineConfig({
       // No weekly NAS-copy timer and no start-up catch-up; the e2e server has no NAS files anyway,
       // so the copy is off (stage-8.md §8.7).
       WEEKLY_NAS_COPY: process.env.WEEKLY_NAS_COPY ?? 'false',
+      // No five-minute intraday timer and no start-up run: prices move only when a spec asks
+      // (stage-9.md §8.3).
+      INTRADAY_REFRESH: process.env.INTRADAY_REFRESH ?? 'false',
     },
   },
 });

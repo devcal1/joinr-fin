@@ -43,6 +43,13 @@
       "when": 1790434312371,
       "tag": "0005_stage5_history",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790940339249,
+      "tag": "0006_stage9_mobile",
+      "breakpoints": true
     }
   ]
 }
