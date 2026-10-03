@@ -2,10 +2,13 @@
 // /search call to resolve a coin symbol to an id (lowest market-cap rank among exact symbol matches).
 // Stage 9 (stage-9.md §5.2): a per-coin day chart (`/coins/<id>/market_chart?days=1`) for crypto's
 // day since 00:00 (D142; `cryptoDayFrom` in ../day.ts turns it into a row).
-import { decimalFromNumber } from '@joinr/schema';
+// Stage 10 (stage-10.md §5.3): the history call of the `closes` job (`fetchHistory`).
+import { CLOSES_REQUEST_TIMEOUT_MS, decimalFromNumber } from '@joinr/schema';
 import { failureFor, finitePositive, getJson, isRecord, unixToIso } from './http';
 import type {
   CoinDayChartClient,
+  CoinHistoryClient,
+  CoinHistoryResult,
   CoinIdResolver,
   CoinSearchResult,
   DayChartResult,
@@ -47,10 +50,26 @@ export function parseMarketChart(body: unknown): Array<[number, number]> | null 
   return out;
 }
 
+/**
+ * Stage 10 (§5.3): one coin's AUD history: `days` ≤ 90 → hourly points; more → daily points (with
+ * `interval=daily`, at 00:00 UTC).
+ */
+export function coinGeckoHistoryUrl(id: string, days: number, daily: boolean): string {
+  if (!Number.isSafeInteger(days) || days < 1) {
+    throw new RangeError('coinGeckoHistoryUrl: days must be a whole number of at least 1');
+  }
+  return `${COINGECKO_API_BASE}/coins/${encodeURIComponent(id)}/market_chart?vs_currency=aud&days=${days}${daily ? '&interval=daily' : ''}`;
+}
+
+/** The keyless API's reach in days (§5.3): a 401 beyond it is `beyond_reach`, not a failure. */
+export const COINGECKO_KEYLESS_MAX_DAYS = 365;
+
 export interface CoinGeckoOptions {
   fetchImpl: typeof fetch;
   now: () => Date;
   timeoutMs?: number;
+  /** Stage 10: the history call's timeout (default CLOSES_REQUEST_TIMEOUT_MS; a call took 17 s). */
+  historyTimeoutMs?: number;
 }
 
 const HEADERS = { Accept: 'application/json' };
@@ -111,9 +130,43 @@ export function pickCoinId(symbol: string, body: unknown): string | null {
 
 export function createCoinGeckoProvider(
   o: CoinGeckoOptions,
-): PriceProviderClient & CoinIdResolver & CoinDayChartClient {
+): PriceProviderClient & CoinIdResolver & CoinDayChartClient & CoinHistoryClient {
   return {
     id: 'coingecko',
+
+    async fetchHistory(id, days, daily, signal): Promise<CoinHistoryResult> {
+      const outcome = await getJson({
+        fetchImpl: o.fetchImpl,
+        url: coinGeckoHistoryUrl(id, days, daily),
+        headers: HEADERS,
+        runSignal: signal,
+        timeoutMs: o.historyTimeoutMs ?? CLOSES_REQUEST_TIMEOUT_MS,
+        now: o.now,
+      });
+      if (outcome.kind === 'aborted') return { ok: false, kind: 'skipped', error: 'Aborted' };
+      if (outcome.kind !== 'ok') {
+        // No body sniffing (getJson drains every non-2xx body): a 401 is the keyless reach only when
+        // more than 365 days were asked for; otherwise it is a plain failure.
+        if (outcome.kind === 'http' && outcome.status === 401) {
+          return days > COINGECKO_KEYLESS_MAX_DAYS
+            ? { ok: false, kind: 'beyond_reach', error: 'Beyond the keyless reach' }
+            : { ok: false, kind: 'failed', error: 'HTTP 401' };
+        }
+        const failure = failureFor(id, outcome, 'Unknown CoinGecko id');
+        if (!failure.rateLimited) return { ok: false, kind: 'failed', error: failure.error };
+        const limited: CoinHistoryResult = {
+          ok: false,
+          kind: 'rate_limited',
+          error: failure.error,
+        };
+        if (failure.retryAfterMs !== undefined) limited.retryAfterMs = failure.retryAfterMs;
+        return limited;
+      }
+      const prices = parseMarketChart(outcome.body);
+      return prices === null
+        ? { ok: false, kind: 'failed', error: 'Malformed response' }
+        : { ok: true, prices };
+    },
 
     async fetchQuotes(reqs, signal): Promise<QuoteBatch> {
       const quotes: Quote[] = [];

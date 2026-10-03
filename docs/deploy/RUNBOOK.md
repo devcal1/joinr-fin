@@ -29,10 +29,12 @@ How to install, release, back up, restore and troubleshoot Joinr Finance on an [
   - [After a restore, and after a rebuilt Umbrel](#after-a-restore-and-after-a-rebuilt-umbrel)
   - [The live proxy probes and the rollback](#the-live-proxy-probes-and-the-rollback)
   - [Faster prices and the intraday kill switch](#faster-prices-and-the-intraday-kill-switch)
+  - [The daily price history and the closes kill switch](#the-daily-price-history-and-the-closes-kill-switch)
   - [Troubleshooting the phone](#troubleshooting-the-phone)
 - [The Android app](#the-android-app)
   - [The signing keystore](#the-signing-keystore)
   - [Check and sideload the APK](#check-and-sideload-the-apk)
+  - [The app 1.1.0 (the period selector)](#the-app-110-the-period-selector)
 - [Restore](#restore)
 - [Restore after a reinstall](#restore-after-a-reinstall)
 - [Rollback](#rollback)
@@ -90,7 +92,9 @@ Every release that changes the image gets a new version (patch for fixes, minor 
 
 If the push succeeded but a later step failed (the store write, say), re-run with **`--reuse-existing`**: when the registry's image was built from the same tree it skips the build and only writes the store.
 
-A **prerelease** for testing (`--prerelease rc.1 --skip-store`) is tagged `<version>-rc.1`, never goes into the store, and can be run with `pnpm umbrel:smoke start --image 127.0.0.1:4930/joinr-finance:<version>-rc.1`, then `check`, `nas` (the copy to the NAS against a scratch rsync server on a private Docker network, run from the same image; the app runs with `WEEKLY_NAS_COPY=false` so the schedule cannot race it) and `remove` (both containers, the network and the scratch folders).
+A **prerelease** for testing (`--prerelease rc.1 --skip-store`) is tagged `<version>-rc.1`, never goes into the store, and can be run with `pnpm umbrel:smoke start --image 127.0.0.1:4930/joinr-finance:<version>-rc.1`, then `check`, `nas` (the copy to the NAS against a scratch rsync server on a private Docker network, run from the same image; the app runs with `WEEKLY_NAS_COPY=false` so the schedule cannot race it), `mobile` (the phone API; see [Phone](#phone)) and `remove` (both containers, the network and the scratch folders).
+
+**From 1.3.0** `check` expects 8 migrations and also probes the daily-history paths from inside the container: Yahoo's daily chart (`AUDUSD=X`, `period1`/`period2`/`interval=1d`, the server's User-Agent) must answer 200; CoinGecko's 365-day chart may answer anything (a 429 from the Umbrel's shared IP still proves the path). `mobile` also seeds a listed holding beside the coin, waits (up to 240 s after its restart) for the restarted container's start-up `closes` run to finish (it judges that run only, never an earlier one), and checks `GET /api/mobile/periods` (200, `apiVersion=1`, seven periods), `POST` there (405) and the revoked key there (401). A coin with no closes because CoinGecko skipped it in that run (the run's `coingecko.skipped` count; a failed coin stays a FAIL) prints a non-fatal **NOTE** ("closes: CoinGecko rate-limited; re-run `smoke mobile` after 2 min"); the live app shares the Umbrel's IP with CoinGecko's keyless limit. A re-run restarts the container, so its start-up run tops up the coin.
 
 ## Install (the first time)
 
@@ -102,7 +106,7 @@ A **prerelease** for testing (`--prerelease rc.1 --skip-store`) is tagged `<vers
 ## First start checks
 
 - `pnpm umbrel:status`: the app is `running` and `healthy`; its image digest is the release's.
-- On the Umbrel: `ls -ln <app-data>/data` shows `backups/` owned by uid 1000; `docker logs tenon-joinr-finance_app_1` shows the database ready with 7 migrations (1.2.0; 6 before it).
+- On the Umbrel: `ls -ln <app-data>/data` shows `backups/` owned by uid 1000; `docker logs tenon-joinr-finance_app_1` shows the database ready with 8 migrations (1.3.0; 7 before it).
 - Open `http://umbrel:4932` from the dev PC: the Umbrel login, then the app (not a 502).
 - Settings → About: the app and server versions match, the database level, the time zone `Australia/Melbourne`.
 - Settings → Backups: "No backups yet" and the next run. Click **Back up now**: a "By hand" row appears (this also proves the write guard lets the app's own pages through the proxy; a 403 here is [troubleshooting](#troubleshooting)).
@@ -213,13 +217,13 @@ The NAS files are ordinary backup files, with the same names as in Settings → 
 
 ## Phone
 
-From 1.2.0 a read-only Android app shows today's change in the holdings and bullion, with three home-screen widgets ([The Android app](#the-android-app)). This section is the server side.
+From 1.2.0 a read-only Android app shows today's change in the holdings and bullion, with three home-screen widgets ([The Android app](#the-android-app)). From 1.3.0 (the app 1.1.0) it also shows the change over 1W, 2W, 1M, 3M, 6M, 12M and ALL, measured from a daily price history the server keeps ([below](#the-daily-price-history-and-the-closes-kill-switch)). This section is the server side.
 
 ### What the whitelist opens
 
 The store compose carries one line in the app proxy's environment: `PROXY_AUTH_WHITELIST: "/api/mobile/*"`. Rules match paths, not methods, and a `/*` glob matches below the path.
 
-- **`/api/mobile/` answers anyone on the home network or the tailnet without the Umbrel login.** It returns data only for a paired phone's key (`GET /api/mobile/today`, `GET /api/mobile/device`); every other method there answers 405 and changes nothing. The one write is the pairing exchange (`POST /api/mobile/pair`), which needs a code the owner opened in Settings → Phone in the last 5 minutes (5 wrong codes cancel it; 20 attempts per 10 minutes at most).
+- **`/api/mobile/` answers anyone on the home network or the tailnet without the Umbrel login.** It returns data only for a paired phone's key (`GET /api/mobile/today`, `GET /api/mobile/device`, and from 1.3.0 `GET /api/mobile/periods`; the store compose did not change for it, since the `/*` glob already covers it); every other method there answers 405 and changes nothing. The one write is the pairing exchange (`POST /api/mobile/pair`), which needs a code the owner opened in Settings → Phone in the last 5 minutes (5 wrong codes cancel it; 20 attempts per 10 minutes at most).
 - **Everything else keeps the Umbrel login:** the web app, the rest of the API, the backup downloads and Settings → Phone itself.
 - The server keeps only a SHA-256 of each key, in `<app-data>/data/devices/devices.json` (folder 0700, file 0600, owned by uid 1000), **outside the database**: a database restore never brings back a removed phone, and the key hashes never travel to the NAS. umbrelOS Backups skip the folder (`backupIgnore`).
 - **Never widen the whitelist.** A new path under `/api/mobile/` that the phone plugin did not declare stops the server at start-up.
@@ -256,7 +260,8 @@ Before the first pairing on a new release, prove the proxy from the dev PC with 
 - `curl -s -i http://umbrel:4932/api/mobile/today` → **401 JSON** `DEVICE_KEY_MISSING` (from the app, not the login page);
 - `curl -s -i http://umbrel:4932/api/status` → the Umbrel login page or its redirect, **not** JSON;
 - `curl -s -i -X POST http://umbrel:4932/api/mobile/today` → 405 JSON;
-- the traversal corpus of `pnpm umbrel:smoke mobile` (`/api/mobile/../backups`, the `%2e%2e` and `%2F` forms, `;`, a backslash, a trailing `..`, and upper case), each with GET, HEAD, POST and DELETE, sent with **`curl --path-as-is -s -i`** (plain curl normalises `..` and proves nothing). Every answer must be the login page or its redirect, or an app 401/404/405 JSON: **never** status, backup or page data.
+- from 1.3.0: `curl -s -i http://umbrel:4932/api/mobile/periods` → **401 JSON** `DEVICE_KEY_MISSING`, and `-X POST` there → 405 JSON;
+- the traversal corpus of `pnpm umbrel:smoke mobile` (`/api/mobile/../backups`, the `%2e%2e` and `%2F` forms, `;`, a backslash, a trailing `..`, upper case, and from 1.3.0 `/api/mobile/periods/../backups`, `/api/mobile/periods%2f..%2fbackups` and `/api/mobile/periods/..;/status`), each with GET, HEAD, POST and DELETE, sent with **`curl --path-as-is -s -i`** (plain curl normalises `..` and proves nothing). Every answer must be the login page or its redirect, or an app 401/404/405 JSON: **never** status, backup or page data.
 
 **Any data → roll back at once:** release a compose-only version (a patch) with the `PROXY_AUTH_WHITELIST` line removed. The phone stops working; nothing else changes. Then revisit the design before pairing again.
 
@@ -265,6 +270,21 @@ Before the first pairing on a new release, prove the proxy from the dev PC with 
 From 1.2.0 the `intraday` job refreshes ASX holdings every 5 minutes on weekdays from 10:00 to 16:25, crypto every 15 minutes around the clock, and bullion every 15 minutes from Monday 06:00 to Saturday 10:00 (server time). Runs appear in the job history (about 150 a weekday). If Yahoo starts refusing (prices go stale with "rate limited"), turn the job off without a new image: add `INTRADAY_REFRESH: "false"` to the app service's `environment` in the store compose and release it as a compose-only patch. The hourly `prices` job keeps running. With the switch off, crypto shows no day change on the phone (its day chart is fetched only by the intraday job). ASX and US listings, funds and bullion keep their day figures from the `prices` job, refreshed at its interval (hourly by default) instead of every 5 or 15 minutes.
 
 **A downgrade below 1.2.0 means restoring the pre-update backup:** 1.2.0 migrates the database (migration 0006, with the automatic pre-update backup), and 1.1.1 refuses a database a newer version migrated ([Rollback](#rollback)).
+
+### The daily price history and the closes kill switch
+
+From 1.3.0 the `closes` job keeps the daily closes the phone's periods are measured from, in three cache tables (`instrument_closes`, `instrument_splits`, `series_closes`; migration 0007). Nothing is ever deleted from them, except that changing an instrument's price source deletes that instrument's closes (the next run fetches the new symbol's).
+
+- **What it fetches:** the daily closes of every held instrument priced by Yahoo (stocks, ETFs, funds) and their split events, every held coin from CoinGecko (in AUD), the FX series of held foreign listings, `AUDUSD` and the gold or silver futures in use. From those it derives the AUD bullion spot per day, and from 1.3.0 on it also keeps the exact 00:00 Melbourne value. Hand-priced instruments have no history (their periods show "—").
+- **When:** daily at **16:52** server time, and once about **2 minutes after every start**. A run that ends with work left (its 10-minute deadline, or a provider cooling down) schedules a follow-up at least 30 minutes later, at xx:07, xx:22, xx:37 or xx:52 (at most 6 a day). It pauses while the `prices`, `intraday` or `dividends` job runs, and never calls CoinGecko within 45 s of an intraday crypto slot.
+- **The call budget:** one Yahoo request per series a day, 1.5 s apart, and one CoinGecko request per coin (two in a coin's first backfill), 15 s apart. About (holdings + FX series + 3) × 1.5 s plus coins × 15 s a run, against the thousands of intraday requests a day.
+- **The first start of 1.3.0 is the backfill:** about 2 minutes after the update the start-up run fetches each series from about 10 days before its first trade (coins: at most a year back; CoinGecko's keyless API refuses older days, and stored history grows from then on). Until it finishes, the periods show "—" and the partial note; refresh in the app afterwards.
+- **A restart re-runs the job.** There is no button or route for it: Umbrel → Joinr Finance → **Restart** (or `docker restart tenon-joinr-finance_app_1`) runs the start-up run about 2 minutes later, a top-up when the history is already there.
+- **Its runs** are rows in `job_runs` (`job = 'closes'`); no page lists them. Check with the read-only count query under [Troubleshooting the phone](#troubleshooting-the-phone).
+
+**The kill switch:** if Yahoo or CoinGecko starts refusing the history requests, turn the job off without a new image: add `CLOSES_REFRESH: "false"` to the app service's `environment` in the store compose and release it as a compose-only patch (the same way as `INTRADAY_REFRESH`). The stored closes stay and the periods keep working from them, but their start closes age out: a period turns "—" for a holding once its start date is more than 10 days after the newest stored close (1W first), and the app shows "Price history to dd/mm" under the chips. 1D, the widgets, the web and the `prices` and `intraday` jobs are not affected.
+
+**A downgrade below 1.3.0 means restoring the pre-update backup:** 1.3.0 migrates the database (migration 0007, with the automatic pre-update backup), and 1.2.0 refuses a database a newer version migrated ([Rollback](#rollback)).
 
 ### Troubleshooting the phone
 
@@ -275,6 +295,14 @@ From 1.2.0 the `intraday` job refreshes ASX holdings every 5 minutes on weekdays
 - **Stale prices on the phone:** the same as on the web ([Prices stale after install](#prices-stale-after-install)); the app shows each holding's price age.
 - **Widgets not updating:** Android may delay background work for apps under battery optimisation. Settings → Apps → Joinr Finance → Battery → **Unrestricted**. Opening the app refreshes them.
 - **Widgets show "Open Joinr Finance to update":** no fetch has succeeded for 24 hours (the phone was off Tailscale, or Doze held the worker). Open the app.
+- **"Periods need Joinr Finance 1.3.0 or later on the Umbrel."** The app 1.1.0 is talking to a 1.2.0 server (`/api/mobile/periods` answered 404). 1D keeps working; update the server.
+- **"—" on a holding under a period, marked `NO HISTORY`, and "Partial: N holding(s) have no figure for <period>."** The server has no stored close for that holding near the period's start: a hand-priced holding (it has no history), a coin held longer than CoinGecko's one-year reach (12M only, until stored history covers it), the first minutes after an update (the backfill), or a series that stopped updating (next entry). Units bought within the period still count from their purchase price. A `NO PRICE` holding has no current price at all ([Prices stale after install](#prices-stale-after-install)).
+- **`SPLIT` on a holding:** a stock split or consolidation falls inside the period, so the units held across it have no figure (the app has no split model). Units bought after the split still count. ALL keeps the web's figure.
+- **"Price history to dd/mm." under the chips:** `closesThrough`, the oldest of the series' newest stored closes, is more than 6 days old: some series has stopped updating (a renamed or delisted symbol, Yahoo blocking the history path, CoinGecko throttling, or the kill switch). Find it with this read-only query (counts and the newest date per series, and the last runs' counts; no close values), then fix the cause (for a renamed symbol, its price source on the web's Prices page, which also clears its old closes) and **restart the app** to run the job again:
+  ```sh
+  docker exec tenon-joinr-finance_app_1 node -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync('/data/finance.db', { readOnly: true }); console.table(db.prepare('SELECT i.symbol AS series, count(*) AS n, max(c.date) AS newest FROM instrument_closes c JOIN instruments i ON i.id = c.instrument_id GROUP BY c.instrument_id ORDER BY newest').all()); console.table(db.prepare('SELECT series_id AS series, count(*) AS n, max(date) AS newest FROM series_closes GROUP BY series_id ORDER BY newest').all()); console.table(db.prepare(\"SELECT started_at, status, detail_json FROM job_runs WHERE job = 'closes' ORDER BY id DESC LIMIT 3\").all())"
+  ```
+  A series whose `newest` lags the others is the one. A `detail_json` with `failed` or `skipped` counts, or `left` above 0, says the last run did not finish its targets (a cool-down schedules a follow-up by itself).
 
 ## The Android app
 
@@ -319,6 +347,16 @@ A release APK is signed with your own keystore. **Create it once and keep it**: 
 4. If Play Protect warns about an unknown developer, choose to scan the app, or **Install anyway**.
 5. An update installs over the old version (same key): the pairing and the widgets stay.
 
+**Or install over adb** (wireless debugging on the phone, paired from the PC): `adb devices` to find the phone's serial, then `adb -s <serial> install -r --user 0 dist/android/joinr-finance-<version>.apk`. `-r` replaces the installed app and keeps its data (the pairing and the widgets); `--user 0` installs for the phone's main user only (without it adb installs for every user on the phone, a work profile included). Always name the device with `-s`, and never use `gradlew installDebug` for the phone: that installs the debug build, signed with a different key.
+
+### The app 1.1.0 (the period selector)
+
+The app 1.1.0 goes with server 1.3.0. Build it with `pnpm android:release` as above; **its certificate digest must equal the one noted for 1.0.x** (a different digest means a different keystore, and Android refuses it as an update). Install it over 1.0.x by either way above.
+
+- The app 1.0.2 keeps working against 1.3.0 (`/api/mobile/today` is unchanged), so the server can go first. The app 1.1.0 against 1.2.0 shows "Periods need Joinr Finance 1.3.0 or later on the Umbrel." under any chip but 1D.
+- The chips (**1D · 1W · 2W · 1M · 3M · 6M · 12M · ALL**) sit under the header. The chosen period holds while the app's process lives (backing out keeps it); a cold start opens on 1D. A holding detail opened from a widget shows 1D. The widgets stay daily.
+- The app fetches the period figures (about 200 KB) only while a chip other than 1D is selected, or on opening when its saved copy is over 30 minutes old, and keeps the last answer for offline use (dimmed).
+
 ## Restore
 
 A restore replaces the database with a backup while the app is stopped. The current database is copied first (a `pre-restore` backup), so a restore can always be undone.
@@ -362,6 +400,8 @@ Tags are never overwritten, so an older image stays in the registry.
 
 **Below 1.2.0:** 1.2.0 migrated the database (0006) and took a pre-update backup; going back to 1.1.1 is step 4 with that backup. Remove the `PROXY_AUTH_WHITELIST` line in the same compose: 1.1.1 has no phone API, so nothing needs it. Phones stay paired (the device list is not in the database) and work again once 1.2.0 or later and the line are back.
 
+**Below 1.3.0:** 1.3.0 migrated the database (0007, the price-history caches) and took a pre-update backup; going back to 1.2.0 is step 4 with that backup. The compose needs no change (the whitelist line stays). The stored daily history is lost with the restore and is fetched again (coins: one year back at most) after the next update to 1.3.0 or later. The app 1.1.0 keeps working for 1D and says "Periods need Joinr Finance 1.3.0 or later on the Umbrel." under the other chips.
+
 ## The import override
 
 A real import over data entered in the app is refused on the Import page (D34); only the CLI can replace it, and only with the app stopped:
@@ -396,6 +436,7 @@ A real import over data entered in the app is refused on the Import page (D34); 
 - [ ] The NAS copy: a live smoke of a prerelease with `pnpm umbrel:smoke nas` (every probe passes); the NAS folder, module and account created; `--prompt-test` rehearsed; `pnpm umbrel:nas-secrets` placed the files and `--check` says ready; **Copy to NAS now** succeeded and the NAS folder holds the same names; a second click sent nothing; a file fetched from the NAS restores.
 - [ ] The first Sunday copy succeeded (Settings → Backups → Copy to the NAS, trigger "schedule").
 - [ ] The phone (1.2.0): a live smoke of a prerelease with `pnpm umbrel:smoke mobile` (every probe passes); after the update, [the live proxy probes](#the-live-proxy-probes-and-the-rollback) pass with no session; the keystore made and backed up; the APK built, its certificate digest noted, sideloaded; paired by QR with the full Tailscale name; a removal stops the app and the widgets; paired again.
+- [ ] The period selector (1.3.0, app 1.1.0): a live smoke of a prerelease with `pnpm umbrel:smoke check` (8 migrations, the daily-history egress) and `mobile` (the periods probes and a `closes` run with closes rows; a CoinGecko NOTE is not a failure); after the update, 8 migrations, a pre-update backup listed, the app 1.0.2 still shows Today and its widgets update; about 3 minutes later the start-up `closes` run has succeeded; the periods [proxy probes](#the-live-proxy-probes-and-the-rollback) pass; the APK 1.1.0's certificate digest equals the noted one; each chip shows figures, and ALL matches the web's unrealised plus realised totals.
 
 ## Accepted risks
 

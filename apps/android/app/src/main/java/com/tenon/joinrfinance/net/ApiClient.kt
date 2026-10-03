@@ -16,11 +16,17 @@ sealed class ApiResult<out T> {
     data class Err(val error: ApiError) : ApiResult<Nothing>()
 }
 
-/** The three phone API calls (plan section 4.1); nothing else is ever called. */
+/** The phone API calls (Stage 9 plan section 4.1, Stage 10 section 4.1); nothing else is ever called. */
 interface MobileApi {
     suspend fun today(origin: String, key: String): ApiResult<MobileTodayResponse>
     suspend fun device(origin: String, key: String): ApiResult<MobileDeviceResponse>
     suspend fun pair(origin: String, request: MobilePairRequest): ApiResult<MobilePairResponse>
+
+    /**
+     * `GET /api/mobile/periods` (Stage 10). The default body answers as a server without the path would, so the Stage 9
+     * fakes compile unchanged.
+     */
+    suspend fun periods(origin: String, key: String): ApiResult<MobilePeriodsResponse> = ApiResult.Err(ApiError.ServerTooOld)
 }
 
 /**
@@ -37,6 +43,9 @@ class ApiClient(
 
     override suspend fun device(origin: String, key: String): ApiResult<MobileDeviceResponse> =
         get(origin, PATH_DEVICE, key, MobileDeviceResponse.serializer())
+
+    override suspend fun periods(origin: String, key: String): ApiResult<MobilePeriodsResponse> =
+        get(origin, PATH_PERIODS, key, MobilePeriodsResponse.serializer())
 
     override suspend fun pair(origin: String, request: MobilePairRequest): ApiResult<MobilePairResponse> {
         val body = ApiJson.encodeToString(MobilePairRequest.serializer(), request)
@@ -82,6 +91,7 @@ class ApiClient(
         const val PATH_TODAY = "/api/mobile/today"
         const val PATH_DEVICE = "/api/mobile/device"
         const val PATH_PAIR = "/api/mobile/pair"
+        const val PATH_PERIODS = "/api/mobile/periods"
 
         fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)

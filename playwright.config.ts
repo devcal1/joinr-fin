@@ -170,6 +170,9 @@ export default defineConfig({
       // No five-minute intraday timer and no start-up run: prices move only when a spec asks
       // (stage-9.md §8.3).
       INTRADAY_REFRESH: process.env.INTRADAY_REFRESH ?? 'false',
+      // No daily closes timer and no start-up history run: the e2e server never fetches price
+      // history, and the job stays registered for a test that asks for it (stage-10.md §7.4).
+      CLOSES_REFRESH: process.env.CLOSES_REFRESH ?? 'false',
     },
   },
 });

@@ -5,7 +5,9 @@ import com.tenon.joinrfinance.net.ApiError
 import com.tenon.joinrfinance.net.ApiResult
 import com.tenon.joinrfinance.net.MobileApi
 import com.tenon.joinrfinance.net.MobilePairRequest
+import com.tenon.joinrfinance.net.MobilePeriodsResponse
 import com.tenon.joinrfinance.net.MobileTodayResponse
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +35,17 @@ fun interface WidgetUpdater {
 enum class RefreshOutcome { OK, FAILED, REVOKED, NOT_PAIRED }
 
 /**
+ * The periods answer (Stage 10 plan section 9.3), kept apart from [AppData]: its error never feeds the Today notices or
+ * the widgets, and the worker never fetches it.
+ */
+data class PeriodsData(
+    val periods: MobilePeriodsResponse? = null,
+    val fetchedAtMs: Long? = null,
+    val loading: Boolean = false,
+    val error: ApiError? = null,
+)
+
+/**
  * The one place that talks to the server and the stores. A process singleton (the app, the worker and the
  * widgets share it), so a refresh run by the worker shows in the app at once.
  */
@@ -43,10 +56,19 @@ class Repository(
     private val api: MobileApi,
     private val widgets: WidgetUpdater,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Stage 10: the sealed periods cache; null keeps the periods answer in memory only. */
+    private val periodsCache: PeriodsCache? = null,
 ) {
     private val state = MutableStateFlow(AppData())
     val data: StateFlow<AppData> = state.asStateFlow()
     private val lock = Mutex()
+
+    private val periodsState = MutableStateFlow(PeriodsData())
+    val periodsData: StateFlow<PeriodsData> = periodsState.asStateFlow()
+
+    /** The periods fetch's own lock (never [lock]): it guards [periodsInFlight]. */
+    private val periodsLock = Mutex()
+    private var periodsInFlight: CompletableDeferred<RefreshOutcome>? = null
 
     /** Reads the stores once (idempotent). */
     suspend fun load(): AppData {
@@ -54,6 +76,8 @@ class Repository(
         val pairing = pairingStore.load()
         val revoked = pairingStore.isRevoked()
         val entry = if (pairing != null) cache.read() else null
+        val periods = if (pairing != null) periodsCache?.read(pairing.origin, pairing.deviceId) else null
+        if (periods != null) periodsState.update { it.copy(periods = periods.periods, fetchedAtMs = periods.fetchedAtMs) }
         state.update {
             it.copy(loaded = true, pairing = pairing, revoked = revoked && pairing == null, today = entry?.today, fetchedAtMs = entry?.fetchedAtMs)
         }
@@ -120,6 +144,8 @@ class Repository(
         )
         lock.withLock {
             cache.clear()
+            periodsCache?.clear()
+            periodsState.value = PeriodsData()
             prefs.clearWidgets()
             pairingStore.save(pairing)
             state.update { AppData(loaded = true, pairing = pairing) }
@@ -140,9 +166,85 @@ class Repository(
     private suspend fun clearAll(revoked: Boolean) {
         pairingStore.clear(revoked)
         cache.clear()
+        periodsCache?.clear()
+        periodsState.value = PeriodsData()
         prefs.clearWidgets()
         state.update { AppData(loaded = true, revoked = revoked) }
         runCatching { widgets.updateAll() }
+    }
+
+    /**
+     * `GET /api/mobile/periods` → [PeriodsCache] → [periodsData] (Stage 10 plan section 9.3). Single-flight: a call while
+     * a fetch is running waits for that fetch and shares its outcome, so overlapping triggers make one request. Without
+     * [force], a cached answer that is not stale (absent, over 30 minutes old, or older than the last Today) is kept.
+     * A 401 revoked takes the Stage 9 revoked path; a 404 (`ServerTooOld`) drops the cached answer. Never called by the
+     * worker or the widgets.
+     */
+    suspend fun periods(force: Boolean): RefreshOutcome {
+        load()
+        val (job, owner) = periodsLock.withLock {
+            periodsInFlight?.let { return@withLock it to false }
+            val p = periodsState.value
+            if (!force && !com.tenon.joinrfinance.model.periodsStale(p.fetchedAtMs, state.value.fetchedAtMs, clock())) {
+                return@withLock CompletableDeferred(RefreshOutcome.OK) to false
+            }
+            CompletableDeferred<RefreshOutcome>().also { periodsInFlight = it } to true
+        }
+        if (!owner) return job.await()
+        var outcome = RefreshOutcome.FAILED
+        try {
+            outcome = fetchPeriods()
+        } finally {
+            periodsLock.withLock { periodsInFlight = null }
+            job.complete(outcome)
+        }
+        return outcome
+    }
+
+    private suspend fun fetchPeriods(): RefreshOutcome {
+        val pairing = state.value.pairing ?: return RefreshOutcome.NOT_PAIRED
+        periodsState.update { it.copy(loading = true) }
+        try {
+            return when (val res = api.periods(pairing.origin, pairing.key)) {
+                is ApiResult.Ok -> {
+                    val now = clock()
+                    // The commit runs under the Today lock (the fetch itself never does), so an unpair or a re-pairing
+                    // (which clear the periods cache and state under that lock) cannot interleave between the pairing
+                    // check and the write. An answer for a pairing replaced during the fetch is dropped.
+                    val committed = lock.withLock {
+                        if (state.value.pairing != pairing) {
+                            false
+                        } else {
+                            periodsCache?.write(res.value, now, pairing.origin, pairing.deviceId)
+                            periodsState.update { it.copy(periods = res.value, fetchedAtMs = now, error = null) }
+                            true
+                        }
+                    }
+                    if (committed) RefreshOutcome.OK else RefreshOutcome.FAILED
+                }
+                is ApiResult.Err -> when (res.error) {
+                    ApiError.Revoked -> {
+                        lock.withLock { if (state.value.pairing == pairing) clearAll(revoked = true) }
+                        RefreshOutcome.REVOKED
+                    }
+                    ApiError.ServerTooOld -> {
+                        lock.withLock {
+                            if (state.value.pairing == pairing) {
+                                periodsCache?.clear()
+                                periodsState.update { it.copy(periods = null, fetchedAtMs = null, error = ApiError.ServerTooOld) }
+                            }
+                        }
+                        RefreshOutcome.FAILED
+                    }
+                    else -> {
+                        lock.withLock { if (state.value.pairing == pairing) periodsState.update { it.copy(error = res.error) } }
+                        RefreshOutcome.FAILED
+                    }
+                }
+            }
+        } finally {
+            periodsState.update { it.copy(loading = false) }
+        }
     }
 
     private companion object {

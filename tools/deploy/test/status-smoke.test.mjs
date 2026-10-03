@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { main as smoke, SYMLINK_PROBE } from '../smoke.mjs';
+import { EXPECTED_MIGRATIONS, historyEgress, main as smoke, SYMLINK_PROBE } from '../smoke.mjs';
 import { digestOf, main as status } from '../status.mjs';
 import { DIGEST, HOME, fakeHost, makeStore, remoteCommand, remoteCommands } from './helpers.mjs';
 
@@ -125,10 +125,11 @@ describe('smoke', () => {
   it('check: every probe passes on a good container', async () => {
     const h = fakeHost({
       'smoke-health': {
-        stdout: JSON.stringify({ status: 'ok', version: '1.0.0-rc.1', db: { migrations: 7 } }),
+        stdout: JSON.stringify({ status: 'ok', version: '1.0.0-rc.1', db: { migrations: 8 } }),
       },
       'smoke-tz': { stdout: '{"zone":"Australia/Melbourne","offset":-600}\n' },
       'smoke-egress': { stdout: '404\n' },
+      'smoke-egress-history': { stdout: '200\n' },
       'smoke-post': { stdout: '201' },
       'smoke-list': {
         stdout: JSON.stringify({
@@ -140,7 +141,7 @@ describe('smoke', () => {
       'smoke-origin': { stdout: '403' },
     });
     expect(await smoke(['check'], h.deps())).toBe(0);
-    expect(h.out.at(-1)).toBe('All 11 checks passed.');
+    expect(h.out.at(-1)).toBe('All 13 checks passed.');
     expect(remoteCommand(h.callsFor('smoke-download')[0])).toContain(
       '/api/backups/manual-20300315-143200%2B1100.db',
     );
@@ -156,6 +157,73 @@ describe('smoke', () => {
     expect(h.callsFor('smoke-egress').map(remoteCommand).join('\n')).toMatch(
       /query1\.finance\.yahoo\.com[\s\S]*api\.coingecko\.com/,
     );
+  });
+
+  it('check: migrations 8, and the daily-history egress (Yahoo 200, CoinGecko any status; stage-10.md §7.2)', async () => {
+    expect(EXPECTED_MIGRATIONS).toBe(8);
+    const good = {
+      'smoke-health': {
+        stdout: JSON.stringify({ status: 'ok', version: '1.3.0-rc.1', db: { migrations: 8 } }),
+      },
+      'smoke-tz': { stdout: '{"zone":"Australia/Melbourne","offset":-600}\n' },
+      'smoke-egress': { stdout: '404\n' },
+      'smoke-post': { stdout: '201' },
+      'smoke-list': {
+        stdout: JSON.stringify({
+          backups: [{ name: 'manual-20300315-143200+1100.db', kind: 'manual' }],
+        }),
+      },
+      'smoke-download': { stdout: '200 application/vnd.sqlite3 4096' },
+      'smoke-symlink-get': { stdout: '404' },
+      'smoke-origin': { stdout: '403' },
+    };
+    // Yahoo 200, CoinGecko 429 (the shared IP): both pass.
+    const ok = fakeHost({
+      ...good,
+      'smoke-egress-history': (spec) => ({
+        stdout: remoteCommand(spec).includes('coingecko') ? '429\n' : '200\n',
+      }),
+    });
+    expect(await smoke(['check'], ok.deps())).toBe(0);
+    const text = ok.out.join('\n');
+    expect(text).toContain('PASS  egress query1.finance.yahoo.com daily history → 200 — 200');
+    expect(text).toContain('PASS  egress api.coingecko.com 365-day history — 429');
+    const cmds = ok.callsFor('smoke-egress-history').map(remoteCommand);
+    expect(cmds).toHaveLength(2);
+    // Yahoo: AUDUSD=X daily bars by period1/period2 (never range=), the server's User-Agent.
+    expect(cmds[0]).toMatch(
+      /^docker exec joinr-smoke node -e '.*chart\/AUDUSD=X\?period1=\d+&period2=\d+&interval=1d/,
+    );
+    expect(cmds[0]).not.toContain('range=');
+    expect(cmds[0]).toContain('Mozilla/5.0');
+    expect(cmds[1]).toContain('market_chart?vs_currency=aud&days=365&interval=daily');
+    // Yahoo answering 429 (or not at all) fails the check.
+    for (const reply of [{ stdout: '429\n' }, { code: 1, stdout: 'error ENOTFOUND\n' }]) {
+      const bad = fakeHost({ ...good, 'smoke-egress-history': reply });
+      expect(await smoke(['check'], bad.deps())).toBe(1);
+      expect(bad.out.join('\n')).toMatch(
+        /FAIL {2}egress query1\.finance\.yahoo\.com daily history/,
+      );
+    }
+    // Migrations 7 (a 1.2.0 image) fails.
+    const old = fakeHost({
+      ...good,
+      'smoke-egress-history': { stdout: '200\n' },
+      'smoke-health': { stdout: JSON.stringify({ status: 'ok', db: { migrations: 7 } }) },
+    });
+    expect(await smoke(['check'], old.deps())).toBe(1);
+  });
+
+  it('historyEgress: a two-week window ending now, in unix seconds', () => {
+    const now = new Date(Date.UTC(2030, 2, 15, 3, 0, 0));
+    const [yahoo, coin] = historyEgress(now);
+    const u = new URL(yahoo.url);
+    const p2 = Number(u.searchParams.get('period2'));
+    expect(p2).toBe(Math.floor(now.getTime() / 1000));
+    expect(p2 - Number(u.searchParams.get('period1'))).toBe(14 * 86_400);
+    expect(u.searchParams.get('interval')).toBe('1d');
+    expect(yahoo.want200).toBe(true);
+    expect(coin.want200).toBe(false);
   });
 
   it('check fails (exit 1) when a probe fails, e.g. the symlink is served', async () => {

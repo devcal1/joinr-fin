@@ -1,0 +1,145 @@
+{
+  "apiVersion": 1,
+  "serverVersion": "1.3.0",
+  "generatedAt": "2030-09-12T05:20:00.000Z",
+  "timeZone": "Australia/Melbourne",
+  "localDate": "2030-09-12",
+  "closesThrough": null,
+  "valueCents": 0,
+  "holdings": [],
+  "periods": [
+    {
+      "period": "1W",
+      "startDate": "2030-09-05",
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    },
+    {
+      "period": "2W",
+      "startDate": "2030-08-29",
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    },
+    {
+      "period": "1M",
+      "startDate": "2030-08-12",
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    },
+    {
+      "period": "3M",
+      "startDate": "2030-06-12",
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    },
+    {
+      "period": "6M",
+      "startDate": "2030-03-12",
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    },
+    {
+      "period": "12M",
+      "startDate": "2029-09-12",
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    },
+    {
+      "period": "ALL",
+      "startDate": null,
+      "totals": {
+        "cents": null,
+        "ratio": null,
+        "baseCents": null,
+        "up": 0,
+        "down": 0,
+        "flat": 0,
+        "missing": 0,
+        "holdings": 0,
+        "partial": false,
+        "unrealisedCents": null,
+        "realisedCents": null
+      },
+      "line": null,
+      "figures": []
+    }
+  ]
+}

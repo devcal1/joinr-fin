@@ -2,7 +2,8 @@
 // web section rely on, the coverage of every state and the error bodies; the Android JSON copies
 // have their own drift check (android-fixtures.test.ts). The arithmetic of `mobileToday` (totals,
 // weights, the line's last point, each holding's day figure) is checked by the engine's
-// consistency test.
+// consistency test. Stage 10 adds the `mobilePeriods` shapes (stage-10.md §3.6); their arithmetic is
+// checked by the engine's periodChangeFixtures test.
 import { describe, expect, it } from 'vitest';
 import {
   API_ERROR_CODES,
@@ -17,6 +18,10 @@ import {
   MOBILE_KEY_RE,
   MOBILE_MAX_DEVICES,
   NORMALISED_DECIMAL_RE,
+  PERIOD_HOLDING_POINTS,
+  PERIOD_STATUSES,
+  SERVER_PERIODS,
+  SOLD_HOLDINGS_KEY,
   holdingKey,
   isApiErrorBody,
   isIsoDateString,
@@ -32,6 +37,7 @@ import {
   mobileDevice,
   mobilePair,
   mobilePairRequests,
+  mobilePeriods,
   mobileToday,
   phoneSections,
 } from '../src/fixtures/index';
@@ -245,5 +251,139 @@ describe('error bodies of the Stage 9 codes (§4.5)', () => {
         MOBILE_ERROR_MESSAGES[body.error.code as keyof typeof MOBILE_ERROR_MESSAGES],
       );
     }
+  });
+});
+
+// ─── Stage 10: mobilePeriods (stage-10.md §3.6, §4.2) ──────────────────────────────────────────
+
+describe('mobilePeriods (stage-10.md §3.6, §4.2)', () => {
+  const answers = Object.entries(mobilePeriods);
+
+  it('has the four answers', () => {
+    expect(Object.keys(mobilePeriods)).toEqual(['open', 'noHistory', 'soldOnly', 'empty']);
+  });
+
+  it.each(answers)('%s: the frozen shape', (_name, r) => {
+    expect(r.apiVersion).toBe(1);
+    expect(r.timeZone).toBe('Australia/Melbourne');
+    expect(r.localDate).toBe('2030-09-12');
+    expect(isIsoTimestampString(r.generatedAt)).toBe(true);
+    if (r.closesThrough !== null) expect(isIsoDateString(r.closesThrough)).toBe(true);
+    expect(r.periods.map((p) => p.period)).toEqual([...SERVER_PERIODS]);
+    expect(r.valueCents).toBe(r.holdings.reduce((a, h) => a + (h.valueCents ?? 0), 0));
+    const keys = r.holdings.map((h) => h.key);
+    for (const p of r.periods) {
+      if (p.period === 'ALL') expect(p.startDate).toBeNull();
+      else expect(isIsoDateString(p.startDate!)).toBe(true);
+      const sold = p.figures.filter((f) => f.key === SOLD_HOLDINGS_KEY);
+      expect(sold.length).toBeLessThanOrEqual(p.period === 'ALL' ? 1 : 0);
+      expect(p.figures.filter((f) => f.key !== SOLD_HOLDINGS_KEY).map((f) => f.key)).toEqual(keys);
+      if (sold.length === 1) expect(p.figures.at(-1)!.key).toBe(SOLD_HOLDINGS_KEY);
+      if (p.line !== null) expect(p.line.points.length).toBeLessThanOrEqual(LINE_MAX_POINTS);
+      for (const f of p.figures) {
+        expect(PERIOD_STATUSES).toContain(f.status);
+        for (const v of [f.ratio, f.startClose, f.changePerUnit, f.priceRatio, f.startUnits])
+          expect(decimal(v)).toBe(true);
+        if (f.line !== null) {
+          expect(f.line.points.length).toBeLessThanOrEqual(PERIOD_HOLDING_POINTS);
+          for (const [d, v] of f.line.points) {
+            expect(isIsoDateString(d)).toBe(true);
+            expect(decimal(v)).toBe(true);
+          }
+        }
+        if (p.period === 'ALL') {
+          expect([f.startClose, f.startCloseDate, f.changePerUnit, f.priceRatio]).toEqual([
+            null,
+            null,
+            null,
+            null,
+          ]);
+          expect([f.startUnits, f.newUnits, f.laterUnits]).toEqual(['0', '0', '0']);
+        } else {
+          expect([f.unrealisedCents, f.realisedCents, f.costEverCents]).toEqual([null, null, null]);
+        }
+        expect(f.soldCount === null).toBe(f.key !== SOLD_HOLDINGS_KEY);
+      }
+    }
+  });
+
+  it('open: the same holdings as mobileToday.open, the listed shapes', () => {
+    const r = mobilePeriods.open;
+    const today = mobileToday.open;
+    expect(r.holdings.map((h) => h.key)).toEqual(today.holdings.map((h) => h.key));
+    expect(r.valueCents).toBe(today.totals.valueCents);
+    for (const h of r.holdings) {
+      const t = today.holdings.find((x) => x.key === h.key)!;
+      expect(h).toEqual({
+        key: t.key,
+        instrumentId: t.instrumentId,
+        kind: t.kind,
+        code: t.code,
+        symbol: t.symbol,
+        name: t.name,
+        items: t.items,
+        units: t.units,
+        priceStatus: t.priceStatus,
+        price: t.price,
+        priceAsOf: t.priceAsOf,
+        valueCents: t.valueCents,
+        weightRatio: t.weightRatio,
+      });
+    }
+    const fig = (period: string, key: string) =>
+      r.periods.find((p) => p.period === period)!.figures.find((f) => f.key === key)!;
+    for (const p of ['1W', '2W', '1M', '3M', '6M', '12M']) {
+      expect(fig(p, 'i2').status).toBe('split');
+      // D166: the bought-in part is counted on the card, marked partial.
+      expect(fig(p, 'i12').status).toBe('no_start');
+      expect(fig(p, 'i12').cents).toBeGreaterThan(0);
+      expect(fig(p, 'i16').status).toBe('unpriced');
+    }
+    expect(fig('1W', 'i1')).toMatchObject({ status: 'ok', newUnits: '10', startUnits: '100' });
+    expect(fig('1W', 'i4')).toMatchObject({ status: 'ok', startUnits: '0', line: null });
+    expect(fig('1W', 'i15').status).toBe('ok');
+    expect(fig('1M', 'i10')).toMatchObject({ status: 'ok', startClose: '156.25' });
+    expect(fig('ALL', 'i3').realisedCents).toBeGreaterThan(0);
+    expect(fig('ALL', SOLD_HOLDINGS_KEY)).toMatchObject({ soldCount: 2 });
+    const all = r.periods.at(-1)!;
+    expect(all.totals.realisedCents).not.toBe(0);
+    expect(all.line!.points.at(-1)![1]).toBe(all.totals.unrealisedCents);
+    for (const p of r.periods) {
+      expect(p.totals.partial).toBe(true);
+      expect(p.line).not.toBeNull();
+    }
+  });
+
+  it('noHistory: lines null, ALL complete with a null line', () => {
+    const r = mobilePeriods.noHistory;
+    expect(r.closesThrough).toBeNull();
+    for (const p of r.periods) {
+      expect(p.line).toBeNull();
+      for (const f of p.figures) expect(f.line).toBeNull();
+    }
+    const all = r.periods.at(-1)!;
+    expect(all.totals.cents).toBe(mobilePeriods.open.periods.at(-1)!.totals.cents);
+  });
+
+  it('soldOnly and empty', () => {
+    const sold = mobilePeriods.soldOnly;
+    expect(sold.holdings).toEqual([]);
+    for (const p of sold.periods.slice(0, -1))
+      expect(p.totals).toMatchObject({ cents: null, holdings: 0, partial: false });
+    const all = sold.periods.at(-1)!;
+    expect(all.figures.map((f) => f.key)).toEqual([SOLD_HOLDINGS_KEY]);
+    expect(all.totals).toMatchObject({ unrealisedCents: 0, holdings: 0 });
+    expect(all.line).toBeNull();
+    for (const p of mobilePeriods.empty.periods) {
+      expect(p.figures).toEqual([]);
+      expect(p.line).toBeNull();
+      expect(p.totals).toMatchObject({ cents: null, baseCents: null, holdings: 0 });
+    }
+  });
+
+  it('covers every period status but no_cost', () => {
+    expect([...FIXTURE_COVERAGE.periodStatuses].sort()).toEqual(
+      PERIOD_STATUSES.filter((s) => s !== 'no_cost').sort(),
+    );
   });
 });

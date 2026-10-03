@@ -6,9 +6,26 @@
 // Stage 9 (stage-9.md §5.1): every quote is a one-day five-minute chart (the bullion inputs a
 // two-day one) carrying the session's `day`; managed funds are daily requests on the five-day
 // daily chart; and a refused five-minute request falls back once to the five-day daily chart.
-import { decimalFromNumber, type DecimalString, type IsoDate } from '@joinr/schema';
-import { chartResultOf, parseYahooBars, parseYahooDailyDay, parseYahooDay } from '../day';
-import { currencyFromSymbol, localDateResolver } from './exchangeTime';
+// Stage 10 (stage-10.md §5.2) adds the daily history of the `closes` job (`yahooHistoryUrl`,
+// `parseYahooSplits`, `parseYahooHistory`, `createYahooHistoryClient`); the Stage 4 FX client is
+// unchanged.
+import {
+  CLOSES_REQUEST_TIMEOUT_MS,
+  CLOSES_YAHOO_SPACING_MS,
+  decimalFromNumber,
+  type DecimalString,
+  type IsoDate,
+} from '@joinr/schema';
+import {
+  chartResultOf,
+  isKnownTimeZone,
+  isWeekday,
+  parseYahooBars,
+  parseYahooDailyDay,
+  parseYahooDay,
+  weekdayOfIso,
+} from '../day';
+import { currencyFromSymbol, localDateResolver, timeZoneFromSymbol } from './exchangeTime';
 import {
   BROWSER_USER_AGENT,
   failureFor,
@@ -26,6 +43,10 @@ import {
   type QuoteFailure,
   type QuoteRequest,
   type Sleep,
+  type SplitEvent,
+  type YahooHistory,
+  type YahooHistoryClient,
+  type YahooHistoryResult,
 } from './types';
 
 // Moved to ./exchangeTime.ts (CODE-8); re-exported so existing imports keep working.
@@ -393,6 +414,161 @@ export function createYahooFxClosesClient(o: YahooFxClosesOptions): FxClosesClie
       const parsed = parseYahooCloses(outcome.body);
       if (!parsed.ok) throw new FxClosesError('failed', parsed.error);
       return parsed.closes;
+    },
+  };
+}
+
+// ─── Stage 10: the daily history of the `closes` job (stage-10.md §5.2) ────────────────────────
+
+/**
+ * The daily history request: `period1`/`period2` in unix seconds, daily bars and the split events.
+ * Never `range=max`: Yahoo silently downgrades it to monthly or quarterly bars.
+ */
+export function yahooHistoryUrl(symbol: string, period1: number, period2: number): string {
+  if (!Number.isSafeInteger(period1) || !Number.isSafeInteger(period2)) {
+    throw new RangeError('yahooHistoryUrl: periods must be whole unix seconds');
+  }
+  return `${YAHOO_CHART_BASE}${encodeURIComponent(symbol)}?period1=${period1}&period2=${period2}&interval=1d&events=split`;
+}
+
+/**
+ * `events.splits` of a chart body (pure): each event with a finite numerator and denominator
+ * greater than 0 and a ratio other than 1, dated in the exchange's zone (the Stage 4 resolver),
+ * one per date, oldest first. A body without `events` (or without a usable zone) → none.
+ */
+export function parseYahooSplits(body: unknown): SplitEvent[] {
+  const result = chartResultOf(body);
+  if (result === null || !isRecord(result.meta) || !isRecord(result.events)) return [];
+  const splits = result.events.splits;
+  if (!isRecord(splits)) return [];
+  const localDate = localDateResolver(result.meta);
+  if (localDate === null) return [];
+  const byDate = new Map<IsoDate, SplitEvent>();
+  for (const event of Object.values(splits)) {
+    if (!isRecord(event) || typeof event.date !== 'number') continue;
+    const numerator = finitePositive(event.numerator);
+    const denominator = finitePositive(event.denominator);
+    if (numerator === null || denominator === null || numerator === denominator) continue;
+    const date = localDate(event.date);
+    if (date === null) continue;
+    byDate.set(date, {
+      date,
+      numerator: decimalFromNumber(numerator),
+      denominator: decimalFromNumber(denominator),
+    });
+  }
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+/**
+ * The FROZEN filter (§5.2): keep a close only when its date is a weekday and earlier than `today`
+ * (today's date in the same zone). Drops the live partial bar, the weekend FX bar and today's
+ * session; a gap stays a gap.
+ */
+export function filterHistoryCloses<T extends { date: IsoDate }>(
+  closes: readonly T[],
+  today: IsoDate,
+): T[] {
+  return closes.filter((c) => c.date < today && isWeekday(weekdayOfIso(c.date)));
+}
+
+/**
+ * A daily history body → its closes (`parseYahooCloses`: `close`, not `adjclose`, so dividends are
+ * not counted; nulls skipped; then the §5.2 filter against `now` in the exchange's zone), splits,
+ * zone, currency and listing date (pure).
+ */
+export function parseYahooHistory(
+  body: unknown,
+  now: Date,
+): { ok: true; history: YahooHistory } | { ok: false; error: string } {
+  const parsed = parseYahooCloses(body);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  const result = chartResultOf(body);
+  const meta = result !== null && isRecord(result.meta) ? result.meta : {};
+  const localDate = localDateResolver(meta);
+  const today = localDate?.(Math.floor(now.getTime() / 1000)) ?? null;
+  if (today === null && parsed.closes.length > 0) {
+    return { ok: false, error: 'No exchange time zone in response' };
+  }
+  const zoneName = meta.exchangeTimezoneName;
+  const timeZone = isKnownTimeZone(zoneName) ? zoneName : timeZoneFromSymbol(meta.symbol);
+  const currency =
+    typeof meta.currency === 'string' && /^[A-Za-z]{3}$/.test(meta.currency)
+      ? meta.currency
+      : currencyFromSymbol(meta.symbol);
+  const first = meta.firstTradeDate;
+  const firstTradeDate = typeof first === 'number' && localDate !== null ? localDate(first) : null;
+  return {
+    ok: true,
+    history: {
+      closes: today === null ? [] : filterHistoryCloses(parsed.closes, today),
+      splits: parseYahooSplits(body),
+      timeZone,
+      currency,
+      firstTradeDate,
+    },
+  };
+}
+
+export interface YahooHistoryOptions {
+  fetchImpl: typeof fetch;
+  sleep: Sleep;
+  now: () => Date;
+  /** Default CLOSES_REQUEST_TIMEOUT_MS (a history answer can be over 1 MB). */
+  timeoutMs?: number;
+  /** The least time between two request starts; default CLOSES_YAHOO_SPACING_MS. */
+  spacingMs?: number;
+}
+
+/**
+ * The live daily-history client (§5.2): any symbol, on the fixed Yahoo host, with the browser
+ * User-Agent, spaced from the previous request's start; `period1` = the request's date at
+ * 00:00 UTC and `period2` = now. A sibling of the Stage 4 FX client, which it leaves unchanged.
+ */
+export function createYahooHistoryClient(o: YahooHistoryOptions): YahooHistoryClient {
+  const spacingMs = Math.max(0, o.spacingMs ?? CLOSES_YAHOO_SPACING_MS);
+  const timeoutMs = o.timeoutMs ?? CLOSES_REQUEST_TIMEOUT_MS;
+  const headers = { 'User-Agent': BROWSER_USER_AGENT, Accept: 'application/json' };
+  let lastStartMs: number | null = null;
+  const skipped: YahooHistoryResult = { ok: false, kind: 'skipped', error: 'Aborted' };
+
+  return {
+    id: 'yahoo',
+    async fetchHistory(req, signal): Promise<YahooHistoryResult> {
+      const period1 = unixOfIsoDate(req.from, 'from');
+      if (signal.aborted) return skipped;
+      if (lastStartMs !== null && spacingMs > 0) {
+        const wait = Math.min(spacingMs, lastStartMs + spacingMs - o.now().getTime());
+        if (wait > 0) await o.sleep(wait, signal);
+        if (signal.aborted) return skipped;
+      }
+      const startMs = o.now().getTime();
+      lastStartMs = startMs;
+      const period2 = Math.max(period1, Math.floor(startMs / 1000));
+      const outcome = await getJson({
+        fetchImpl: o.fetchImpl,
+        url: yahooHistoryUrl(req.symbol, period1, period2),
+        headers,
+        runSignal: signal,
+        timeoutMs,
+        now: o.now,
+      });
+      if (outcome.kind === 'aborted') return skipped;
+      if (outcome.kind !== 'ok') {
+        const failure = failureFor(req.symbol, outcome);
+        if (!failure.rateLimited) return { ok: false, kind: 'failed', error: failure.error };
+        const limited: YahooHistoryResult = {
+          ok: false,
+          kind: 'rate_limited',
+          error: failure.error,
+        };
+        if (failure.retryAfterMs !== undefined) limited.retryAfterMs = failure.retryAfterMs;
+        return limited;
+      }
+      const parsed = parseYahooHistory(outcome.body, o.now());
+      return parsed.ok
+        ? { ok: true, history: parsed.history }
+        : { ok: false, kind: 'failed', error: parsed.error };
     },
   };
 }

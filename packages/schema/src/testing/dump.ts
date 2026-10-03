@@ -8,7 +8,8 @@ import type { JoinrDb } from '../db/index';
  * `dividend_events` cache are not dumped: the import never writes them (stage-3.md §3.2); nor are
  * the Stage 4 overlay (`super_sg_overrides`) and cache (`market_quote_history`) (stage-4.md §3.2),
  * nor the Stage 5 `snapshot_audit` log (stage-5.md §3.2; the new snapshot columns are dumped with
- * the row).
+ * the row), nor the Stage 9 day caches, nor the Stage 10 closes caches (`instrument_closes`,
+ * `instrument_splits`, `series_closes`; stage-10.md §3.3).
  */
 export const DUMPED_TABLES: readonly { table: string; orderBy: string }[] = [
   { table: 'instruments', orderBy: 'id' },

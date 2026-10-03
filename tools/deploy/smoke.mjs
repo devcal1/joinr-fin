@@ -6,16 +6,19 @@
 // then removes the container and the folder.
 //   start   mkdir <build root>/smoke/data/backups; docker run -d joinr-smoke on 127.0.0.1:4939
 //   check   health and version, the container's time zone, market-data egress from inside the
-//           container, back up now + list, a download, a planted symlink → 404, a foreign Origin → 403
+//           container (since Stage 10 also the daily-history paths), back up now + list, a
+//           download, a planted symlink → 404, a foreign Origin → 403
 //   nas     (Stage 8) the real rsync end to end: a scratch rsync daemon (the smoke image's own
 //           rsync) on a private Docker network, then copies, the proof, a second copy sending
 //           nothing, a foreign file, a wrong password and the refusal lock, a stopped NAS, a
 //           subfolder, and leak counts. Never contacts a real NAS.
-//   mobile  (Stage 9) the phone API: migrations 7, no key → 401, a made-up crypto holding seeded
-//           through the API and a restart, so the start-up intraday run fetches its day chart;
-//           then open → pair → today → POST → revoke → today as ONE host script (the code and
-//           the key live only in shell variables on the host; the key reaches curl on stdin),
-//           the traversal corpus with curl --path-as-is, the devices/ modes, and leak counts
+//   mobile  (Stage 9) the phone API: migrations 8, no key → 401, a made-up crypto holding and
+//           (Stage 10) a listed holding seeded through the API and a restart, so the start-up
+//           intraday run fetches the coin's day chart and the start-up closes run its daily
+//           history; then open → pair → today → periods → POST → revoke → today/periods as ONE
+//           host script (the code and the key live only in shell variables on the host; the key
+//           reaches curl on stdin), the traversal corpus with curl --path-as-is, the devices/
+//           modes, and leak counts
 //   remove  both containers, the network and the smoke folder (the scratch NAS's included)
 //
 // Exit codes: 0 done / every check passed · 1 a check failed · 2 usage · 3 port or container in the way.
@@ -59,8 +62,34 @@ export const EGRESS_URLS = [
   'https://query1.finance.yahoo.com/v8/finance/chart/AUDUSD=X?range=1d&interval=5m',
   'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=aud&days=1',
 ];
-/** The database level of this release (`/api/health` `db.migrations`; Stage 9 adds 0006). */
-export const EXPECTED_MIGRATIONS = 7;
+/**
+ * Stage 10 (stage-10.md §7.2): the daily-history paths the `closes` job calls. Yahoo's daily bars
+ * for a two-week window (`period1`/`period2`/`interval=1d`, never `range=`) with the server's
+ * browser-like User-Agent must answer 200; CoinGecko's 365-day daily chart may answer anything (a
+ * 429 from the Umbrel's shared IP still proves the path is reachable).
+ */
+export const HISTORY_EGRESS_DAYS = 14;
+/** The server's fixed User-Agent (apps/server/src/market/providers/http.ts BROWSER_USER_AGENT). */
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+export function historyEgress(now) {
+  const period2 = Math.floor(now.getTime() / 1000);
+  const period1 = period2 - HISTORY_EGRESS_DAYS * 86_400;
+  return [
+    {
+      label: 'egress query1.finance.yahoo.com daily history → 200',
+      url: `https://query1.finance.yahoo.com/v8/finance/chart/AUDUSD=X?period1=${period1}&period2=${period2}&interval=1d`,
+      want200: true,
+    },
+    {
+      label: 'egress api.coingecko.com 365-day history',
+      url: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=aud&days=365&interval=daily',
+      want200: false,
+    },
+  ];
+}
+/** The database level of this release (`/api/health` `db.migrations`; Stage 10 adds 0007). */
+export const EXPECTED_MIGRATIONS = 8;
 
 function smokePaths(ctx, home) {
   const root = remotePath(home, ctx.config.remoteBuildRoot, SMOKE_DIR);
@@ -112,11 +141,14 @@ async function start(ctx, home, image) {
   return 0;
 }
 
-/** One check's outcome, printed as a line of the report. */
-function report(ctx, results, name, ok, detail) {
-  results.push({ name, ok });
+/**
+ * One check's outcome, printed as a line of the report. `{ note: true }` (Stage 10, the one
+ * non-fatal case) prints NOTE and never counts as a failure.
+ */
+function report(ctx, results, name, ok, detail, { note = false } = {}) {
+  results.push({ name, ok: ok || note, note: note && !ok });
   // A dry run judges nothing: every command was printed, none was run.
-  const tag = ctx.dryRun ? 'DRY ' : ok ? 'PASS' : 'FAIL';
+  const tag = ctx.dryRun ? 'DRY ' : ok ? 'PASS' : note ? 'NOTE' : 'FAIL';
   ctx.out(`${tag}  ${name}${detail && !ctx.dryRun ? ` — ${detail}` : ''}`);
 }
 
@@ -183,6 +215,24 @@ async function check(ctx, home) {
     const u = new URL(url);
     const label = u.pathname === '/' ? u.host : `${u.host} ${u.pathname.split('/').at(-1)}`;
     report(ctx, results, `egress ${label}`, r.code === 0, r.stdout.trim().slice(0, 40));
+  }
+  // 3b. The daily-history paths of the closes job (Stage 10).
+  for (const probe of historyEgress(ctx.now())) {
+    const r = await remote(
+      ctx,
+      'smoke-egress-history',
+      `docker exec ${SMOKE_CONTAINER} node -e ${shq(
+        `fetch(${JSON.stringify(probe.url)}, { headers: { 'User-Agent': ${JSON.stringify(BROWSER_USER_AGENT)}, Accept: 'application/json' }, signal: AbortSignal.timeout(30000) }).then((r) => console.log(r.status), (e) => { console.log('error ' + (e.cause?.code ?? e.name)); process.exit(1); })`,
+      )}`,
+    );
+    const status = r.stdout.trim();
+    report(
+      ctx,
+      results,
+      probe.label,
+      r.code === 0 && (!probe.want200 || status === '200'),
+      status.slice(0, 40),
+    );
   }
 
   // 4. Back up now, then the list.
@@ -798,8 +848,47 @@ export function seedTrade(instrumentId, tradeDate) {
     fee: { kind: 'flat', cents: 0 },
   };
 }
+/**
+ * Stage 10 (stage-10.md §7.2): a listed holding, so the start-up `closes` run has a Yahoo target.
+ * It must be a real, widely held listing (the smoke runs against live Yahoo); the units and the
+ * price are made up.
+ */
+export const SEED_LISTED_INSTRUMENT = Object.freeze({
+  kind: 'stock',
+  symbol: 'ASX:TLS',
+  name: 'Smoke test listing',
+  quoteCurrency: 'AUD',
+  watched: false,
+  targetRatio: null,
+  sector: null,
+  location: null,
+  mgmtFeeRatio: null,
+  regions: null,
+  dividendFreqMonths: null,
+  drp: null,
+  defaultFee: null,
+  note: null,
+});
+/** Its buy (made-up units and price), dated a week before the smoke runs. */
+export function seedListedTrade(instrumentId, tradeDate) {
+  return {
+    instrumentId,
+    side: 'buy',
+    tradeDate,
+    quantity: { mode: 'units', units: '10' },
+    price: '40',
+    fee: { kind: 'flat', cents: 0 },
+  };
+}
 /** How long the probe waits for the start-up intraday run and its day row after the restart. */
 export const MOBILE_INTRADAY_WAIT_MS = 120_000;
+/**
+ * How long after the restart the probe waits for a finished `closes` run (Stage 10): its start-up
+ * run fires `CLOSES_STARTUP_DELAY_MS` (2 min) after the start, then needs about a minute.
+ */
+export const MOBILE_CLOSES_WAIT_MS = 240_000;
+/** The NOTE printed when CoinGecko throttled the closes run's coin (stage-10.md §7.2; non-fatal). */
+export const CLOSES_COIN_NOTE = 'closes: CoinGecko rate-limited; re-run `smoke mobile` after 2 min';
 const MOBILE_POLL_MS = 5_000;
 /** Strings that must never reach the container's log (stage-9.md §11 step 18). */
 export const MOBILE_LEAK_NEEDLES = ['jfk_', 'Bearer ', 'X-Joinr-Key', 'pair?v='];
@@ -821,6 +910,10 @@ export function traversalCorpus(backupName) {
     '/api/mobile\\..\\backups',
     '/api/mobile/../status',
     '/api/mobile/../phone',
+    // Stage 10 (stage-10.md §6.6): the periods path.
+    '/api/mobile/periods/../backups',
+    '/api/mobile/periods%2f..%2fbackups',
+    '/api/mobile/periods/..;/status',
     `/api/mobile/../backups/${encodeURIComponent(backupName)}`,
   ];
 }
@@ -858,6 +951,7 @@ split() { st=$(printf '%s' "$resp" | tail -n 1); body=$(printf '%s' "$resp" | se
 errcode() { printf '%s' "$body" | sed -n 's/.*"code":"\\([A-Z_]*\\)".*/\\1/p' | head -n 1; }
 okword() { if [ -n "$1" ]; then echo ok; else echo missing; fi; }
 today() { resp=$(printf 'header = "Authorization: Bearer %s"\\n' "$key" | curl -s --config - -w '\\n%{http_code}' "$B/api/mobile/today"); split; }
+periods() { resp=$(printf 'header = "Authorization: Bearer %s"\\n' "$key" | curl -s --config - -w '\\n%{http_code}' "$B/api/mobile/periods"); split; }
 key=''
 id=''
 resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/phone/pairing"); split
@@ -887,12 +981,32 @@ if [ -n "$key" ]; then
     echo "today $st $(errcode)"
   fi
 fi
+if [ -n "$key" ]; then
+  periods
+  if [ "$st" = 200 ]; then
+    body=$(printf '%s' "$body" | tr -d ' \\t\\r\\n')
+    p=$(printf '%s' "$body" | grep -o '"period":"' | wc -l | tr -d ' ')
+    n=$(printf '%s' "$body" | grep -o '"weightRatio":' | wc -l | tr -d ' ')
+    v=missing
+    if printf '%s' "$body" | grep -q '"apiVersion":1[,}]'; then v=1; fi
+    shape=ok
+    for f in '"serverVersion":"' '"generatedAt":"' '"timeZone":"' '"localDate":"' '"closesThrough":' '"valueCents":' '"holdings":[' '"periods":['; do
+      if ! printf '%s' "$body" | grep -qF "$f"; then shape=missing; fi
+    done
+    echo "periods $st apiVersion=$v periods=$p holdings=$n shape=$shape"
+  else
+    echo "periods $st $(errcode)"
+  fi
+fi
 resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/mobile/today"); split
 echo "post $st $(errcode)"
+resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/mobile/periods"); split
+echo "post-periods $st $(errcode)"
 if [ -n "$id" ]; then
   resp=$(curl -s -X POST -w '\\n%{http_code}' "$B/api/phone/devices/$id/revoke"); split
   echo "revoke $st"
   if [ -n "$key" ]; then today; echo "revoked-today $st $(errcode)"; fi
+  if [ -n "$key" ]; then periods; echo "revoked-periods $st $(errcode)"; fi
 else
   curl -s -o /dev/null -X DELETE "$B/api/phone/pairing"
   echo "revoke skipped"
@@ -967,6 +1081,58 @@ const DB_COUNTS_JS = [
   '}));',
 ].join(' ');
 
+/**
+ * Stage 10: the newest `closes` run id before the seeded restart (read-only; any run, finished or
+ * not, so a run in flight at the restart and later marked aborted is left out too). Only an integer
+ * comes back.
+ */
+export const CLOSES_BASE_JS = [
+  "const { DatabaseSync } = require('node:sqlite');",
+  "const db = new DatabaseSync('/data/finance.db', { readOnly: true });",
+  'console.log(JSON.stringify({ n: Number(db.prepare("SELECT coalesce(max(id), 0) AS n FROM job_runs WHERE job = \'closes\'").get().n) }));',
+].join(' ');
+
+/** The run id printed by `CLOSES_BASE_JS`: a non-negative integer, else 0 (every run counts). */
+export function parseClosesBase(stdout) {
+  try {
+    const n = JSON.parse(String(stdout ?? '')).n;
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Stage 10: the closes job's counts (read-only; counts and words only, never a close value), over
+ * the `closes` runs with an id above `afterId` only (the runs started since the seeded restart):
+ * how many have finished, the newest finished one's status, the seeded holdings'
+ * `instrument_closes` rows, and whether that run skipped the coin rather than failed it. The coin
+ * decision comes from the run's structured CoinGecko counts (stage-10.md §5.7: a 429 or a cool-down
+ * shows as `coingecko.skipped > 0`; the run keeps no error text for it), read inside the container;
+ * only a boolean comes back.
+ */
+export function closesCountsJs(afterId) {
+  if (!Number.isInteger(afterId) || afterId < 0) throw new Error(`Bad closes run id: ${afterId}`);
+  const runs = `job = 'closes' AND finished_at IS NOT NULL AND id > ${afterId}`;
+  return [
+    "const { DatabaseSync } = require('node:sqlite');",
+    "const db = new DatabaseSync('/data/finance.db', { readOnly: true });",
+    'const n = (s) => db.prepare(s).get().n;',
+    'const rows = (sym) => db.prepare("SELECT count(*) AS n FROM instrument_closes c JOIN instruments i ON i.id = c.instrument_id WHERE i.symbol = ?").get(sym).n;',
+    `const last = db.prepare("SELECT status, detail_json AS d FROM job_runs WHERE ${runs} ORDER BY id DESC LIMIT 1").get();`,
+    'let d = {}; try { d = JSON.parse((last && last.d) || "{}") || {}; } catch {}',
+    'const cg = (d && d.coingecko) || {};',
+    'const coinLimited = !!last && Number(cg.skipped) > 0 && !(Number(cg.failed) > 0);',
+    'console.log(JSON.stringify({',
+    `  closesRuns: n("SELECT count(*) AS n FROM job_runs WHERE ${runs}"),`,
+    '  status: last ? String(last.status) : null,',
+    `  listedRows: rows(${JSON.stringify(SEED_LISTED_INSTRUMENT.symbol)}),`,
+    `  coinRows: rows(${JSON.stringify(SEED_INSTRUMENT.symbol)}),`,
+    '  coinLimited,',
+    '}));',
+  ].join(' ');
+}
+
 async function mobile(ctx, home) {
   const paths = smokePaths(ctx, home);
   const results = [];
@@ -981,7 +1147,7 @@ async function mobile(ctx, home) {
     );
   }
 
-  // 1. The database level (0006 applied).
+  // 1. The database level (0007 applied).
   const h = await api(ctx, 'smoke-mobile-health', 'GET', '/api/health');
   report(
     ctx,
@@ -1022,6 +1188,32 @@ async function mobile(ctx, home) {
     judge(seeded),
     inst.status === 409 ? 'already there' : `HTTP ${inst.status}`,
   );
+  //    Stage 10: a listed holding too, so the start-up closes run has a Yahoo target.
+  const listedInst = await apiSend(
+    ctx,
+    'smoke-mobile-seed-listed',
+    'POST',
+    '/api/instruments',
+    SEED_LISTED_INSTRUMENT,
+  );
+  let listedSeeded = listedInst.status === 409;
+  if (listedInst.status === 201 && Number.isInteger(listedInst.body?.id)) {
+    const trade = await apiSend(
+      ctx,
+      'smoke-mobile-seed-listed-trade',
+      'POST',
+      '/api/trades',
+      seedListedTrade(listedInst.body.id, zoneDate(ctx.now(), 7)),
+    );
+    listedSeeded = trade.status === 201;
+  }
+  report(
+    ctx,
+    results,
+    'a listed holding seeded',
+    judge(listedSeeded),
+    listedInst.status === 409 ? 'already there' : `HTTP ${listedInst.status}`,
+  );
   const refresh = await apiSend(ctx, 'smoke-mobile-refresh', 'POST', '/api/prices/refresh', {});
   report(
     ctx,
@@ -1030,12 +1222,21 @@ async function mobile(ctx, home) {
     judge(refresh.status === 200),
     `HTTP ${refresh.status}`,
   );
+  // The newest closes run before the restart: the closes checks below judge only the runs after it
+  // (the start-up run of the restarted container), never an earlier run (stage-10.md §7.2).
+  const base = await remote(
+    ctx,
+    'smoke-mobile-closes-base',
+    `docker exec ${SMOKE_CONTAINER} node -e ${shq(CLOSES_BASE_JS)}`,
+  );
+  const closesBase = parseClosesBase(base.stdout);
   await remoteOk(
     ctx,
     'smoke-mobile-restart',
     `docker restart ${SMOKE_CONTAINER}`,
     `Could not restart ${SMOKE_CONTAINER}`,
   );
+  const restartedAt = ctx.now().getTime();
   const healthy = await waitHealthy(ctx, SMOKE_CONTAINER);
   report(ctx, results, 'healthy after the restart', judge(healthy), healthy ? '' : 'not healthy');
 
@@ -1072,11 +1273,61 @@ async function mobile(ctx, home) {
     `${String(counts?.dayRows ?? '?')} row(s)`,
   );
 
-  // 5. open → pair → today → POST → revoke → today: one host script, secrets in host variables.
+  // 4b. Stage 10: the start-up closes run (CLOSES_REFRESH is on by default in the smoke
+  //     container) and the seeded holdings' daily closes (the database, read-only, counts only).
+  //     The poll waits for a closes run started after the restart to finish: the listed rows land
+  //     before the coin's within one run, so rows alone never end it.
+  let closes;
+  const closesJs = closesCountsJs(closesBase);
+  const closesDeadline = restartedAt + MOBILE_CLOSES_WAIT_MS;
+  for (;;) {
+    const r = await remote(
+      ctx,
+      'smoke-mobile-closes',
+      `docker exec ${SMOKE_CONTAINER} node -e ${shq(closesJs)}`,
+    );
+    try {
+      closes = JSON.parse(r.stdout);
+    } catch {
+      closes = undefined;
+    }
+    if (ctx.dryRun || closes?.closesRuns > 0) break;
+    if (ctx.now().getTime() >= closesDeadline) break;
+    await ctx.sleep(MOBILE_POLL_MS);
+  }
+  report(
+    ctx,
+    results,
+    'a finished closes run in job_runs (the start-up run)',
+    judge(closes?.closesRuns > 0),
+    `${String(closes?.closesRuns ?? '?')} run(s), last ${String(closes?.status ?? '?')}`,
+  );
+  report(
+    ctx,
+    results,
+    'instrument_closes rows for the seeded listed holding',
+    judge(closes?.listedRows > 0),
+    `${String(closes?.listedRows ?? '?')} row(s)`,
+  );
+  if (ctx.dryRun || closes?.coinRows > 0 || closes?.coinLimited !== true) {
+    report(
+      ctx,
+      results,
+      'instrument_closes rows for the seeded coin',
+      judge(closes?.coinRows > 0),
+      `${String(closes?.coinRows ?? '?')} row(s)`,
+    );
+  } else {
+    // The live app shares the Umbrel's IP with CoinGecko's keyless limit: not a failure.
+    report(ctx, results, CLOSES_COIN_NOTE, false, '0 coin rows', { note: true });
+  }
+
+  // 5. open → pair → today → periods → POST → revoke → today/periods: one host script, secrets in
+  //    host variables.
   const script = mobileScript();
   if (ctx.dryRun) {
     ctx.out(
-      '[dry-run] the host script for open → pair → today → POST → revoke (secrets redacted):',
+      '[dry-run] the host script for open → pair → today → periods → POST → revoke (secrets redacted):',
     );
     for (const line of redactScript(script).replace(/\n$/, '').split('\n')) ctx.out(`  ${line}`);
   }
@@ -1122,6 +1373,29 @@ async function mobile(ctx, home) {
     judge(post[0] === '405' && post[1] === 'MOBILE_READ_ONLY'),
     post.join(' ') || 'no answer',
   );
+  const periods = lines.periods ?? [];
+  const prf = fieldsOf(periods);
+  report(
+    ctx,
+    results,
+    'GET /api/mobile/periods with the key → 200 and the shape',
+    judge(
+      periods[0] === '200' &&
+        prf.apiVersion === '1' &&
+        prf.periods === '7' &&
+        prf.shape === 'ok' &&
+        Number(prf.holdings) > 0,
+    ),
+    periods.join(' ') || 'no answer',
+  );
+  const postPeriods = lines['post-periods'] ?? [];
+  report(
+    ctx,
+    results,
+    'POST /api/mobile/periods → 405 MOBILE_READ_ONLY',
+    judge(postPeriods[0] === '405' && postPeriods[1] === 'MOBILE_READ_ONLY'),
+    postPeriods.join(' ') || 'no answer',
+  );
   const revoke = lines.revoke ?? [];
   report(ctx, results, 'revoke → 200', judge(revoke[0] === '200'), revoke.join(' ') || 'no answer');
   const after = lines['revoked-today'] ?? [];
@@ -1131,6 +1405,14 @@ async function mobile(ctx, home) {
     'the revoked key → 401 DEVICE_KEY_REVOKED',
     judge(after[0] === '401' && after[1] === 'DEVICE_KEY_REVOKED'),
     after.join(' ') || 'no answer',
+  );
+  const afterPeriods = lines['revoked-periods'] ?? [];
+  report(
+    ctx,
+    results,
+    'the revoked key on /periods → 401 DEVICE_KEY_REVOKED',
+    judge(afterPeriods[0] === '401' && afterPeriods[1] === 'DEVICE_KEY_REVOKED'),
+    afterPeriods.join(' ') || 'no answer',
   );
 
   // 6. The traversal corpus, raw (curl --path-as-is), every path with GET, HEAD, POST and DELETE.
@@ -1199,11 +1481,12 @@ async function mobile(ctx, home) {
   }
 
   const failed = results.filter((r) => !r.ok).length;
+  const notes = results.filter((r) => r.note).length;
   ctx.out(
     ctx.dryRun
       ? '(dry run: nothing was run, so no probe was judged)'
       : failed === 0
-        ? `All ${results.length} mobile probes passed.`
+        ? `All ${results.length} mobile probes passed${notes > 0 ? ` (${notes} NOTE: see above)` : ''}.`
         : `${failed} of ${results.length} mobile probes failed.`,
   );
   return failed === 0 ? 0 : 1;

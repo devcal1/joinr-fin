@@ -7,16 +7,19 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.tenon.joinrfinance.model.Period
 import com.tenon.joinrfinance.net.ApiClient
 import com.tenon.joinrfinance.net.MobileApi
 import com.tenon.joinrfinance.store.Box
 import com.tenon.joinrfinance.store.KeystoreBox
 import com.tenon.joinrfinance.store.PairingStore
+import com.tenon.joinrfinance.store.PeriodsCache
 import com.tenon.joinrfinance.store.Prefs
 import com.tenon.joinrfinance.store.Repository
 import com.tenon.joinrfinance.store.TodayCache
 import com.tenon.joinrfinance.store.WidgetUpdater
 import com.tenon.joinrfinance.widget.Widgets
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 
 /** The process-wide services. Tests build one with fakes and [Services.install] it. */
@@ -44,6 +47,7 @@ class Graph(
     val pairingStore = PairingStore(pairingData, this.box)
     val prefs = Prefs(prefsData)
     val cache = TodayCache(File(storeDir ?: app.filesDir, "today.cache"), this.box)
+    val periodsCache = PeriodsCache(File(storeDir ?: app.filesDir, "periods.cache"), this.box)
     val repository = Repository(
         pairingStore = pairingStore,
         cache = cache,
@@ -51,7 +55,14 @@ class Graph(
         api = this.api,
         widgets = widgetUpdater ?: WidgetUpdater { Widgets.updateAll(app) },
         clock = clock,
+        periodsCache = periodsCache,
     )
+
+    /**
+     * D163: the selected period, held by the process (it survives backing out, the lock, rotation and Settings) and
+     * never stored: a new process (a cold start) is always 1D.
+     */
+    val period: MutableStateFlow<Period> = MutableStateFlow(Period.ONE_DAY)
 }
 
 object Services {

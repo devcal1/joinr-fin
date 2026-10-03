@@ -1,7 +1,7 @@
 // The today builder (stage-9.md §6.5): everything the phone app and its widgets show, in one call.
 // 1. The same finance context as the web pages (prices, engine, rows), then `compute(kind)` for the
-//    four kinds (holdings and lots). 2. The stored days, bullion's days and the FX previous closes;
-//    `fxPrev` per non-AUD row. 2a. Bullion from the Other Assets rows (`bullion.ts`). 3. The pure
+//    four kinds (holdings and lots), loaded by `inputs.ts` (shared with the periods builder).
+//    2. The stored days, bullion's days and the FX previous closes; `fxPrev` per non-AUD row. 2a. Bullion from the Other Assets rows (`bullion.ts`). 3. The pure
 //    `computeDayChange` (§2) in the server's zone. 4. The display fields (code, symbol, name,
 //    position), the lines downsampled, the market state and the freshness. 5. The `features.*`
 //    page switches are ignored (D95: they hide pages, not data).
@@ -11,27 +11,22 @@ import {
   type DayChangeInput,
   type DayHoldingResult,
   type DayRowInput,
-  type HoldingResult,
-  type LotResult,
 } from '@joinr/engine';
 import {
   BULLION_HOLDINGS,
-  INSTRUMENT_KINDS,
   JoinrDecimal,
   LINE_MAX_POINTS,
   MOBILE_API_VERSION,
-  dateInZone,
   normaliseDecimal,
   type DecimalString,
   type DecimalValue,
-  type InstrumentKind,
   type IsoDate,
   type MobileHoldingDto,
   type MobileTodayResponse,
   type PriceItem,
 } from '@joinr/schema';
 import type { FastifyBaseLogger } from 'fastify';
-import { createFinanceContext, type FinanceDeps } from '../cashflow/context';
+import type { FinanceDeps } from '../cashflow/context';
 import {
   loadDayQuotes,
   loadFxPreviousCloses,
@@ -40,6 +35,7 @@ import {
 } from '../db/queries/dayQuotes';
 import { convertToAud, isPence } from '../market/fx';
 import { bullionInputs, isoInstant, unitCostAudOf, type BullionGroup } from './bullion';
+import { loadMobileInputs, type MobileInputs } from './inputs';
 import { asxMarketState, newestSessionDate } from './market';
 
 /** An FX previous close older than this many calendar days before the session → `fxPrev` null (§2.1). */
@@ -153,23 +149,17 @@ export function compareHoldings(a: MobileHoldingDto, b: MobileHoldingDto): numbe
 }
 
 export function buildMobileToday(o: TodayOptions): MobileTodayResponse {
-  const ctx = createFinanceContext(o.deps, o.log);
-  const now = ctx.now;
-  const generatedAt = now.toISOString();
-  const localDate = dateInZone(now.getTime(), o.timeZone) ?? ctx.asOf;
-  const db = o.deps.database.db;
+  return buildMobileTodayFrom(loadMobileInputs(o), o);
+}
 
-  // 1. The four kinds.
-  const holdings: HoldingResult[] = [];
-  const lots: LotResult[] = [];
-  const kinds = new Map<number, InstrumentKind>();
-  for (const kind of INSTRUMENT_KINDS) {
-    const result = ctx.compute(kind);
-    holdings.push(...result.holdings);
-    lots.push(...result.lots);
-    for (const i of ctx.rows(kind).instruments) kinds.set(i.id, kind);
-  }
-  const holdingById = new Map(holdings.map((h) => [h.instrumentId, h]));
+/**
+ * The today answer from inputs already loaded (stage-10.md §6.2): the periods builder calls it on
+ * its own inputs so both answers share one context, one clock and one set of prices.
+ */
+export function buildMobileTodayFrom(inputs: MobileInputs, o: TodayOptions): MobileTodayResponse {
+  // 1. The four kinds (loaded by `loadMobileInputs`).
+  const { ctx, now, generatedAt, localDate, holdings, lots, kinds, holdingById } = inputs;
+  const db = o.deps.database.db;
 
   // 2. The stored days.
   const dayRows = loadDayQuotes(db, o.log);

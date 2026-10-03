@@ -41,6 +41,7 @@ export function testConfig(dataDir: string, overrides: Partial<Config> = {}): Co
     publicPort: null,
     weeklyNasCopy: false,
     intradayRefresh: false,
+    closesRefresh: false,
     ...overrides,
   };
 }

@@ -1,13 +1,15 @@
 // The Stage 9 phone-app contract (stage-9.md §3.4, §3.5, §4.4, §4.5): the constants, the holding
 // keys, the pairing URL and its rules over the shared case table (the Kotlin parser iterates the
 // same table), the server-address kinds, the fixed sentences byte-exact, the appended enums and
-// codes, and the explicit-zone date helpers across both DST changes. Test hosts only: `umbrel`,
+// codes, and the explicit-zone date helpers across both DST changes; Stage 10's period and closes
+// constants and enums (stage-10.md §3.5). Test hosts only: `umbrel`,
 // `127.0.0.1`, `example.test`, `umbrel.example-tailnet.ts.net` and RFC 5737 addresses; the CGNAT
 // and RFC 1918 addresses are built from octet arrays (the privacy guard flags such literals).
 import { describe, expect, it } from 'vitest';
 import {
   API_ERROR_CODES,
   BULLION_HOLDINGS,
+  CLOSE_SOURCES,
   DAY_STATUSES,
   DEVICE_ID_RE,
   INSTRUMENT_KINDS,
@@ -22,6 +24,9 @@ import {
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
   PAIRING_CODE_TTL_MS,
+  PERIOD_STATUSES,
+  SERVER_PERIODS,
+  SOLD_HOLDINGS_KEY,
   dateInZone,
   holdingKey,
   normalisePairingCode,
@@ -31,7 +36,10 @@ import {
   serverAddressKind,
   startOfDayInZone,
   wallTimeInZone,
+  type MobilePeriod,
+  type PeriodStatus,
   type ServerAddressKind,
+  type ServerPeriod,
 } from '../src/index';
 import * as mobile from '../src/mobile';
 import { FIXTURE_DEVICE_KEY, pairingUrlCases } from '../src/fixtures/index';
@@ -129,7 +137,8 @@ describe('constants (§3.4)', () => {
 
 describe('enums and error codes (§3.5)', () => {
   it("appends 'intraday', the day statuses, the market states and the holding kinds", () => {
-    expect(JOB_NAMES.at(-1)).toBe('intraday');
+    // Stage 10 appends 'closes' after it (the Stage 10 block below).
+    expect(JOB_NAMES.at(-2)).toBe('intraday');
     expect(DAY_STATUSES).toEqual(['ok', 'no_base', 'manual', 'stale', 'unpriced']);
     expect(MARKET_STATES).toEqual(['open', 'pre_open', 'closed']);
     expect(MOBILE_HOLDING_KINDS).toEqual([...INSTRUMENT_KINDS, 'bullion']);
@@ -302,5 +311,67 @@ describe('explicit-zone dates (§2.1)', () => {
     for (let ms = Date.UTC(2026, 0, 1); ms < Date.UTC(2031, 0, 1); ms += 3_600_000 * 6) {
       expect(wallTimeInZone(ms, MEL)).toEqual(wallTimeInZone(ms, 'Australia/Sydney'));
     }
+  });
+});
+
+describe('Stage 10: periods and closes (stage-10.md §3.5)', () => {
+  it('has the frozen periods, spans and keys', () => {
+    expect(mobile.MOBILE_PERIODS).toEqual(['1D', '1W', '2W', '1M', '3M', '6M', '12M', 'ALL']);
+    expect(SERVER_PERIODS).toEqual(['1W', '2W', '1M', '3M', '6M', '12M', 'ALL']);
+    expect(SERVER_PERIODS).toEqual(mobile.MOBILE_PERIODS.slice(1));
+    expect(mobile.PERIOD_SPANS).toEqual({
+      '1W': { days: 7 },
+      '2W': { days: 14 },
+      '1M': { months: 1 },
+      '3M': { months: 3 },
+      '6M': { months: 6 },
+      '12M': { months: 12 },
+    });
+    expect(mobile.PERIOD_START_MAX_GAP_DAYS).toBe(10);
+    expect(mobile.PERIOD_HOLDING_POINTS).toBe(40);
+    expect(SOLD_HOLDINGS_KEY).toBe('sold');
+    // Never a holding key: 'i<id>' or a bullion key.
+    expect(SOLD_HOLDINGS_KEY).not.toMatch(/^i\d+$/);
+    for (const def of Object.values(BULLION_HOLDINGS)) expect(def.key).not.toBe(SOLD_HOLDINGS_KEY);
+    const one: MobilePeriod = '1D';
+    const all: ServerPeriod = 'ALL';
+    expect([one, all]).toEqual(['1D', 'ALL']);
+  });
+
+  it('has the frozen closes-job constants', () => {
+    expect(mobile.CLOSES_RUN_AT).toEqual({ hour: 16, minute: 52 });
+    // Off the 15-minute intraday grid; follow-ups on xx:07, xx:22, xx:37, xx:52.
+    expect(mobile.CLOSES_RUN_AT.minute % 15).toBe(mobile.CLOSES_SLOT_MINUTE_OFFSET);
+    expect(mobile.CLOSES_SLOT_MINUTE_OFFSET).toBe(7);
+    expect(mobile.CLOSES_COIN_SLOT_GUARD_MS).toBe(45_000);
+    expect(mobile.CLOSES_STARTUP_DELAY_MS).toBe(120_000);
+    expect(mobile.CLOSES_RUN_DEADLINE_MS).toBe(600_000);
+    expect(mobile.CLOSES_FOLLOW_UP_MS).toBe(1_800_000);
+    expect(mobile.CLOSES_FOLLOW_UPS_MAX).toBe(6);
+    expect([mobile.CLOSES_LEAD_DAYS, mobile.CLOSES_TOPUP_OVERLAP_DAYS]).toEqual([10, 10]);
+    expect([mobile.CLOSES_YAHOO_SPACING_MS, mobile.CLOSES_COIN_SPACING_MS]).toEqual([
+      1_500, 15_000,
+    ]);
+    expect(mobile.CLOSES_REQUEST_TIMEOUT_MS).toBe(30_000);
+    expect([mobile.COINGECKO_HISTORY_DAYS, mobile.COINGECKO_HOURLY_DAYS]).toEqual([364, 90]);
+    expect(mobile.CLOSES_COIN_POINT_MAX_AGE_MS).toBe(36 * 3_600_000);
+    expect(mobile.CLOSES_COIN_DAILY_WINDOW_MS).toBe(14 * 3_600_000);
+    expect(mobile.CLOSES_BULLION_UNDATED_DAYS).toBe(380);
+    expect(mobile.CLOSES_STALE_NOTE_DAYS).toBe(6);
+    expect(mobile.PERIODS_ANSWER_BUDGET_BYTES).toBe(350_000);
+  });
+
+  it("appends 'closes' to the jobs and adds the period statuses and close sources", () => {
+    expect(JOB_NAMES.slice(-2)).toEqual(['intraday', 'closes']);
+    expect(JOB_NAMES.at(-1)).toBe('closes');
+    expect(new Set(JOB_NAMES).size).toBe(JOB_NAMES.length);
+    expect(PERIOD_STATUSES).toEqual(['ok', 'no_start', 'split', 'unpriced', 'no_cost']);
+    const status: PeriodStatus = 'no_start';
+    expect(PERIOD_STATUSES).toContain(status);
+    expect(CLOSE_SOURCES).toEqual(['yahoo', 'coingecko', 'derived', 'midnight', 'fake']);
+  });
+
+  it('adds no error code (the Stage 9 codes stay last)', () => {
+    expect(API_ERROR_CODES.slice(-9)).toEqual([...NEW_CODES]);
   });
 });

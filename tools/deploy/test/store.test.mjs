@@ -181,10 +181,19 @@ describe.skipIf(!HAS_REAL_STORE)('the store clone', () => {
       );
     });
 
-    it('manifest: the phone app in the release notes and the Access paragraph (stage-9.md §7.2)', () => {
-      expect(m.releaseNotes).toContain('1.2.0');
+    it('manifest: the period selector in the release notes and the Access paragraph (stage-10.md §7.3)', () => {
+      expect(m.releaseNotes).toContain('1.3.0');
       expect(m.releaseNotes).toMatch(/phone/);
+      expect(m.releaseNotes).toMatch(/period/);
+      // The daily price history the server now keeps, and where it comes from.
+      expect(m.releaseNotes).toMatch(/daily price history/);
+      expect(m.releaseNotes).toMatch(/daily job/);
+      expect(m.releaseNotes).toContain('Yahoo');
+      expect(m.releaseNotes).toContain('CoinGecko');
+      // The migration and its automatic backup; a downgrade means the restore.
+      expect(m.releaseNotes).toContain('0007');
       expect(m.releaseNotes).toMatch(/pre-update backup/);
+      expect(m.releaseNotes).toMatch(/going back to 1\.2\.0 means restoring/);
       const access = m.description.slice(
         m.description.indexOf('**Access:**'),
         m.description.indexOf('**Install the Joinr Registry app first.**'),

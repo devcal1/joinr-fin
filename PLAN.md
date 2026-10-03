@@ -29,7 +29,7 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 7 | Umbrel deployment & cutover | ✅ done 2026-09-27/28 |
 | 8 | Weekly backup copy to the NAS | ✅ done 2026-09-27/28 |
 | 9 | Android app: holdings at a glance | ✅ done 2026-10-03 (server 1.2.0, APK 1.0.2) |
-| 10 | Phone app: period selector | 📝 next (D156, D158) |
+| 10 | Phone app: period selector | ✅ released 2026-10-03 (server 1.3.0, APK 1.1.0; demo on the phone pending) |
 
 Every stage ends with a **demo**, a **handoff update**, a **local commit** (with the owner's OK) and a **`/clear`**. Pushes happen only when the owner asks (D10). See `docs/STAGE_PROCESS.md`.
 
@@ -280,4 +280,4 @@ A read-only Android app that shows today's change in the owner's holdings (cash 
 **Demo:** on the owner's phone over Tailscale: pair by QR, the Today tabs, a holding's detail, the three widgets, and revoking the phone in Settings.
 
 ### Stage 10 — Phone app: period selector
-A quick selector at the top of the app's Today screen: **1D · 1W · 2W · 1M · 3M · 6M · 12M · ALL** (D156, D158). For a period, units held at its start count from that day's close and units bought within it from their purchase price (the day rule generalised); ALL is the unrealised gain (value − the cost of current holdings). The server fetches and caches daily closes for every held instrument, the FX series and bullion (a 1.3.0 release); the app gets the selector, period figures on cards, list and movers, and a period line. **Widgets stay daily.** Kickoff questions in `docs/private/OPEN_QUESTIONS.md` → Stage 10.
+A quick selector at the top of the app's Today screen: **1D · 1W · 2W · 1M · 3M · 6M · 12M · ALL** (D156, D158). For a period, units held at its start count from that day's close and units bought within it from their purchase price (the day rule generalised, D160); ALL is the lifetime price gain, unrealised + realised (D161), with a "Sold holdings" row for instruments no longer held (D162). The server fetches and caches daily closes for every held instrument, the FX series and bullion (a 1.3.0 release); the app gets the selector, period figures on cards, list and movers, and a period line. **Widgets stay daily.** Decisions D160–D170; build plan `docs/stages/stage-10.md`.

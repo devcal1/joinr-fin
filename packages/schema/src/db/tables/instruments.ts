@@ -1,8 +1,10 @@
 // Instruments and their pricing: instruments, price_sources, prices, market_quotes (§2.4), the
 // Stage 3 dividend-events cache (stage-3.md §3.1, §4.6), the Stage 4 series history
-// (stage-4.md §3.1, §4.6) and the Stage 9 day caches (stage-9.md §3.1, §3.1a, §3.2).
+// (stage-4.md §3.1, §4.6), the Stage 9 day caches (stage-9.md §3.1, §3.1a, §3.2) and the Stage 10
+// daily closes (stage-10.md §3.1–§3.3).
 import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 import {
+  CLOSE_SOURCES,
   DAY_GRANULARITIES,
   DAY_QUOTE_SOURCES,
   FETCH_STATUSES,
@@ -197,3 +199,63 @@ export const seriesDayQuotes = sqliteTable('series_day_quotes', {
   seriesId: text('series_id').primaryKey(),
   ...dayQuoteColumns(),
 });
+
+/**
+ * Stage 10 (stage-10.md §3.1): each held instrument's daily closes in its own date system (the
+ * exchange's zone for Yahoo listings and funds; the server's zone for crypto, the close of D being
+ * the price at 00:00 on D + 1). A cache exactly like `day_quotes`: no provenance, never app data,
+ * not in DOMAIN_TABLES_DELETE_ORDER, never dumped; deleted only by the cascade or a price-source
+ * change of the instrument.
+ */
+export const instrumentCloses = sqliteTable(
+  'instrument_closes',
+  {
+    instrumentId: integer('instrument_id')
+      .notNull()
+      .references(() => instruments.id, { onDelete: 'cascade' }),
+    /** `YYYY-MM-DD` in the instrument's date system. */
+    date: text('date').notNull(),
+    /** Native decimal (≤ 12 significant digits), > 0. */
+    close: text('close').notNull(),
+    /** As the provider reports it (`AUD`, `USD`, `GBp`). */
+    currency: text('currency').notNull(),
+    source: text('source', { enum: CLOSE_SOURCES }).notNull(),
+    /** UTC ISO. */
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.instrumentId, t.date] })],
+);
+
+/** Stage 10 (stage-10.md §3.2): Yahoo split events, dated in the exchange's zone. A cache. */
+export const instrumentSplits = sqliteTable(
+  'instrument_splits',
+  {
+    instrumentId: integer('instrument_id')
+      .notNull()
+      .references(() => instruments.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    numerator: text('numerator').notNull(),
+    denominator: text('denominator').notNull(),
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.instrumentId, t.date] })],
+);
+
+/**
+ * Stage 10 (stage-10.md §3.3): daily closes of the market series by date: `AUDUSD` and
+ * `FX_<CCY>AUD` (London dates), `SI_USD_OZ`/`GC_USD_OZ` (New York dates) and the AUD spots
+ * `XAG_AUD_OZ`/`XAU_AUD_OZ` (Melbourne dates; `derived` or `midnight`, and a `midnight` row is
+ * never replaced by a `derived` one). No foreign key; a cache like `market_quote_history`, which it
+ * leaves untouched.
+ */
+export const seriesCloses = sqliteTable(
+  'series_closes',
+  {
+    seriesId: text('series_id').notNull(),
+    date: text('date').notNull(),
+    value: text('value').notNull(),
+    source: text('source', { enum: CLOSE_SOURCES }).notNull(),
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.date] })],
+);

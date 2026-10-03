@@ -8,18 +8,27 @@
 // `asOf` the time of its last point; `EXUS` is quoted in USD; and `fetchDayChart` fakes CoinGecko's
 // day chart. A lower-case symbol is a CoinGecko id (the fake search lower-cases): it keeps
 // `asOf` = now (the last point of its day chart) and has no `day`.
+// Stage 10 (stage-10.md §5.4) adds the fake daily histories of the `closes` job: Yahoo-style
+// weekday closes anchored to the fake day's previous close, CoinGecko-style hourly or daily points
+// anchored to the fake day's 00:00 base (with the keyless 401 past 365 days), flat FX.
 import {
   BULLION_FEEDS,
+  dateInZone,
   JoinrDecimal,
   normaliseDecimal,
   wallTimeInZone,
   type DecimalString,
+  type IsoDate,
 } from '@joinr/schema';
 import { isoDayBefore, localIsoDate } from '../../lib/dates';
 import {
+  addDays,
+  cryptoDayFrom,
   isWeekday,
+  midnightOf,
   normalisePoints,
   previousWeekday,
+  weekdayOfIso,
   zonedTimeToEpoch,
   type DayPoint,
 } from '../day';
@@ -27,6 +36,8 @@ import { timeZoneFromSymbol } from './exchangeTime';
 import {
   FxClosesError,
   type CoinDayChartClient,
+  type CoinHistoryClient,
+  type CoinHistoryResult,
   type CoinIdResolver,
   type CoinSearchResult,
   type DayChartResult,
@@ -37,6 +48,9 @@ import {
   type QuoteDay,
   type QuoteFailure,
   type QuoteRequest,
+  type SplitEvent,
+  type YahooHistory,
+  type YahooHistoryClient,
 } from './types';
 import { YAHOO_TWO_DAY_SYMBOLS } from './yahoo';
 
@@ -120,7 +134,8 @@ export function fakeDividendEvents(symbol: string, now: Date): FakeDividendEvent
 /** The made-up US listing the fake quotes in USD (stage-9.md §3.6; M4's FX path end to end). */
 export const FAKE_USD_LISTING = 'EXUS';
 
-function fakeCurrency(symbol: string): string {
+/** The currency the fake quotes a symbol in (USD: `AUDUSD=X`, `EXUS`, the futures; else AUD). */
+export function fakeCurrency(symbol: string): string {
   if (symbol === 'AUDUSD=X' || symbol === FAKE_USD_LISTING || Object.hasOwn(BULLION_FEEDS, symbol))
     return 'USD';
   return 'AUD';
@@ -374,6 +389,185 @@ export function createFakeProvider(o: {
     },
     async searchId(symbol): Promise<CoinSearchResult> {
       return { ok: true, id: symbol.trim().toLowerCase() };
+    },
+  };
+}
+
+// ─── Stage 10: the fake daily histories (stage-10.md §5.4) ──────────────────────────────────────
+
+const LONDON = 'Europe/London';
+/** The per-weekday drift of the fake history (multiplicative, so a close stays > 0 forever). */
+export const FAKE_HISTORY_DRIFT = '0.9996';
+/** The keyless CoinGecko reach the fake enforces (a 401 beyond it). */
+const FAKE_COIN_MAX_DAYS = 365;
+const HOUR_MS = 3_600_000;
+
+/** The zone of a symbol's fake bars: the futures in New York, FX in London, else the suffix's. */
+export function fakeHistoryZone(symbol: string): string {
+  if (Object.hasOwn(BULLION_FEEDS, symbol)) return NEW_YORK;
+  if (/=X$/.test(symbol)) return LONDON;
+  return timeZoneFromSymbol(symbol) ?? 'Australia/Sydney';
+}
+
+/**
+ * The date of the fake session at `nowMs` (the Stage 9 fake's rules): a listing's session is today
+ * from 10:00 on a weekday, else the previous weekday; a fund's NAV day is today from 16:00 on a
+ * weekday; the futures' latest New York weekday.
+ */
+export function fakeSessionDate(symbol: string, nowMs: number, daily = false): IsoDate | null {
+  if (Object.hasOwn(BULLION_FEEDS, symbol)) {
+    const w = wallTimeInZone(nowMs, NEW_YORK);
+    if (w === null) return null;
+    return isWeekday(w.weekday) ? w.date : previousWeekday(w.date);
+  }
+  const zone = timeZoneFromSymbol(symbol) ?? 'Australia/Sydney';
+  const w = wallTimeInZone(nowMs, zone);
+  if (w === null) return null;
+  if (daily) {
+    const nav = zonedTimeToEpoch(w.date, FAKE_NAV_TIME.hour, FAKE_NAV_TIME.minute, zone);
+    return isWeekday(w.weekday) && nav !== null && nav <= nowMs ? w.date : previousWeekday(w.date);
+  }
+  const minutes = w.hour * 60 + w.minute;
+  const open = FAKE_SESSION_OPEN.hour * 60 + FAKE_SESSION_OPEN.minute;
+  return isWeekday(w.weekday) && minutes >= open ? w.date : previousWeekday(w.date);
+}
+
+/** `((fnv1a(key) % 401) − 200) ÷ 40000`: the fake history's daily wiggle (±0.5 %). */
+function fakeWiggle(key: string): number {
+  return ((fnv1a(key) % 401) - 200) / 40000;
+}
+
+/**
+ * The fake Yahoo-style daily history of `symbol` from `from` (§5.4): weekday bars in the symbol's
+ * zone dated before today there. `close(d) = prev × 0.9996^n × (1 + w)` with `prev` the fake day's
+ * previous close, `n` the weekdays from `d` to the weekday before the fake session and
+ * `w = ((fnv1a(symbol + ':' + d) % 401) − 200) ÷ 40000`, taken as 0 at `n = 0`, so the close of the
+ * weekday before the session is `prev` exactly (the fake 1D base and the period closes agree); the
+ * session's own date, once it is before today, closes at the fake price. FX is flat: `AUDUSD` =
+ * FAKE_AUDUSD, `<CCY>AUD` the Stage 4 fake rate. No splits but the ones given.
+ */
+export function fakeYahooHistory(
+  symbol: string,
+  from: IsoDate,
+  nowMs: number,
+  o: { daily?: boolean; splits?: readonly SplitEvent[] } = {},
+): YahooHistory {
+  const zone = fakeHistoryZone(symbol);
+  const today = dateInZone(nowMs, zone);
+  const history: YahooHistory = {
+    closes: [],
+    splits: [...(o.splits ?? [])],
+    timeZone: zone,
+    currency: fakeCurrency(symbol),
+    firstTradeDate: null,
+  };
+  if (today === null) return history;
+  const dates: IsoDate[] = [];
+  for (let d = from; d < today; d = addDays(d, 1)) {
+    if (isWeekday(weekdayOfIso(d))) dates.push(d);
+  }
+  const fx = /^([A-Z]{3})AUD=X$/.exec(symbol);
+  if (symbol === 'AUDUSD=X' || fx) {
+    const value = symbol === 'AUDUSD=X' ? FAKE_AUDUSD : fakeFxClose(fx![1]!);
+    history.closes = dates.map((date) => ({ date, close: value }));
+    return history;
+  }
+  const price = fakePrice(symbol);
+  const prev = new JoinrDecimal(fakePreviousClose(symbol, price));
+  const session = fakeSessionDate(symbol, nowMs, o.daily === true);
+  const anchor = session === null ? today : previousWeekday(session);
+  const drift = new JoinrDecimal(FAKE_HISTORY_DRIFT);
+  const closes: Array<{ date: IsoDate; close: DecimalString }> = [];
+  let n = 0;
+  for (let i = dates.length - 1; i >= 0; i -= 1) {
+    const date = dates[i]!;
+    if (date > anchor) {
+      closes.push({ date, close: price });
+      continue;
+    }
+    const w = n === 0 ? 0 : fakeWiggle(`${symbol}:${date}`);
+    const close = prev.times(drift.pow(n)).times(new JoinrDecimal(1).plus(w));
+    closes.push({ date, close: normaliseDecimal(close.toSignificantDigits(12)) });
+    n += 1;
+  }
+  history.closes = closes.reverse();
+  return history;
+}
+
+/**
+ * The fake CoinGecko `market_chart` history (§5.4): a 401 (`beyond_reach`) past 365 days; daily
+ * points at 00:00 UTC from UTC-today − (days − 1), or hourly points on the hour over the last
+ * `days` days; then the price now. Anchored so the point at 00:00 today in `timeZone` is the fake
+ * day's base (the last point of the fake day chart at or before midnight), with a multiplicative
+ * drift and a wiggle before it.
+ */
+export function fakeCoinHistory(
+  id: string,
+  days: number,
+  daily: boolean,
+  nowMs: number,
+  timeZone: string,
+): CoinHistoryResult {
+  if (days > FAKE_COIN_MAX_DAYS) {
+    return { ok: false, kind: 'beyond_reach', error: 'Beyond the keyless reach' };
+  }
+  const now = new Date(nowMs);
+  const price = Number(fakePrice(id));
+  const midnight = midnightOf(now, timeZone);
+  const base = Number(
+    cryptoDayFrom(fakeDayChart(id, nowMs), now, timeZone)?.previousClose ??
+      fakePreviousClose(id, fakePrice(id)),
+  );
+  const midnightMs = midnight?.ms ?? nowMs;
+  const times: number[] = [];
+  if (daily) {
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    for (let k = days - 1; k >= 0; k -= 1) {
+      const t = todayUtc - k * DAY_MS;
+      if (t < nowMs) times.push(t);
+    }
+  } else {
+    for (let t = Math.ceil((nowMs - days * DAY_MS) / HOUR_MS) * HOUR_MS; t < nowMs; t += HOUR_MS) {
+      times.push(t);
+    }
+  }
+  times.push(nowMs);
+  const value = (t: number): number => {
+    if (t >= nowMs) return price;
+    if (t > midnightMs) return base;
+    const w = t === midnightMs ? 0 : fakeWiggle(`${id}:${t}`);
+    return base * Math.pow(Number(FAKE_HISTORY_DRIFT), (midnightMs - t) / DAY_MS) * (1 + w);
+  };
+  return { ok: true, prices: times.map((t): [number, number] => [t, value(t)]) };
+}
+
+/**
+ * The fake history clients of the `closes` job (MARKET_DATA_MODE=fake): never the network; an
+ * aborted run gets `skipped`. `splits` lists the split events of a symbol (tests only).
+ */
+export function createFakeHistoryClients(o: {
+  now: () => Date;
+  timeZone: string;
+  splits?: Readonly<Record<string, readonly SplitEvent[]>>;
+}): { yahoo: YahooHistoryClient; coins: CoinHistoryClient } {
+  return {
+    yahoo: {
+      id: 'fake',
+      async fetchHistory(req, signal) {
+        if (signal.aborted) return { ok: false, kind: 'skipped', error: 'Aborted' };
+        const history = fakeYahooHistory(req.symbol, req.from, o.now().getTime(), {
+          daily: req.daily === true,
+          splits: o.splits?.[req.symbol] ?? [],
+        });
+        return { ok: true, history };
+      },
+    },
+    coins: {
+      id: 'fake',
+      async fetchHistory(id, days, daily, signal) {
+        if (signal.aborted) return { ok: false, kind: 'skipped', error: 'Aborted' };
+        return fakeCoinHistory(id, days, daily, o.now().getTime(), o.timeZone);
+      },
     },
   };
 }

@@ -1,19 +1,33 @@
 # Handoff
 
-_Last updated: at the Stage 9 close (2026-10-03)._
+_Last updated: at the Stage 10 close (2026-10-04)._
 
-## Next: Stage 10 — Phone app: period selector
-A selector at the top of the app's Today screen: **1D · 1W · 2W · 1M · 3M · 6M · 12M · ALL** (D156, D158). The server must fetch and cache daily closes (a 1.3.0 release); widgets stay daily. Scope in `PLAN.md` → Stage 10; proposed kickoff answers in `docs/private/OPEN_QUESTIONS.md` → Stage 10.
+## Next: finish the Stage 10 demo, then the owner picks Stage 11
+No Stage 11 is planned yet. **First, next session:**
+1. **The Stage 10 demo on the phone** (`docs/stages/stage-10.md` §11 steps 11–14): each chip 1W–12M (figure, %, "Since …", line, CARDS / LIST / MOVERS; the hand-priced fund "—" NO HISTORY with the Partial note); ALL (lifetime gain = unrealised + realised; header still VAL · INVESTED · GAIN; the caption "realised +$… not drawn"; the SOLD row in LIST and MOVERS); the detail under 1W and ALL; back out keeps the period, a cold start gives 1D; widgets still daily and a widget tap opens a 1D detail; optionally Tailscale off → dimmed cached figures. Record the result as a decision (accepted, or the fixes).
+2. **Optional:** compare ALL with the web's totals. The owner downloads a backup; the coordinator restores it into a **scratch** `DATA_DIR` (never `data/`) and sums the four investment pages' unrealised + realised plus the Other Assets bullion rows.
+3. The Stage 8/9 carry-overs below (the first scheduled NAS copy, Sunday 04/10 03:00; September's auto-record).
+4. Ask the owner what Stage 11 is (PLAN.md has none). Then plan it with the stage process.
 
-**Next step:** `/clear`, then "Start Stage 10".
+**Next step:** `/clear`, then "Finish the Stage 10 demo".
 
 ## Where we are
-**Stage 9 (the Android app) is done (D159).** Joinr Finance **1.2.0** is live on the Umbrel and the owner's phone runs the signed **APK 1.0.2**, paired by QR.
-- Plan, review logs and close notes: `docs/stages/stage-9.md`. Decisions D137–D159. Private: `docs/private/stage-9-private.md` (the pairing address, the phone, the keystore's place, the smoke, release, probe and APK records).
-- **Server 1.2.0:** migration 0006 (`day_quotes`, `series_day_quotes`, two `market_quotes` columns); every Yahoo price is a 1-day, 5-minute chart; an `intraday` job (ASX every 5 minutes in trading hours; crypto and bullion every 15 minutes); `GET /api/mobile/today`, `GET /api/mobile/device` and `POST /api/mobile/pair` behind a paired device key (hashes in `DATA_DIR/devices/devices.json`, not the database); Settings → Phone (QR pairing, list, remove).
-- **Store:** `a0ea681` (pushed): `PROXY_AUTH_WHITELIST: "/api/mobile/*"` (D154), `backupIgnore` for `data/devices`, the 1.2.0 notes, and a Joinr Backup description line that no longer names a private repository.
-- **The phone:** APK 1.0.0 → 1.0.1 (D155: the widget total line; VAL · INVESTED · GAIN) → 1.0.2 (D157: the widget tiles are the biggest day moves). Installed over wireless debugging with `adb install -r --user 0` (the phone has a second Android user).
-- **Live checks passed:** the rc smoke (11 + 19 probes), the proxy probes without a session, the log leak counts (all 0), and the demo.
+**Stage 10 (the phone's period selector) is released (D171); its demo is not yet reported.** Joinr Finance **1.3.0** is live on the Umbrel and the owner's phone runs the signed **APK 1.1.0**.
+- Plan, review logs and close notes: `docs/stages/stage-10.md`. Decisions D160–D171. Private: `docs/private/stage-10-private.md` (owner coverage, the release record, the APK digest).
+- **Server 1.3.0:** migration 0007 (`instrument_closes`, `instrument_splits`, `series_closes`; caches, never app data, never dumped); a daily **`closes` job** (16:52 Melbourne, a start-up run after 120 s, up to 6 follow-ups a day; Yahoo daily history by `period1`/`period2` with split events, CoinGecko up to 365 days, the AUD bullion spot derived from futures ÷ `AUDUSD`, exact midnight values captured from 1.3.0 on; kill switch `CLOSES_REFRESH`); **`GET /api/mobile/periods`** (all seven periods in one keyed, read-only answer; `/today` byte-identical, so older APKs keep working).
+- **Store:** `a711611` (pushed): the 1.3.0 image pin, version and notes.
+- **The phone:** APK 1.1.0 (versionCode 4): the chip row (1D on a cold start, kept while the process lives), period figures on cards, LIST, MOVERS and the detail, the Sold holdings row and line, the Partial note, the ALL caption. Widgets and the worker are unchanged.
+
+## What exists (new in Stage 10)
+| Path | What it is |
+|---|---|
+| `packages/engine/src/periodChange.ts` | `periodStartDate`, `computePeriods`: the period rules (D160–D166), ALL (D161–D162), the lines (D164, D167). Worked examples P1–P23, A1–A11, C1–C5. `dayChange.ts` is unchanged. |
+| `packages/schema/src/{mobile,enums,rows}.ts`, `dto/mobile.ts`, `fixtures/mobile.ts` | Period constants, `PERIOD_STATUSES`, `CLOSE_SOURCES`, job `closes`, the periods DTOs, fixtures `mobilePeriods` (open, noHistory, soldOnly, empty) and their Android JSON copies. |
+| `apps/server/migrations/0007_stage10_closes.sql`, `src/db/queries/closes.ts` | The three cache tables and their readers. |
+| `apps/server/src/market/closes/**`, `providers/{yahoo,coingecko,fake}.ts` | The `closes` job: targets, history, coins, the derived spot, writes (one IMMEDIATE transaction per target), run, schedule. It pauses for the other market jobs; `prices` waits for it. |
+| `apps/server/src/mobile/{inputs,periods}.ts`, `bullion.ts`, `routes/mobile.ts` | The shared input loader, the periods builder, bullion for ALL, the route. |
+| `apps/android/.../model/PeriodModel.kt`, `ui/today/{PeriodChips,PeriodContent}.kt` | The period model and screens; `store/Repository.kt` `periods()` with its own cache per pairing. |
+| `tools/deploy/smoke.mjs` | `check`: 8 migrations and the daily-history egress; `mobile`: a seeded `ASX:TLS` listing, a closes run with rows, the `/periods` probes (26 in all). |
 
 ## What exists (new in Stage 9)
 | Path | What it is |
@@ -68,22 +82,25 @@ Everything from Stages 1–6 still applies (`pnpm dev`, `pnpm check`, `pnpm e2e`
   3. Run `pnpm restore:backup <path> --yes` (it restores into the local `DATA_DIR`).
 - **Remote writes:** run the script with `--dry-run` first. The auto-mode permission check blocks an unpreviewed remote write.
 
-**State at close (Stage 8):**
-- `pnpm test`: 6471 passed, 3 skipped (symlink and `chmod 000` cases that Windows cannot run; they print their reason).
-- The full e2e suite, typecheck, lint, format and build are green.
-- `guard:all` is clean with 8036 terms, and so is the store-clone guard (only allowed findings).
-- No migration this stage (still 6).
+**State at close (Stage 10):**
+- `pnpm test`: 7252 passed, 4 skipped (platform-only symlink and `chmod` cases; they print their reason). Android: 212 tests.
+- The full e2e suite (668 passed; 17 web specs flaky on a busy PC, passing on retry), typecheck, lint, format and build are green.
+- `guard:all` is clean with 8045 terms (Stage 10 added three CoinGecko coin ids).
+- Migrations: 8 (0007 added this stage).
 
-## Live state on the Umbrel (at the Stage 9 close)
-- Joinr Finance **1.2.0** (`sha256:36f2bbb4…`), healthy, migrations 7; Joinr Registry 2.8.3 (tags up to 1.2.0 and 1.2.0-rc.1).
-- Backups: the nightly copies from 29/09 onward, the 1.2.0 pre-migrate copy (03/10 06:42), and earlier manual and pre-restore copies.
-- The owner's phone is paired; removed demo entries stay listed in Settings → Phone (newest 20).
+## Live state on the Umbrel (at the Stage 10 close)
+- Joinr Finance **1.3.0** (`sha256:82d0a86d…`), healthy, migrations 8; Joinr Registry 2.8.3 (tags up to 1.3.0 and 1.3.0-rc.1).
+- Backups: the nightly copies, the 1.3.0 pre-migrate copy (03/10 20:39), the 1.2.0 pre-migrate copy (03/10 06:42), and earlier manual and pre-restore copies.
+- The owner's phone is paired and runs APK 1.1.0.
 
 ## Known issues / carried forward
 - **APK updates:** bump `versionCode` and `versionName` in `apps/android/app/build.gradle.kts`, then sign with `pnpm android:release` with `JOINR_ANDROID_SIGNING` set to the owner's `signing.properties` (its path is in the private notes §5). Every APK must show the same certificate digest (private §8). Install with `adb -s <phone> install -r --user 0 <apk>` after the owner turns on wireless debugging; the phone's port changes each time (`adb mdns services` finds it). **Never `gradlew installDebug`** while the phone is visible to adb.
 - **Agents and adb:** adb can see the owner's phone; agents use only `-s emulator-NNNN`.
 - **Stray folder:** a Git Bash path slip made `C:\c\Users\…\artifacts\stage9\verifier\prod\finance.db` (a generic seed only); the owner deletes `C:\c`.
 - **Unverified:** whether a live 2-day Yahoo answer on a Monday morning carries the Sunday-evening futures bars (private §6). Only the bullion line could miss a few hours of points.
+- **Accepted limits (Stage 10):** coins held longer than 365 days are flat under ALL (CoinGecko's keyless reach); crypto and bullion closes before 1.3.0 are approximate; a split inside a period shows "—" (no split model); ex-dividend drops show as losses; the e2e suite has 17 flaky web specs on a busy PC.
+- **Not verified live (Stage 10):** the read-only count of the first `closes` run (the demo's periods show it); the APK 1.0.2 compatibility with 1.3.0 (the phone was upgraded at once; `/today` is byte-identical by test).
+- **`smoke check --dry-run` exits 1** ("N of M checks failed"), unchanged since Stage 7; harmless, could be tidied.
 - **Accepted limits (Stage 9):** crypto may read `no_base` for up to 15 minutes after midnight; with `INTRADAY_REFRESH=false` crypto has no day figure; bullion is flat at weekends; a futures roll can show a false jump; the phone uses plain HTTP inside Tailscale.
 - **E2E and a running dev server:** stop `pnpm dev` before `pnpm e2e` (`reuseExistingServer: true`). A few read-only e2e tests can need one retry on a cold load when the PC is busy.
 - **An interrupted first start leaves a broken DB** (from Stage 8): delete the scratch `finance.db` and start again.

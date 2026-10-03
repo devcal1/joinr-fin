@@ -1,8 +1,10 @@
 package com.tenon.joinrfinance.ui
 
+import com.tenon.joinrfinance.model.Period
 import com.tenon.joinrfinance.model.SortOrder
 import com.tenon.joinrfinance.model.TodayTab
 import com.tenon.joinrfinance.net.ApiError
+import com.tenon.joinrfinance.net.MobilePeriodsResponse
 import com.tenon.joinrfinance.net.MobileTodayResponse
 import com.tenon.joinrfinance.store.Pairing
 
@@ -51,6 +53,17 @@ data class AppUiState(
     val scanMessage: String? = null,
     val widgetsUpdatedAtMs: Long? = null,
     val appVersion: String = com.tenon.joinrfinance.BuildConfig.VERSION_NAME,
+    /** Stage 10 (D163): the selected chip; 1D is the Stage 9 screen. */
+    val period: Period = Period.ONE_DAY,
+    /** The last periods answer (cached or fetched) and when this phone fetched it. */
+    val periods: MobilePeriodsResponse? = null,
+    val periodsFetchedAtMs: Long? = null,
+    val periodsLoading: Boolean = false,
+    /**
+     * The last periods fetch's error, kept apart from [error]: it never feeds the Today notices, never dims a 1D screen,
+     * and its sentence is never shown (the app shows its own Stage 10 lines).
+     */
+    val periodsError: ApiError? = null,
 )
 
 /** What the screens can ask for. */
@@ -67,6 +80,9 @@ interface AppActions {
     fun cancelPair()
     fun pairAgain()
     fun unpair()
+
+    /** Stage 10: select a chip (a default body keeps the Stage 9 test hosts compiling unchanged). */
+    fun selectPeriod(p: Period) = Unit
 
     object None : AppActions {
         override fun refresh() = Unit

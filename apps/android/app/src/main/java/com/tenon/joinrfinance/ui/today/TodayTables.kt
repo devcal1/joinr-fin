@@ -34,14 +34,26 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tenon.joinrfinance.model.Format
+import com.tenon.joinrfinance.model.Period
+import com.tenon.joinrfinance.model.PeriodRow
 import com.tenon.joinrfinance.model.SortOrder
 import com.tenon.joinrfinance.model.Tone
 import com.tenon.joinrfinance.model.dayDollarsTone
 import com.tenon.joinrfinance.model.moverRows
+import com.tenon.joinrfinance.model.noFigureText
+import com.tenon.joinrfinance.model.periodCardWord
+import com.tenon.joinrfinance.model.periodMoverRows
+import com.tenon.joinrfinance.model.periodTone
+import com.tenon.joinrfinance.model.soldFigure
 import com.tenon.joinrfinance.model.spokenHolding
+import com.tenon.joinrfinance.model.spokenPeriodHolding
+import com.tenon.joinrfinance.model.spokenSold
 import com.tenon.joinrfinance.model.statusWord
 import com.tenon.joinrfinance.model.toneOf
 import com.tenon.joinrfinance.net.MobileHoldingDto
+import com.tenon.joinrfinance.net.MobilePeriodDto
+import com.tenon.joinrfinance.net.MobilePeriodFigureDto
+import com.tenon.joinrfinance.net.MobilePeriodsResponse
 import com.tenon.joinrfinance.net.MobileTodayResponse
 import com.tenon.joinrfinance.net.decOrNull
 import com.tenon.joinrfinance.ui.theme.JoinrColors
@@ -59,6 +71,24 @@ private fun Modifier.cellPadding(c: Int): Modifier = this.padding(start = startP
 /** One LIST cell: its text, tint and weight. */
 private data class Cell(val text: String, val color: Color = JoinrColors.Text, val bold: Boolean = false)
 
+/** One LIST row: its key, five cells, the word under the code and its spoken text; the SOLD row is not clickable. */
+private class ListRow(val key: String, val cells: List<Cell>, val word: String?, val spoken: String, val clickable: Boolean)
+
+/** LIST's headers with the sorted column marked. */
+private fun listHeaders(sort: SortOrder): List<String> = listOf("SYM", "LAST", "CHG%", "CHG$", "VALUE").mapIndexed { i, label ->
+    val marked = (i == 2 && sort == SortOrder.DAY_RATIO) || (i == 3 && sort == SortOrder.DAY_CENTS) || (i == 4 && sort == SortOrder.VALUE)
+    if (marked) "$label ▼" else label
+}
+
+/** A row's tap and spoken text: a clickable holding, or the SOLD row (no tap; its own description). */
+private fun Modifier.rowAction(row: ListRow, onOpen: (String) -> Unit, merge: Boolean): Modifier = if (row.clickable) {
+    this
+        .clickable(onClickLabel = "Open ${row.cells[0].text}", role = Role.Button) { onOpen(row.key) }
+        .semantics(mergeDescendants = merge) { contentDescription = row.spoken }
+} else {
+    this.semantics(mergeDescendants = merge) { contentDescription = row.spoken }
+}
+
 /**
  * LIST (plan section 9.7): SYM · LAST · CHG% · CHG$ · VALUE, rows ≥ 40 dp, right-aligned mono figures. Each column is
  * as wide as its widest formatted value at the current font scale (measured with a TextMeasurer); the SYM column stays
@@ -72,25 +102,20 @@ fun HoldingsTable(
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val measurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val figure = JoinrType.figure(size = 12.5.sp)
-    val figureBold = figure.copy(fontWeight = FontWeight.W700)
-    val header = JoinrType.label(size = 11.sp, tracking = 0.1f)
-    val word = JoinrType.label(size = 9.sp, tracking = 0.08f, color = JoinrColors.TextMuted)
-
-    val headers = listOf("SYM", "LAST", "CHG%", "CHG$", "VALUE").mapIndexed { i, label ->
-        val marked = (i == 2 && sort == SortOrder.DAY_RATIO) || (i == 3 && sort == SortOrder.DAY_CENTS) || (i == 4 && sort == SortOrder.VALUE)
-        if (marked) "$label ▼" else label
-    }
-    val rows: List<List<Cell>> = sorted.map { h ->
+    val rows = sorted.map { h ->
         val tint = JoinrColors.textTone(dayDollarsTone(h))
-        listOf(
-            Cell(h.code, JoinrColors.TextBright, bold = true),
-            Cell(Format.priceShort(decOrNull(h.price))),
-            if (h.isOk) Cell(Format.arrowPercentShort(decOrNull(h.dayRatio)), JoinrColors.textTone(toneOf(Format.percentSign(decOrNull(h.dayRatio)))), bold = true) else Cell(Format.DASH, JoinrColors.TextSecondary),
-            if (h.isOk) Cell(Format.dayShort(h.dayCents), tint) else Cell(Format.DASH, JoinrColors.TextSecondary),
-            Cell(Format.valueShort(h.valueCents)),
+        ListRow(
+            key = h.key,
+            cells = listOf(
+                Cell(h.code, JoinrColors.TextBright, bold = true),
+                Cell(Format.priceShort(decOrNull(h.price))),
+                if (h.isOk) Cell(Format.arrowPercentShort(decOrNull(h.dayRatio)), JoinrColors.textTone(toneOf(Format.percentSign(decOrNull(h.dayRatio)))), bold = true) else Cell(Format.DASH, JoinrColors.TextSecondary),
+                if (h.isOk) Cell(Format.dayShort(h.dayCents), tint) else Cell(Format.DASH, JoinrColors.TextSecondary),
+                Cell(Format.valueShort(h.valueCents)),
+            ),
+            word = statusWord(h, today, withDate = false),
+            spoken = spokenHolding(h),
+            clickable = true,
         )
     }
     val totalRatio = decOrNull(today.totals.dayRatio)
@@ -101,15 +126,85 @@ fun HoldingsTable(
         Cell(Format.dayShort(today.totals.dayCents), JoinrColors.Teal, bold = true),
         Cell(Format.valueShort(today.totals.valueCents), JoinrColors.TextBright, bold = true),
     )
-    val words = sorted.map { h -> statusWord(h, today, withDate = false) }
+    ListTableBody(listHeaders(sort), rows, total, onOpen, modifier)
+}
+
+/**
+ * LIST under a period (Stage 10 plan section 9.4): the same columns; CHG% and CHG$ are the figure's ratio and cents; a
+ * row without a figure shows "—" with its status word under the code; under ALL a SOLD row before the total.
+ */
+@Composable
+fun PeriodHoldingsTable(
+    answer: MobilePeriodsResponse,
+    dto: MobilePeriodDto,
+    sorted: List<PeriodRow>,
+    sort: SortOrder,
+    period: Period,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    fun pctCell(cents: Long?, ratio: java.math.BigDecimal?) =
+        if (cents != null) Cell(Format.arrowPercentShort(ratio), JoinrColors.textTone(toneOf(Format.percentSign(ratio))), bold = true) else Cell(Format.DASH, JoinrColors.TextSecondary)
+    fun dollarsCell(cents: Long?) =
+        if (cents != null) Cell(Format.dayShort(cents), JoinrColors.textTone(periodTone(cents))) else Cell(Format.DASH, JoinrColors.TextSecondary)
+    val rows = sorted.map { r ->
+        ListRow(
+            key = r.key,
+            cells = listOf(
+                Cell(r.code, JoinrColors.TextBright, bold = true),
+                Cell(Format.priceShort(decOrNull(r.holding.price))),
+                pctCell(r.cents, r.ratio),
+                dollarsCell(r.cents),
+                Cell(Format.valueShort(r.holding.valueCents)),
+            ),
+            word = periodCardWord(r.holding, r.figure, answer, withDate = false),
+            spoken = spokenPeriodHolding(r, period),
+            clickable = true,
+        )
+    }
+    val sold = dto.soldFigure()?.let { f ->
+        ListRow(
+            key = MobilePeriodFigureDto.SOLD_HOLDINGS_KEY,
+            cells = listOf(
+                Cell("SOLD", JoinrColors.TextBright, bold = true),
+                Cell(Format.DASH, JoinrColors.TextSecondary),
+                pctCell(f.cents, decOrNull(f.ratio)),
+                dollarsCell(f.cents),
+                Cell(Format.DASH, JoinrColors.TextSecondary),
+            ),
+            word = "${f.soldCount ?: 0} SOLD",
+            spoken = spokenSold(f),
+            clickable = false,
+        )
+    }
+    val totalRatio = decOrNull(dto.totals.ratio)
+    val total = listOf(
+        Cell("TOTAL", JoinrColors.TextBright, bold = true),
+        Cell(""),
+        Cell(Format.arrowPercentShort(totalRatio), JoinrColors.TextBright, bold = true),
+        Cell(Format.dayShort(dto.totals.cents), JoinrColors.Teal, bold = true),
+        Cell(Format.valueShort(answer.valueCents), JoinrColors.TextBright, bold = true),
+    )
+    ListTableBody(listHeaders(sort), rows + listOfNotNull(sold), total, onOpen, modifier)
+}
+
+/** The measured LIST body shared by 1D and the periods. */
+@Composable
+private fun ListTableBody(headers: List<String>, rows: List<ListRow>, total: List<Cell>, onOpen: (String) -> Unit, modifier: Modifier) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val figure = JoinrType.figure(size = 12.5.sp)
+    val figureBold = figure.copy(fontWeight = FontWeight.W700)
+    val header = JoinrType.label(size = 11.sp, tracking = 0.1f)
+    val word = JoinrType.label(size = 9.sp, tracking = 0.08f, color = JoinrColors.TextMuted)
 
     fun widthOf(text: String, style: TextStyle): Dp = with(density) { measurer.measure(text, style).size.width.toDp() }
     fun heightOf(text: String, style: TextStyle): Dp = with(density) { measurer.measure(text, style).size.height.toDp() }
 
     val widths = (0 until 5).map { c ->
-        val cells = rows.map { it[c] } + total[c]
+        val cells = rows.map { it.cells[c] } + total[c]
         val widest = cells.maxOf { widthOf(it.text, if (it.bold) figureBold else figure) }
-        val wordWidest = if (c == 0) words.maxOfOrNull { w -> w?.let { widthOf(it, word) } ?: 0.dp } ?: 0.dp else 0.dp
+        val wordWidest = if (c == 0) rows.maxOfOrNull { r -> r.word?.let { widthOf(it, word) } ?: 0.dp } ?: 0.dp else 0.dp
         // + ROUNDING_SLACK: the text and each padding are rounded to pixels separately, so at a fractional density
         // (420 dpi = 2.625×) the cell could end up a pixel narrower than its text.
         maxOf(widest, wordWidest, widthOf(headers[c], header)) + startPad(c) + endPad(c) + ROUNDING_SLACK
@@ -134,21 +229,20 @@ fun HoldingsTable(
             // The sticky SYM column.
             Column(Modifier.width(cols[0])) {
                 HeaderCell(0, headers[0], cols[0], headerHeight, header, TextAlign.Start, highlighted = false)
-                sorted.forEachIndexed { r, h ->
+                rows.forEach { r ->
                     Box(
                         Modifier
                             .width(cols[0])
                             .height(rowHeight)
                             .background(JoinrColors.Surface)
-                            .clickable(onClickLabel = "Open ${h.code}", role = Role.Button) { onOpen(h.key) }
-                            .semantics(mergeDescendants = true) { contentDescription = spokenHolding(h) }
+                            .rowAction(r, onOpen, merge = true)
                             .cellPadding(0)
-                            .testTag("row-${h.key}"),
+                            .testTag("row-${r.key}"),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Column {
-                            Text(rows[r][0].text, style = figureBold.copy(color = JoinrColors.TextBright), maxLines = 1, softWrap = false)
-                            words[r]?.let { Text(it, style = word, maxLines = 1, softWrap = false, modifier = Modifier.testTag("listword-${h.key}")) }
+                            Text(r.cells[0].text, style = figureBold.copy(color = JoinrColors.TextBright), maxLines = 1, softWrap = false)
+                            r.word?.let { Text(it, style = word, maxLines = 1, softWrap = false, modifier = Modifier.testTag("listword-${r.key}")) }
                         }
                     }
                     RowRule(cols[0])
@@ -161,16 +255,15 @@ fun HoldingsTable(
                         HeaderCell(c, headers[c], cols[c], headerHeight, header, TextAlign.End, highlighted = headers[c].endsWith("▼"))
                     }
                 }
-                sorted.forEachIndexed { r, h ->
+                rows.forEach { r ->
                     Row(
                         Modifier
                             .height(rowHeight)
-                            .clickable(onClickLabel = "Open ${h.code}", role = Role.Button) { onOpen(h.key) }
-                            .semantics { contentDescription = spokenHolding(h) },
+                            .rowAction(r, onOpen, merge = false),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         for (c in 1 until 5) {
-                            val cell = rows[r][c]
+                            val cell = r.cells[c]
                             Text(
                                 cell.text,
                                 style = (if (cell.bold) figureBold else figure).copy(color = cell.color),
@@ -224,41 +317,109 @@ private fun RowRule(width: Dp) {
     Box(Modifier.width(width).height(1.dp).background(JoinrColors.Hairline))
 }
 
+/** One MOVERS row: the code, its bar (a fraction of the largest |$|), $ and %; the SOLD row is not clickable. */
+private class MoverItem(
+    val key: String,
+    val code: String,
+    val fraction: Float,
+    val barTone: Tone,
+    val dollars: String,
+    val dollarsTone: Tone,
+    val percent: String,
+    val percentTone: Tone,
+    val spoken: String,
+    val clickable: Boolean,
+)
+
 /**
  * MOVERS (plan section 9.7): `ok` holdings only; a bar from a centre axis scaled to the largest |day $| (go to the
  * right, stop to the left; 16 dp, 4 dp rounded data end); day $ and %; then "No day figure: N".
  */
 @Composable
 fun MoversList(today: MobileTodayResponse, sort: SortOrder, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
+    val items = moverRows(today.holdings, sort).map { row ->
+        val h = row.holding
+        val ratio = decOrNull(h.dayRatio)
+        MoverItem(
+            key = h.key,
+            code = h.code,
+            fraction = row.fraction,
+            barTone = h.dayCents?.let { toneOf(it.compareTo(0)) } ?: Tone.NONE,
+            dollars = Format.dayShort(h.dayCents),
+            dollarsTone = dayDollarsTone(h),
+            percent = Format.arrowPercentShort(ratio),
+            percentTone = toneOf(Format.percentSign(ratio)),
+            spoken = spokenHolding(h),
+            clickable = true,
+        )
+    }
+    MoversBody(items, "No day figure: ${today.totals.noChange}", onOpen, modifier)
+}
+
+/** MOVERS under a period: every figure with cents, the SOLD row last under ALL; "No figure for 1W: N". */
+@Composable
+fun PeriodMoversList(
+    dto: MobilePeriodDto,
+    rows: List<PeriodRow>,
+    sort: SortOrder,
+    period: Period,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val items = periodMoverRows(rows, dto, sort).map { m ->
+        val sold = m.sold
+        MoverItem(
+            key = m.key,
+            code = m.code,
+            fraction = m.fraction,
+            barTone = toneOf(m.cents.compareTo(0)),
+            dollars = Format.dayShort(m.cents),
+            dollarsTone = periodTone(m.cents),
+            percent = Format.arrowPercentShort(m.ratio),
+            percentTone = toneOf(Format.percentSign(m.ratio)),
+            spoken = if (sold != null) spokenSold(sold) else spokenPeriodHolding(m.row!!, period),
+            clickable = sold == null,
+        )
+    }
+    MoversBody(items, noFigureText(dto, period), onOpen, modifier)
+}
+
+/** The MOVERS body shared by 1D and the periods. */
+@Composable
+private fun MoversBody(items: List<MoverItem>, footer: String, onOpen: (String) -> Unit, modifier: Modifier) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val rows = moverRows(today.holdings, sort)
     val figure = JoinrType.figure(size = 12.5.sp)
     val bold = figure.copy(fontWeight = FontWeight.W700)
     fun widthOf(text: String, style: TextStyle): Dp = with(density) { measurer.measure(text, style).size.width.toDp() }
-    val codeW = (rows.maxOfOrNull { widthOf(it.holding.code, bold) } ?: 0.dp) + 6.dp
-    val dayW = (rows.maxOfOrNull { widthOf(Format.dayShort(it.holding.dayCents), bold) } ?: 0.dp) + 6.dp
-    val pctW = (rows.maxOfOrNull { widthOf(Format.arrowPercentShort(decOrNull(it.holding.dayRatio)), figure) } ?: 0.dp) + 6.dp
+    val codeW = (items.maxOfOrNull { widthOf(it.code, bold) } ?: 0.dp) + 6.dp
+    val dayW = (items.maxOfOrNull { widthOf(it.dollars, bold) } ?: 0.dp) + 6.dp
+    val pctW = (items.maxOfOrNull { widthOf(it.percent, figure) } ?: 0.dp) + 6.dp
     Column(modifier.padding(horizontal = 16.dp).testTag("movers")) {
-        rows.forEach { row ->
-            val h = row.holding
-            val tone = h.dayCents?.let { toneOf(it.compareTo(0)) } ?: Tone.NONE
+        items.forEach { m ->
             Row(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 40.dp)
-                    .clickable(onClickLabel = "Open ${h.code}", role = Role.Button) { onOpen(h.key) }
-                    .semantics(mergeDescendants = true) { contentDescription = spokenHolding(h) }
-                    .testTag("mover-${h.key}"),
+                    .then(
+                        if (m.clickable) {
+                            Modifier
+                                .clickable(onClickLabel = "Open ${m.code}", role = Role.Button) { onOpen(m.key) }
+                                .semantics(mergeDescendants = true) { contentDescription = m.spoken }
+                        } else {
+                            Modifier.semantics(mergeDescendants = true) { contentDescription = m.spoken }
+                        },
+                    )
+                    .testTag("mover-${m.key}"),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(h.code, style = bold.copy(color = JoinrColors.TextBright), maxLines = 1, modifier = Modifier.width(codeW))
-                MoverBar(row.fraction, tone, Modifier.weight(1f))
-                Text(Format.dayShort(h.dayCents), style = bold.copy(color = JoinrColors.textTone(dayDollarsTone(h))), textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.width(dayW))
+                Text(m.code, style = bold.copy(color = JoinrColors.TextBright), maxLines = 1, modifier = Modifier.width(codeW))
+                MoverBar(m.fraction, m.barTone, Modifier.weight(1f))
+                Text(m.dollars, style = bold.copy(color = JoinrColors.textTone(m.dollarsTone)), textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.width(dayW))
                 Text(
-                    Format.arrowPercentShort(decOrNull(h.dayRatio)),
-                    style = figure.copy(color = JoinrColors.textTone(toneOf(Format.percentSign(decOrNull(h.dayRatio))))),
+                    m.percent,
+                    style = figure.copy(color = JoinrColors.textTone(m.percentTone)),
                     textAlign = TextAlign.End,
                     maxLines = 1,
                     modifier = Modifier.width(pctW),
@@ -267,7 +428,7 @@ fun MoversList(today: MobileTodayResponse, sort: SortOrder, onOpen: (String) -> 
             Box(Modifier.fillMaxWidth().height(1.dp).background(JoinrColors.Hairline))
         }
         Text(
-            "No day figure: ${today.totals.noChange}",
+            footer,
             style = JoinrType.body(size = 12.sp, color = JoinrColors.TextSecondary),
             modifier = Modifier.padding(top = 10.dp).testTag("movers-nochange"),
         )

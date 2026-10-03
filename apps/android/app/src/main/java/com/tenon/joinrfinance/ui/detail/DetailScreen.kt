@@ -41,12 +41,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tenon.joinrfinance.model.Format
+import com.tenon.joinrfinance.model.NO_LINE_TEXT
+import com.tenon.joinrfinance.model.Period
+import com.tenon.joinrfinance.model.figureOf
+import com.tenon.joinrfinance.model.periodDateDm
+import com.tenon.joinrfinance.model.periodDateDmy
+import com.tenon.joinrfinance.model.periodDetailRows
+import com.tenon.joinrfinance.model.periodOf
+import com.tenon.joinrfinance.model.periodMarkTone
+import com.tenon.joinrfinance.model.periodTone
 import com.tenon.joinrfinance.model.Spark
 import com.tenon.joinrfinance.model.Times
 import com.tenon.joinrfinance.model.dayTone
 import com.tenon.joinrfinance.model.sessionText
 import com.tenon.joinrfinance.model.toneOf
 import com.tenon.joinrfinance.net.MobileHoldingDto
+import com.tenon.joinrfinance.net.MobilePeriodFigureDto
+import com.tenon.joinrfinance.net.MobilePeriodHoldingDto
+import com.tenon.joinrfinance.net.MobilePeriodsResponse
 import com.tenon.joinrfinance.net.MobileTodayResponse
 import com.tenon.joinrfinance.net.dec
 import com.tenon.joinrfinance.net.decOrNull
@@ -58,9 +70,20 @@ import com.tenon.joinrfinance.ui.theme.JoinrColors
 import com.tenon.joinrfinance.ui.theme.JoinrType
 import java.math.BigDecimal
 
-/** A holding's detail (plan section 9.7): the large chart (drag to read) and the key–value table. */
+/**
+ * A holding's detail (plan section 9.7): the large chart (drag to read) and the key–value table. Stage 10 (D169): under a
+ * non-1D [period] with a periods answer the chart is the holding's line for that period and the day rows become the
+ * period's; under 1D (and a detail opened from a widget) it is the Stage 9 screen.
+ */
 @Composable
-fun DetailScreen(today: MobileTodayResponse, holding: MobileHoldingDto?, onBack: () -> Unit) {
+fun DetailScreen(
+    today: MobileTodayResponse,
+    holding: MobileHoldingDto?,
+    onBack: () -> Unit,
+    period: Period = Period.ONE_DAY,
+    periods: MobilePeriodsResponse? = null,
+) {
+    val periodHolding = if (period.isDay) null else periods?.holdings?.firstOrNull { it.key == holding?.key }
     Column(Modifier.fillMaxSize().background(JoinrColors.Ink).testTag("detail")) {
         SpectrumRule()
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -94,8 +117,14 @@ fun DetailScreen(today: MobileTodayResponse, holding: MobileHoldingDto?, onBack:
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            LargeChart(today, holding)
-            KeyValueTable(detailRows(today, holding), valueColor = { label -> valueTint(label, holding) })
+            if (periods != null && periodHolding != null) {
+                val figure = periods.periodOf(period)?.figureOf(periodHolding.key)
+                PeriodChart(periodHolding, figure, period)
+                KeyValueTable(periodDetailRows(periods, today, periodHolding, period), valueColor = { label -> periodTint(label, figure, period) })
+            } else {
+                LargeChart(today, holding)
+                KeyValueTable(detailRows(today, holding), valueColor = { label -> valueTint(label, holding) })
+            }
         }
     }
 }
@@ -105,6 +134,105 @@ private fun valueTint(label: String, h: MobileHoldingDto) = when {
         JoinrColors.textTone(if (h.isOk) dayTone(h) else com.tenon.joinrfinance.model.Tone.NONE)
     label.startsWith("Day % in") -> JoinrColors.textTone(toneOf(Format.percentSign(decOrNull(h.native?.dayRatio))))
     else -> JoinrColors.Text
+}
+
+/** The period rows' tints: the change and gain rows by the figure's sign, the ALL parts by their own. */
+private fun periodTint(label: String, f: MobilePeriodFigureDto?, period: Period) = when {
+    label == "${period.chip} change" || label == "All-time gain" ->
+        JoinrColors.textTone(periodTone(f?.cents?.takeIf { f.isOk || f.status == MobilePeriodFigureDto.STATUS_NO_START }))
+    label == "Change per unit" || label == "Change per ounce" ->
+        JoinrColors.textTone(decOrNull(f?.changePerUnit)?.let { toneOf(it.signum()) } ?: com.tenon.joinrfinance.model.Tone.NONE)
+    label == "Unrealised" -> JoinrColors.textTone(periodTone(f?.unrealisedCents))
+    label == "Realised" -> JoinrColors.textTone(periodTone(f?.realisedCents))
+    else -> JoinrColors.Text
+}
+
+/**
+ * The holding's period line (D169): AUD prices by date, each point the same width, against the dashed start close (ALL:
+ * the average cost); tinted by the period figure's sign; dates under it (dd/mm, ALL dd/mm/yyyy); drag to read
+ * `dd/mm/yyyy · $x.xx`.
+ */
+@Composable
+private fun PeriodChart(h: MobilePeriodHoldingDto, f: MobilePeriodFigureDto?, period: Period) {
+    val line = f?.line
+    if (line == null || line.points.isEmpty()) {
+        Box(
+            Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(6.dp)).background(JoinrColors.Surface).padding(12.dp).testTag("no-chart"),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(NO_LINE_TEXT, style = JoinrType.body(size = 13.sp, color = JoinrColors.TextSecondary))
+        }
+        return
+    }
+    val perOz = if (h.isBullion) " per oz" else ""
+    val tone = periodMarkTone(f.cents?.takeIf { f.isOk || f.status == MobilePeriodFigureDto.STATUS_NO_START })
+    val n = line.points.size
+    val times = LongArray(n) { it.toLong() }
+    val values = DoubleArray(n) { dec(line.points[it].second).toDouble() }
+    val base = decOrNull(line.base)?.toDouble()
+    var selected by remember(h.key, period) { mutableStateOf<Int?>(null) }
+    val readout = selected?.let { i ->
+        val idx = i.coerceIn(0, n - 1)
+        periodDateDmy(line.points[idx].first) + " · " + Format.price(dec(line.points[idx].second)) + perOz
+    }
+    val summary = buildString {
+        append("${h.code} price over ${period.spoken}")
+        if (period != Period.ALL) append(" since ${periodDateDmy(line.points.first().first)}")
+        decOrNull(f.ratio)?.takeIf { f.cents != null }?.let { r ->
+            append(
+                when (Format.percentSign(r)) {
+                    1 -> ", up ${Format.percent(r).removeSuffix("%")} percent"
+                    -1 -> ", down ${Format.percent(r).removeSuffix("%")} percent"
+                    else -> ", unchanged"
+                },
+            )
+        }
+        append(", last ${Format.price(dec(line.points.last().second))}$perOz")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            readout ?: "Drag the chart to read a price",
+            style = if (readout != null) JoinrType.figure(size = 12.sp, color = JoinrColors.TextBright) else JoinrType.body(size = 12.sp, color = JoinrColors.TextMuted),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("readout"),
+        )
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .semantics { contentDescription = summary }
+                .testTag("large-chart")
+                .pointerInput(h.key + period.chip) {
+                    detectTapGestures { pos ->
+                        val g = Spark.geometry(times, values, base, size.width.toFloat(), size.height.toFloat(), 6f)
+                        selected = Spark.nearestIndex(g, pos.x).coerceAtMost(n - 1)
+                    }
+                }
+                .pointerInput(h.key + period.chip + "drag") {
+                    detectDragGestures(onDragEnd = { }) { change, _ ->
+                        val g = Spark.geometry(times, values, base, size.width.toFloat(), size.height.toFloat(), 6f)
+                        selected = Spark.nearestIndex(g, change.position.x).coerceAtMost(n - 1)
+                    }
+                },
+        ) {
+            val g = Spark.geometry(times, values, base, size.width, size.height, 6.dp.toPx())
+            drawSpark(g, JoinrColors.markTone(tone), 0.16f, 2.dp.toPx(), 4.dp.toPx())
+            selected?.let { i ->
+                val idx = i.coerceIn(0, g.size - 1)
+                drawLine(JoinrColors.TextSecondary, Offset(g.xs[idx], 0f), Offset(g.xs[idx], size.height), strokeWidth = 1.dp.toPx())
+                drawCircle(JoinrColors.Surface, radius = 6.dp.toPx(), center = Offset(g.xs[idx], g.ys[idx]))
+                drawCircle(JoinrColors.markTone(tone), radius = 4.dp.toPx(), center = Offset(g.xs[idx], g.ys[idx]))
+            }
+        }
+        val fmt: (String?) -> String = if (period == Period.ALL) ::periodDateDmy else ::periodDateDm
+        Row(Modifier.fillMaxWidth()) {
+            val style = JoinrType.figure(size = 11.sp, color = JoinrColors.TextMuted)
+            Text(fmt(line.points.first().first), style = style, modifier = Modifier.testTag("chart-label-start"))
+            Spacer(Modifier.weight(1f))
+            Text(fmt(line.points[n / 2].first), style = style, modifier = Modifier.testTag("chart-label-mid"))
+            Spacer(Modifier.weight(1f))
+            Text(fmt(line.points.last().first), style = style, modifier = Modifier.testTag("chart-label-end"))
+        }
+    }
 }
 
 /** A price in its own currency: `$112.40` for AUD, `101.00 USD` otherwise. */

@@ -1,13 +1,14 @@
 // The phone API (stage-9.md §4.1–§4.2, §6.3, FROZEN endpoints), one plugin under `/api`:
 //   GET  /api/mobile/today   the device key → everything the app and widgets show
 //   GET  /api/mobile/device  the device key → the paired device
+//   GET  /api/mobile/periods the device key → the seven period figures (stage-10.md §4.1, §6.1)
 //   POST /api/mobile/pair    no key (the one-time code) → 201 with the key, once
 //   POST/PUT/PATCH/DELETE/OPTIONS /api/mobile/* (anything else) → 405 MOBILE_READ_ONLY, no key
-// needed and nothing runs. Fastify adds HEAD for the two GETs. Every path is one segment below
+// needed and nothing runs. Fastify adds HEAD for the GETs. Every path is one segment below
 // `/api/mobile/` and nothing takes a query string. `GET /api/mobile/<anything else>` is the
 // ordinary JSON 404 (the root not-found handler; no key check).
 //
-// The plugin's `onRequest` hook checks the key for the two GETs (and their HEADs); the plugin
+// The plugin's `onRequest` hook checks the key for the keyed GETs (and their HEADs); the plugin
 // declares every route it adds in `declared`, which the root `onRoute` guard in app.ts checks so a
 // route under `/api/mobile` from any other plugin fails at start-up (deny by default, §6.3).
 //
@@ -16,6 +17,7 @@ import {
   MOBILE_API_VERSION,
   PAIR_BODY_LIMIT_BYTES,
   type MobileDeviceResponse,
+  type MobilePeriodsResponse,
   type MobileTodayResponse,
 } from '@joinr/schema';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
@@ -24,6 +26,7 @@ import { errorBody } from '../errors';
 import type { KeyCheck } from '../mobile/auth';
 import type { DeviceRecord } from '../mobile/devices';
 import type { PairingService } from '../mobile/pairing';
+import { buildMobilePeriods } from '../mobile/periods';
 import { MobileError } from '../mobile/sentences';
 import { buildMobileToday } from '../mobile/today';
 
@@ -38,7 +41,7 @@ declare module 'fastify' {
 export const MOBILE_CATCH_ALL_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] as const;
 
 /** The routes (after the `/api` prefix) that need a device key. */
-const KEYED_URLS = new Set(['/api/mobile/today', '/api/mobile/device']);
+const KEYED_URLS = new Set(['/api/mobile/today', '/api/mobile/device', '/api/mobile/periods']);
 
 export interface MobileRoutesOptions {
   deps: FinanceDeps;
@@ -83,6 +86,18 @@ export const mobileRoutes: FastifyPluginAsync<MobileRoutesOptions> = async (app,
   declare(['GET', 'HEAD'], '/mobile/today');
   app.get('/mobile/today', async (request): Promise<MobileTodayResponse> =>
     buildMobileToday({
+      deps: opts.deps,
+      timeZone: opts.timeZone,
+      serverVersion: opts.version,
+      yahooCooling: opts.yahooCooling,
+      log: request.log,
+    }),
+  );
+
+  // Stage 10 (stage-10.md §6.1): the seven periods, read-only, under the same key.
+  declare(['GET', 'HEAD'], '/mobile/periods');
+  app.get('/mobile/periods', async (request): Promise<MobilePeriodsResponse> =>
+    buildMobilePeriods({
       deps: opts.deps,
       timeZone: opts.timeZone,
       serverVersion: opts.version,

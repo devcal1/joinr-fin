@@ -99,6 +99,61 @@ export function holdingKey(instrumentId: number): string {
   return `i${instrumentId}`;
 }
 
+// ─── Stage 10: the period selector and the daily closes (stage-10.md §3.5, FROZEN) ─────────────
+
+/** D158: the phone's periods; '1D' is Stage 9's day figure (`/api/mobile/today`). */
+export const MOBILE_PERIODS = ['1D', '1W', '2W', '1M', '3M', '6M', '12M', 'ALL'] as const;
+/** What `GET /api/mobile/periods` answers, in this order. */
+export const SERVER_PERIODS = ['1W', '2W', '1M', '3M', '6M', '12M', 'ALL'] as const;
+/** The calendar span of each dated period (months are EDATE: the day is clamped). */
+export const PERIOD_SPANS = {
+  '1W': { days: 7 },
+  '2W': { days: 14 },
+  '1M': { months: 1 },
+  '3M': { months: 3 },
+  '6M': { months: 6 },
+  '12M': { months: 12 },
+} as const;
+/** The start close, and its FX close, at most this many days earlier. */
+export const PERIOD_START_MAX_GAP_DAYS = 10;
+/** A holding's period line (cards, detail). */
+export const PERIOD_HOLDING_POINTS = 40;
+/** The "Sold holdings" figure's key: never collides with 'i<id>' or 'bullion-<metal>'. */
+export const SOLD_HOLDINGS_KEY = 'sold';
+/** Server-local, daily; off the 15-minute intraday grid (§5.7). */
+export const CLOSES_RUN_AT = { hour: 16, minute: 52 } as const;
+/** Follow-ups snap to xx:07, xx:22, xx:37, xx:52 (minute % 15 === 7). */
+export const CLOSES_SLOT_MINUTE_OFFSET = 7;
+/** No CoinGecko history call this close before an intraday crypto slot fires. */
+export const CLOSES_COIN_SLOT_GUARD_MS = 45_000;
+export const CLOSES_STARTUP_DELAY_MS = 120_000;
+export const CLOSES_RUN_DEADLINE_MS = 10 * 60_000;
+/** A run that left work (deadline, cool-down) schedules one more. */
+export const CLOSES_FOLLOW_UP_MS = 30 * 60_000;
+/** Per server-local day. */
+export const CLOSES_FOLLOW_UPS_MAX = 6;
+/** History starts this many days before the earliest trade. */
+export const CLOSES_LEAD_DAYS = 10;
+/** A top-up re-reads (and rewrites) this many days. */
+export const CLOSES_TOPUP_OVERLAP_DAYS = 10;
+export const CLOSES_YAHOO_SPACING_MS = 1_500;
+export const CLOSES_COIN_SPACING_MS = 15_000;
+export const CLOSES_REQUEST_TIMEOUT_MS = 30_000;
+/** The keyless API's reach (older → 401, error_code 10012). */
+export const COINGECKO_HISTORY_DAYS = 364;
+/** Up to this, market_chart answers hourly points. */
+export const COINGECKO_HOURLY_DAYS = 90;
+/** Hourly points: the last point at most this old. */
+export const CLOSES_COIN_POINT_MAX_AGE_MS = 36 * 60 * 60_000;
+/** Daily points: the nearest point within ± this (§5.3). */
+export const CLOSES_COIN_DAILY_WINDOW_MS = 14 * 60 * 60_000;
+/** History depth for a held bullion row without a purchase date. */
+export const CLOSES_BULLION_UNDATED_DAYS = 380;
+/** The app's "Price history to dd/mm" note when closesThrough is more than this before localDate. */
+export const CLOSES_STALE_NOTE_DAYS = 6;
+/** The §6.6 size test (30 synthetic holdings). */
+export const PERIODS_ANSWER_BUDGET_BYTES = 350_000;
+
 // ─── The fixed sentences (§4.5; never a value) ──────────────────────────────────────────────────
 
 export const MOBILE_ERROR_MESSAGES = {

@@ -1,8 +1,8 @@
 // The device key and the read-only boundary (stage-9.md §4.2, §6.3, §6.10): missing, malformed,
 // unknown and revoked keys (each with its code), `X-Joinr-Key` alone, both headers equal or
 // different, the bad-key limiter (a known key is never limited), the last-used time and app
-// version, an unreadable store set aside; the exact route set under /api/mobile, a route from
-// another plugin failing at start-up, and every method × path. Keys are generated here, never printed.
+// version, an unreadable store set aside; the exact route set under /api/mobile (Stage 10 adds
+// /periods), a route from another plugin failing at start-up, and every method × path. Keys are generated here, never printed.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -112,7 +112,7 @@ describe('the key check', () => {
 });
 
 describe('the route set (deny by default)', () => {
-  it('under /api/mobile there are exactly the three routes, their HEADs and the catch-all', async () => {
+  it('under /api/mobile there are exactly the four routes, their HEADs and the catch-all', async () => {
     const seen: string[] = [];
     await t.restart({
       mobile: {
@@ -127,8 +127,10 @@ describe('the route set (deny by default)', () => {
       [
         'DELETE /api/mobile/*',
         'GET /api/mobile/device',
+        'GET /api/mobile/periods',
         'GET /api/mobile/today',
         'HEAD /api/mobile/device',
+        'HEAD /api/mobile/periods',
         'HEAD /api/mobile/today',
         'OPTIONS /api/mobile/*',
         'PATCH /api/mobile/*',
@@ -159,11 +161,12 @@ describe('the route set (deny by default)', () => {
 });
 
 describe('read-only', () => {
-  it('every method × /api/mobile/today|device|pair|x gives the expected status (with a key)', async () => {
+  it('every method × /api/mobile/today|device|periods|pair|x gives the expected status (with a key)', async () => {
     const p = await pairPhone(t.app);
     const expected: Record<string, Record<string, number>> = {
       today: { GET: 200, HEAD: 200, POST: 405, PUT: 405, PATCH: 405, DELETE: 405, OPTIONS: 405 },
       device: { GET: 200, HEAD: 200, POST: 405, PUT: 405, PATCH: 405, DELETE: 405, OPTIONS: 405 },
+      periods: { GET: 200, HEAD: 200, POST: 405, PUT: 405, PATCH: 405, DELETE: 405, OPTIONS: 405 },
       pair: { GET: 404, HEAD: 404, POST: 401, PUT: 405, PATCH: 405, DELETE: 405, OPTIONS: 405 },
       x: { GET: 404, HEAD: 404, POST: 405, PUT: 405, PATCH: 405, DELETE: 405, OPTIONS: 405 },
     };

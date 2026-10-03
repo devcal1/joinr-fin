@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
+import com.tenon.joinrfinance.model.Period
 import com.tenon.joinrfinance.model.TodayTab
 import com.tenon.joinrfinance.ui.AppActions
 import com.tenon.joinrfinance.ui.LockUi
@@ -51,6 +52,7 @@ class MainActivity : FragmentActivity() {
         override fun cancelPair() = vm.cancelPair()
         override fun pairAgain() = vm.pairAgain()
         override fun unpair() = vm.unpair()
+        override fun selectPeriod(p: Period) = vm.selectPeriod(p)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +83,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        vm.setVisible(true)
         val needsPrompt = LockMemory.onForeground()
         when {
             // The one case that opens without a prompt: the phone has no screen lock at all (with a banner).
@@ -102,6 +105,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        vm.setVisible(false)
         if (!isChangingConfigurations) LockMemory.onBackground()
     }
 

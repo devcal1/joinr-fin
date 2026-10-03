@@ -26,6 +26,7 @@ import {
   propertyValuations,
   savingsAdjustments,
   savingsGoals,
+  seriesCloses,
   seriesDayQuotes,
   settings,
   sideIncomeDeposits,
@@ -79,9 +80,10 @@ function isoDateLocal(d: Date): string {
 /**
  * Deletes every row the seed writes (everything except other app_meta keys), plus the Stage 3
  * overlays (savings adjustments and goals), the Stage 4 overlay (SG statements) and series
- * history, the Stage 5 snapshot audit log and the Stage 9 day rows, so a seeded database starts
- * without them. `day_quotes` goes with the instruments (ON DELETE CASCADE); `series_day_quotes`
- * has no foreign key, so it is cleared here (a same-day reseed must not keep an old midnight base).
+ * history, the Stage 5 snapshot audit log, the Stage 9 day rows and the Stage 10 closes, so a
+ * seeded database starts without them. `day_quotes`, `instrument_closes` and `instrument_splits`
+ * go with the instruments (ON DELETE CASCADE); `series_day_quotes` and `series_closes` have no
+ * foreign key, so they are cleared here (a same-day reseed must not keep an old midnight base).
  */
 export function clearSeededTables(db: JoinrDb): void {
   db.transaction((tx) => {
@@ -94,6 +96,7 @@ export function clearSeededTables(db: JoinrDb): void {
     tx.delete(instruments).run(); // cascades price_sources, prices and dividend_events
     tx.delete(marketQuotes).run();
     tx.delete(seriesDayQuotes).run();
+    tx.delete(seriesCloses).run();
     tx.delete(settings).run();
     tx.delete(importRuns).run();
     tx.delete(jobRuns).run();

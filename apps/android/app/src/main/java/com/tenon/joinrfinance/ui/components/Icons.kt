@@ -31,5 +31,6 @@ object JoinrIcons {
     val Settings: ImageVector by lazy {
         lineIcon("settings", "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6")
     }
+    val Info: ImageVector by lazy { lineIcon("info", "M22 12a10 10 0 1 1-20 0a10 10 0 1 1 20 0", "M12 16v-4", "M12 8h.01") }
     val Back: ImageVector by lazy { lineIcon("back", "M19 12H5", "M12 19l-7-7 7-7") }
 }

@@ -7,7 +7,9 @@ import {
   dividendEvents,
   DOMAIN_TABLES_DELETE_ORDER,
   incomeStreams,
+  instrumentCloses,
   instruments,
+  instrumentSplits,
   loanBalanceEntries,
   loanOffsetLinks,
   loans,
@@ -21,6 +23,7 @@ import {
   propertyValuations,
   savingsAdjustments,
   savingsGoals,
+  seriesCloses,
   seriesDayQuotes,
   sideIncomeDeposits,
   sideIncomeEntries,
@@ -74,9 +77,13 @@ describe('createTestDb', () => {
  * Stage 1 side-income period entries (never written again: the server reads deposits), and the
  * Stage 4 sales, SG statements (an overlay), offset links and series history (stage-4.md §3.6),
  * and the Stage 5 snapshot audit log (only `seedRecordedMonth` writes it; stage-5.md §3.6), and
- * the Stage 9 day caches (only a price refresh writes them; stage-9.md §3.1, §3.1a).
+ * the Stage 9 day caches (only a price refresh writes them; stage-9.md §3.1, §3.1a), and the
+ * Stage 10 closes caches (only the closes job writes them; stage-10.md §3.3).
  */
 const UNSEEDED: ReadonlySet<unknown> = new Set([
+  instrumentCloses,
+  instrumentSplits,
+  seriesCloses,
   dayQuotes,
   seriesDayQuotes,
   savingsAdjustments,
@@ -155,6 +162,49 @@ describe('seedGenericData', () => {
     seedGenericData(testDb.db, { now });
     expect(count('series_day_quotes')).toBe(0);
     expect(count('day_quotes')).toBe(0);
+  });
+
+  it('clears the Stage 10 closes caches when it re-seeds (series_closes has no FK)', () => {
+    const now = new Date('2030-09-12T05:20:00.000Z');
+    const fetchedAt = now.toISOString();
+    const { instrumentIds } = seedGenericData(testDb.db, { now });
+    const instrumentId = instrumentIds['ASX:ABC']!;
+    testDb.db
+      .insert(instrumentCloses)
+      .values({
+        instrumentId,
+        date: '2030-09-11',
+        close: '50.5',
+        currency: 'AUD',
+        source: 'fake',
+        fetchedAt,
+      })
+      .run();
+    testDb.db
+      .insert(instrumentSplits)
+      .values({ instrumentId, date: '2030-09-10', numerator: '2', denominator: '1', fetchedAt })
+      .run();
+    testDb.db
+      .insert(seriesCloses)
+      .values({
+        seriesId: 'XAG_AUD_OZ',
+        date: '2030-09-11',
+        value: '45.5',
+        source: 'midnight',
+        fetchedAt,
+      })
+      .run();
+    seedGenericData(testDb.db, { now });
+    expect(count('instrument_closes')).toBe(0);
+    expect(count('instrument_splits')).toBe(0);
+    expect(count('series_closes')).toBe(0);
+  });
+
+  it('never dumps the Stage 10 closes caches', () => {
+    seedGenericData(testDb.db);
+    const dump = dumpDomainTables(testDb.db);
+    for (const table of ['instrument_closes', 'instrument_splits', 'series_closes'])
+      expect(Object.keys(dump)).not.toContain(table);
   });
 
   it('dates the fetched Yahoo-style price and series at 00:00 on the previous weekday', () => {

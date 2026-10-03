@@ -5,18 +5,24 @@
 // and AUD costs per unit; the spot the web used, the futures' USD price and the live AUD per USD;
 // the AUD spot's day row and the futures' USD row from `series_day_quotes`. It never reads a page
 // response and never changes `assets/**`.
+// Stage 10 (stage-10.md §6.3): `periodBullionInputs`, a sibling that keeps every row of a metal,
+// held or sold, for the period rules (ALL counts the sales and the metals no longer held).
 import type {
   BullionInput,
   BullionRowInput,
+  DatedValues,
   DayRowInput,
   EngineOtherAsset,
   OtherAssetResult,
+  PeriodBullionInput,
+  PeriodBullionRowInput,
 } from '@joinr/engine';
 import {
   BULLION_HOLDINGS,
   JoinrDecimal,
   normaliseDecimal,
   type DecimalString,
+  type IsoDate,
   type MarketQuoteItem,
   type Metal,
 } from '@joinr/schema';
@@ -127,6 +133,56 @@ export function bullionInputs(args: BullionInputsArgs): BullionGroup[] {
         nativeDay: seriesDayRow(args.seriesDays.get(def.futuresSeries), null),
       },
       fetchedAt: isoInstant(spotItem?.fetchedAt),
+    });
+  }
+  return out;
+}
+
+export interface PeriodBullionInputsArgs {
+  /** `otherAssetsInput().assets` (the rows' pricing, ounces, dates, costs, legacy sold units). */
+  assets: readonly EngineOtherAsset[];
+  /** `otherAssets().assets` (the engine results the Other Assets page shows). */
+  results: readonly OtherAssetResult[];
+  /** P per ounce: exactly the price of `/today`'s holding of that metal (null when not held or unpriced). */
+  price: (metal: Metal) => DecimalString | null;
+  /** p (stage-10.md §2.1): the spot's as-of date in the server's zone; null when unknown. */
+  priceDate: (metal: Metal) => IsoDate | null;
+  /** The stored AUD spot closes (`XAG_AUD_OZ`, `XAU_AUD_OZ`) by series id, ascending. */
+  closes: ReadonlyMap<string, DatedValues>;
+}
+
+/**
+ * One `PeriodBullionInput` per metal with ANY bullion row, held or sold (silver, then gold): every
+ * row with its engine result, ounces per unit, purchase date, AUD cost per unit and bought units
+ * (units − legacy sold units: the workbook's legacy sales have no proceeds, so their cost stays out).
+ */
+export function periodBullionInputs(args: PeriodBullionInputsArgs): PeriodBullionInput[] {
+  const resultById = new Map(args.results.map((r) => [r.id, r]));
+  const rowsByMetal = new Map<Metal, PeriodBullionRowInput[]>();
+  for (const a of args.assets) {
+    if (a.pricing.source !== 'bullion') continue;
+    const result = resultById.get(a.id);
+    if (result === undefined) continue;
+    const list = rowsByMetal.get(a.pricing.metal) ?? [];
+    list.push({
+      asset: result,
+      ozPerUnit: a.pricing.ozPerUnit,
+      purchaseDate: a.purchaseDate,
+      unitCostAud: unitCostAudOf(a),
+      boughtUnits: normaliseDecimal(new JoinrDecimal(a.units).minus(a.legacySoldUnits)),
+    });
+    rowsByMetal.set(a.pricing.metal, list);
+  }
+  const out: PeriodBullionInput[] = [];
+  for (const metal of METAL_ORDER) {
+    const rows = rowsByMetal.get(metal);
+    if (rows === undefined || rows.length === 0) continue;
+    out.push({
+      metal,
+      rows,
+      price: args.price(metal),
+      priceDate: args.priceDate(metal),
+      closes: args.closes.get(BULLION_HOLDINGS[metal].spotSeries) ?? [],
     });
   }
   return out;

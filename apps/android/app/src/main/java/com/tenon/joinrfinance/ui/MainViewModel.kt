@@ -8,7 +8,10 @@ import com.tenon.joinrfinance.BuildConfig
 import com.tenon.joinrfinance.Graph
 import com.tenon.joinrfinance.Services
 import com.tenon.joinrfinance.model.PairingUrl
+import com.tenon.joinrfinance.model.Period
 import com.tenon.joinrfinance.model.TodayTab
+import com.tenon.joinrfinance.model.periodsStale
+import com.tenon.joinrfinance.model.periodsWarmNeeded
 import com.tenon.joinrfinance.net.ApiError
 import com.tenon.joinrfinance.net.Sentences
 import com.tenon.joinrfinance.store.Repository
@@ -34,13 +37,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val state = MutableStateFlow(AppUiState(appVersion = BuildConfig.VERSION_NAME))
     val ui: StateFlow<AppUiState> = state.asStateFlow()
 
+    /** Set by the activity's onStart/onStop: the periods trigger runs only while the app is on screen. */
+    @Volatile private var visible = false
+
+    /** The Today fetch time last seen, so the trigger fires only when it moves forward (any source). */
+    private var lastTodayFetchMs: Long? = null
+    private var seenToday = false
+
     init {
+        viewModelScope.launch {
+            graph.period.collect { p -> state.update { it.copy(period = p) } }
+        }
+        viewModelScope.launch {
+            repository.periodsData.collect { p ->
+                state.update {
+                    it.copy(periods = p.periods, periodsFetchedAtMs = p.fetchedAtMs, periodsLoading = p.loading, periodsError = p.error)
+                }
+            }
+        }
         viewModelScope.launch {
             repository.load()
             val tab = graph.prefs.tab()
             val sort = graph.prefs.sort()
             state.update { it.copy(tab = tab, sort = sort) }
             repository.data.collect { d ->
+                onTodayData(d.fetchedAtMs, d.error == null)
                 val widgetsAt = graph.prefs.widgetsUpdatedAt()
                 state.update {
                     it.copy(
@@ -66,12 +87,57 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setLock(lock: LockUi) = state.update { it.copy(lock = lock) }
 
+    /** The activity's onStart (true) and onStop (false). */
+    fun setVisible(on: Boolean) {
+        visible = on
+    }
+
+    /**
+     * Stage 10 plan section 9.2: whenever the Today fetch time moves forward without an error (the app's refreshes and the
+     * worker's alike) while the app is visible and a non-1D chip is selected, the periods are fetched (single-flight).
+     */
+    private fun onTodayData(fetchedAtMs: Long?, ok: Boolean) {
+        val before = lastTodayFetchMs
+        val first = !seenToday
+        seenToday = true
+        if (fetchedAtMs == null || (before != null && fetchedAtMs <= before)) return
+        lastTodayFetchMs = fetchedAtMs
+        if (first || !ok || !visible || graph.period.value.isDay) return
+        viewModelScope.launch { repository.periods(force = true) }
+    }
+
+    /** A chip: held in the process-wide graph (D163); a non-1D chip with no fresh answer fetches one (plan section 9.3 (b)). */
+    fun selectPeriod(p: Period) {
+        graph.period.value = p
+        if (p.isDay) return
+        val s = state.value
+        val d = repository.periodsData.value
+        if (s.pairing != null && periodsStale(d.fetchedAtMs, repository.data.value.fetchedAtMs, System.currentTimeMillis())) {
+            viewModelScope.launch { repository.periods(force = true) }
+        }
+    }
+
     /** After a successful unlock (or with no screen lock): refresh once and keep the periodic work. */
     fun onOpened() {
         val ctx = getApplication<Application>()
         runCatching {
             RefreshScheduler.ensurePeriodic(ctx)
             RefreshScheduler.runOnce(ctx)
+        }
+        warmPeriods()
+    }
+
+    /**
+     * On open (plan section 9.3 (c)): under 1D a missing or 30-minute-old answer is fetched (a warm cache for the first chip
+     * tap); under another chip only a missing one (the Today refresh just started triggers the rest).
+     */
+    private fun warmPeriods() {
+        viewModelScope.launch {
+            repository.load()
+            if (repository.data.value.pairing == null) return@launch
+            val d = repository.periodsData.value
+            val need = if (graph.period.value.isDay) periodsWarmNeeded(d.fetchedAtMs, System.currentTimeMillis()) else d.periods == null
+            if (need) repository.periods(force = true)
         }
     }
 

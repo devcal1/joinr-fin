@@ -61,7 +61,10 @@ import com.tenon.joinrfinance.model.changeLine
 import com.tenon.joinrfinance.model.dayTone
 import com.tenon.joinrfinance.model.investedTotals
 import com.tenon.joinrfinance.model.marketLine
+import com.tenon.joinrfinance.model.screenDim
 import com.tenon.joinrfinance.model.sortHoldings
+import com.tenon.joinrfinance.model.sortLabel
+import com.tenon.joinrfinance.model.sortSpoken
 import com.tenon.joinrfinance.model.spokenHolding
 import com.tenon.joinrfinance.model.spokenInvested
 import com.tenon.joinrfinance.model.spokenPortfolio
@@ -103,20 +106,23 @@ fun TodayScreen(
     val today = state.today
     val bigFont = LocalDensity.current.fontScale > STATUS_LINE_MAX_FONT_SCALE
     val status = today?.let { marketLine(it) }
+    // Under a period the refresh indicator also covers the periods fetch (Stage 10 plan section 9.4).
+    val busy = refreshIndicator(state)
     Column(Modifier.fillMaxSize().background(JoinrColors.Ink).testTag("today")) {
         SpectrumRule()
-        Header(status = if (bigFont) null else status, refreshing = state.refreshing, onRefresh = actions::refresh)
+        Header(status = if (bigFont) null else status, refreshing = busy, onRefresh = actions::refresh)
+        PeriodChips(state.period, actions::selectPeriod)
         PullToRefreshBox(
-            isRefreshing = state.refreshing,
+            isRefreshing = busy,
             onRefresh = actions::refresh,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
-            val notices = todayNotices(today, state.fetchedAtMs, state.nowMs, state.error, state.lock == LockUi.NoScreenLock)
-            val dim = when {
-                today != null && state.error != null -> 0.6f
-                today != null && state.refreshing -> 0.8f
-                else -> 1f
+            if (!state.period.isDay) {
+                PeriodContent(state, actions, onOpen, listState, contentPadding, if (bigFont) status else null)
+                return@PullToRefreshBox
             }
+            val notices = todayNotices(today, state.fetchedAtMs, state.nowMs, state.error, state.lock == LockUi.NoScreenLock)
+            val dim = screenDim(state.period, today != null, state.error, state.refreshing, state.periods != null, state.periodsError, state.periodsLoading)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().testTag("today-list"),
@@ -135,7 +141,7 @@ fun TodayScreen(
                         item(key = "block") {
                             Column {
                                 DayBlock(today, if (bigFont) status else null, Modifier.alpha(dim))
-                                TotalsRow(today, Modifier.alpha(dim))
+                                TotalsRow(investedTotals(today), Modifier.alpha(dim))
                             }
                         }
                         item(key = "empty") {
@@ -146,11 +152,11 @@ fun TodayScreen(
                         item(key = "block") {
                             Column {
                                 DayBlock(today, if (bigFont) status else null, Modifier.alpha(dim))
-                                TotalsRow(today, Modifier.alpha(dim))
+                                TotalsRow(investedTotals(today), Modifier.alpha(dim))
                             }
                         }
                         item(key = "line") { PortfolioLine(today, Modifier.alpha(dim)) }
-                        item(key = "tabs") { TabsAndSort(state.tab, state.sort, actions) }
+                        item(key = "tabs") { TabsAndSort(state.tab, state.sort, state.period, actions) }
                         val sorted = sortHoldings(today.holdings, state.sort)
                         when (state.tab) {
                             TodayTab.CARDS -> {
@@ -211,42 +217,152 @@ private fun Header(status: String?, refreshing: Boolean, onRefresh: () -> Unit) 
 
 @Composable
 private fun DayBlock(today: MobileTodayResponse, status: String?, modifier: Modifier = Modifier) {
-    val cents = today.totals.dayCents
+    FigureBlock(
+        label = "TODAY · EXCL. CASH",
+        status = status,
+        cents = today.totals.dayCents,
+        ratio = decOrNull(today.totals.dayRatio),
+        since = null,
+        up = today.totals.up,
+        down = today.totals.down,
+        modifier = modifier.testTag("day-block"),
+    )
+}
+
+/**
+ * The big figure with its label (and the status line at a large font) on the left and the %, an optional `Since` line
+ * and the counts on the right. The figure is always one line; when the two sides do not fit side by side the right side
+ * moves under the figure (Stage 10 plan section 9.4). A layout that fits is the Stage 9 day block.
+ */
+@Composable
+internal fun FigureBlock(
+    label: String,
+    status: String?,
+    cents: Long?,
+    ratio: java.math.BigDecimal?,
+    since: String?,
+    up: Int,
+    down: Int,
+    modifier: Modifier = Modifier,
+    spoken: String? = null,
+) {
     val tone = if (cents == null) com.tenon.joinrfinance.model.Tone.NONE else toneOf(Format.daySign(cents))
-    val ratio = decOrNull(today.totals.dayRatio)
-    Row(
+    SideOrUnder(
         modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)
-            .testTag("day-block"),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("TODAY · EXCL. CASH", style = JoinrType.label(size = 11.sp, tracking = 0.14f))
-            if (status != null) {
-                Text(status, style = JoinrType.figure(size = 11.sp, color = JoinrColors.TextMuted), modifier = Modifier.testTag("status-line"))
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp),
+        left = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = JoinrType.label(size = 11.sp, tracking = 0.14f), maxLines = 1, softWrap = false)
+                if (status != null) {
+                    Text(status, style = JoinrType.figure(size = 11.sp, color = JoinrColors.TextMuted), modifier = Modifier.testTag("status-line"))
+                }
+                Text(
+                    Format.dayMoney(cents),
+                    style = JoinrType.figure(size = 34.sp, color = JoinrColors.textTone(tone), weight = androidx.compose.ui.text.font.FontWeight.W700)
+                        .copy(letterSpacing = (-0.02).em),
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .then(if (spoken != null) Modifier.semantics { contentDescription = spoken } else Modifier)
+                        .testTag("day-figure"),
+                )
             }
-            Text(
-                Format.dayMoney(cents),
-                style = JoinrType.figure(size = 34.sp, color = JoinrColors.textTone(tone), weight = androidx.compose.ui.text.font.FontWeight.W700)
-                    .copy(letterSpacing = (-0.02).em),
-                modifier = Modifier.testTag("day-figure"),
-            )
-        }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                Format.arrowPercent(ratio),
-                style = JoinrType.figure(size = 16.sp, color = JoinrColors.textTone(toneOf(Format.percentSign(ratio))), weight = androidx.compose.ui.text.font.FontWeight.W700),
-            )
-            Text(
-                buildAnnotatedString {
-                    withStyle(androidx.compose.ui.text.SpanStyle(color = JoinrColors.GoTint)) { append("${today.totals.up}${Format.UP}") }
-                    append(" ")
-                    withStyle(androidx.compose.ui.text.SpanStyle(color = JoinrColors.StopTint)) { append("${today.totals.down}${Format.DOWN}") }
-                },
-                style = JoinrType.figure(size = 12.5.sp),
-                modifier = Modifier.semantics { contentDescription = "${today.totals.up} up, ${today.totals.down} down" },
-            )
+        },
+        right = listOfNotNull<@Composable () -> Unit>(
+            {
+                Text(
+                    Format.arrowPercent(ratio),
+                    style = JoinrType.figure(size = 16.sp, color = JoinrColors.textTone(toneOf(Format.percentSign(ratio))), weight = androidx.compose.ui.text.font.FontWeight.W700),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            },
+            since?.let { text ->
+                {
+                    // Arimo, not mono: the date line is the right column's widest and must leave the figure its room.
+                    Text(
+                        text,
+                        style = JoinrType.body(size = 11.sp, color = JoinrColors.TextMuted),
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.testTag("since"),
+                    )
+                }
+            },
+            {
+                Text(
+                    buildAnnotatedString {
+                        withStyle(androidx.compose.ui.text.SpanStyle(color = JoinrColors.GoTint)) { append("$up${Format.UP}") }
+                        append(" ")
+                        withStyle(androidx.compose.ui.text.SpanStyle(color = JoinrColors.StopTint)) { append("$down${Format.DOWN}") }
+                    },
+                    style = JoinrType.figure(size = 12.5.sp),
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.semantics { contentDescription = "$up up, $down down" },
+                )
+            },
+        ),
+    )
+}
+
+/**
+ * [left] takes the width beside the [right] items (an end-aligned column 4 dp apart, bottom-aligned with [left]: the
+ * Stage 9 `Row` with a weighted first column) when its widest line fits there; otherwise the [right] items go under
+ * [left] in one row, 12 dp apart (wrapping only if even that row is too wide), so the block grows by one line, not three.
+ */
+@Composable
+private fun SideOrUnder(modifier: Modifier, left: @Composable () -> Unit, right: List<@Composable () -> Unit>) {
+    androidx.compose.ui.layout.Layout(content = { left(); right.forEach { it() } }, modifier = modifier) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val items = measurables.drop(1).map { it.measure(loose) }
+        val gap = 4.dp.roundToPx()
+        val colWidth = items.maxOfOrNull { it.width } ?: 0
+        val colHeight = items.sumOf { it.height } + gap * (items.size - 1).coerceAtLeast(0)
+        val leftWidest = measurables[0].maxIntrinsicWidth(constraints.maxHeight)
+        if (leftWidest + colWidth <= constraints.maxWidth) {
+            val lw = constraints.maxWidth - colWidth
+            val l = measurables[0].measure(loose.copy(minWidth = lw, maxWidth = lw))
+            val h = maxOf(l.height, colHeight)
+            layout(constraints.maxWidth, h) {
+                l.placeRelative(0, h - l.height)
+                var y = h - colHeight
+                items.forEach { p ->
+                    p.placeRelative(constraints.maxWidth - p.width, y)
+                    y += p.height + gap
+                }
+            }
+        } else {
+            val l = measurables[0].measure(loose)
+            val hGap = 12.dp.roundToPx()
+            // Rows of items that fit the width.
+            val rows = mutableListOf(mutableListOf<androidx.compose.ui.layout.Placeable>())
+            var used = 0
+            items.forEach { p ->
+                val row = rows.last()
+                if (row.isNotEmpty() && used + hGap + p.width > constraints.maxWidth) {
+                    rows += mutableListOf(p)
+                    used = p.width
+                } else {
+                    used += (if (row.isEmpty()) 0 else hGap) + p.width
+                    row += p
+                }
+            }
+            val rowHeights = rows.map { r -> r.maxOfOrNull { it.height } ?: 0 }
+            val total = l.height + rowHeights.sumOf { it + gap }
+            layout(constraints.maxWidth, total) {
+                l.placeRelative(0, 0)
+                var y = l.height + gap
+                rows.forEachIndexed { i, r ->
+                    var x = 0
+                    r.forEach { p ->
+                        p.placeRelative(x, y + (rowHeights[i] - p.height) / 2)
+                        x += p.width + hGap
+                    }
+                    y += rowHeights[i] + gap
+                }
+            }
         }
     }
 }
@@ -256,8 +372,7 @@ private fun DayBlock(today: MobileTodayResponse, status: String?, modifier: Modi
  * `—` and say why to TalkBack; the gain's % goes under its $ when both do not fit (a narrow phone at a large font).
  */
 @Composable
-private fun TotalsRow(today: MobileTodayResponse, modifier: Modifier = Modifier) {
-    val t = investedTotals(today)
+internal fun TotalsRow(t: com.tenon.joinrfinance.model.InvestedTotals, modifier: Modifier = Modifier) {
     val labelStyle = JoinrType.label(size = 10.sp, tracking = 0.12f, color = JoinrColors.TextMuted)
     val figureSize = 13.sp
     val bold = androidx.compose.ui.text.font.FontWeight.W700
@@ -269,7 +384,7 @@ private fun TotalsRow(today: MobileTodayResponse, modifier: Modifier = Modifier)
             .testTag("totals-row"),
     ) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(JoinrColors.Hairline))
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        ThreeOrWrap(Modifier.fillMaxWidth().padding(top = 6.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text("VAL", style = labelStyle, maxLines = 1)
                 Text(
@@ -290,7 +405,7 @@ private fun TotalsRow(today: MobileTodayResponse, modifier: Modifier = Modifier)
                     modifier = Modifier.testTag("total-invested"),
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text("GAIN", style = labelStyle, maxLines = 1)
                 val gain = t.gainCents
                 if (gain == null) {
@@ -325,20 +440,61 @@ private fun TotalsRow(today: MobileTodayResponse, modifier: Modifier = Modifier)
     }
 }
 
+/**
+ * The header row's three cells, 16 dp apart, the last taking the rest of the width (the Stage 9 `Row` with a weighted
+ * GAIN). Stage 10: when GAIN's figure cannot fit beside VAL and INVESTED (seven-digit figures at a large font on a narrow
+ * phone), GAIN goes under them instead of being clipped.
+ */
+@Composable
+private fun ThreeOrWrap(modifier: Modifier, content: @Composable () -> Unit) {
+    androidx.compose.ui.layout.Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val gap = 16.dp.roundToPx()
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val a = measurables[0].measure(loose)
+        val b = measurables[1].measure(loose.copy(maxWidth = (constraints.maxWidth - a.width - gap).coerceAtLeast(0)))
+        val rest = (constraints.maxWidth - a.width - b.width - 2 * gap).coerceAtLeast(0)
+        if (measurables[2].minIntrinsicWidth(constraints.maxHeight) <= rest) {
+            val c = measurables[2].measure(loose.copy(minWidth = rest, maxWidth = rest))
+            layout(constraints.maxWidth, maxOf(a.height, b.height, c.height)) {
+                a.placeRelative(0, 0)
+                b.placeRelative(a.width + gap, 0)
+                c.placeRelative(a.width + b.width + 2 * gap, 0)
+            }
+        } else {
+            val c = measurables[2].measure(loose)
+            val top = maxOf(a.height, b.height) + 4.dp.roundToPx()
+            layout(constraints.maxWidth, top + c.height) {
+                a.placeRelative(0, 0)
+                b.placeRelative(a.width + gap, 0)
+                c.placeRelative(0, top)
+            }
+        }
+    }
+}
+
 /** Two texts side by side with a 6 dp gap, or the second under the first when both do not fit the width. */
 @Composable
-private fun InlineOrUnder(first: @Composable () -> Unit, second: (@Composable () -> Unit)?) {
+internal fun InlineOrUnder(first: @Composable () -> Unit, second: (@Composable () -> Unit)?) {
     androidx.compose.ui.layout.Layout(
         content = {
             first()
             second?.invoke()
         },
-    ) { measurables, constraints ->
+        measurePolicy = InlineOrUnderPolicy,
+    )
+}
+
+/** [InlineOrUnder]'s measuring, with intrinsics: at least as wide as its wider text (stacked), at most both side by side. */
+private object InlineOrUnderPolicy : androidx.compose.ui.layout.MeasurePolicy {
+    override fun androidx.compose.ui.layout.MeasureScope.measure(
+        measurables: List<androidx.compose.ui.layout.Measurable>,
+        constraints: androidx.compose.ui.unit.Constraints,
+    ): androidx.compose.ui.layout.MeasureResult {
         val gap = 6.dp.roundToPx()
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val a = measurables[0].measure(loose)
         val b = measurables.getOrNull(1)?.measure(loose)
-        if (b == null) {
+        return if (b == null) {
             layout(a.width, a.height) { a.placeRelative(0, 0) }
         } else if (a.width + gap + b.width <= constraints.maxWidth) {
             val h = maxOf(a.height, b.height)
@@ -353,6 +509,26 @@ private fun InlineOrUnder(first: @Composable () -> Unit, second: (@Composable ()
             }
         }
     }
+
+    override fun androidx.compose.ui.layout.IntrinsicMeasureScope.minIntrinsicWidth(
+        measurables: List<androidx.compose.ui.layout.IntrinsicMeasurable>,
+        height: Int,
+    ): Int = measurables.maxOfOrNull { it.minIntrinsicWidth(height) } ?: 0
+
+    override fun androidx.compose.ui.layout.IntrinsicMeasureScope.maxIntrinsicWidth(
+        measurables: List<androidx.compose.ui.layout.IntrinsicMeasurable>,
+        height: Int,
+    ): Int = measurables.sumOf { it.maxIntrinsicWidth(height) } + 6.dp.roundToPx() * (measurables.size - 1).coerceAtLeast(0)
+
+    override fun androidx.compose.ui.layout.IntrinsicMeasureScope.minIntrinsicHeight(
+        measurables: List<androidx.compose.ui.layout.IntrinsicMeasurable>,
+        width: Int,
+    ): Int = measurables.maxOfOrNull { it.minIntrinsicHeight(width) } ?: 0
+
+    override fun androidx.compose.ui.layout.IntrinsicMeasureScope.maxIntrinsicHeight(
+        measurables: List<androidx.compose.ui.layout.IntrinsicMeasurable>,
+        width: Int,
+    ): Int = measurables.sumOf { it.maxIntrinsicHeight(width) }
 }
 
 @Composable
@@ -390,7 +566,7 @@ private fun PortfolioLine(today: MobileTodayResponse, modifier: Modifier = Modif
 }
 
 @Composable
-private fun TabsAndSort(tab: TodayTab, sort: SortOrder, actions: AppActions) {
+internal fun TabsAndSort(tab: TodayTab, sort: SortOrder, period: com.tenon.joinrfinance.model.Period, actions: AppActions) {
     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).selectableGroup().testTag("tabs")) {
@@ -422,8 +598,8 @@ private fun TabsAndSort(tab: TodayTab, sort: SortOrder, actions: AppActions) {
                     .clip(RoundedCornerShape(6.dp))
                     .clickable(onClickLabel = "Change the sort", role = Role.Button, onClick = actions::cycleSort)
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "Sort by ${sort.spoken}"
-                        stateDescription = "Sorted by ${sort.spoken}"
+                        contentDescription = "Sort by ${sortSpoken(sort, period)}"
+                        stateDescription = "Sorted by ${sortSpoken(sort, period)}"
                         liveRegion = LiveRegionMode.Polite
                     }
                     .padding(horizontal = 8.dp)
@@ -435,8 +611,8 @@ private fun TabsAndSort(tab: TodayTab, sort: SortOrder, actions: AppActions) {
                 // The slot is as wide as the widest label at any font scale, so cycling the sort never moves the tabs.
                 Box {
                     val style = JoinrType.label(size = 11.sp, tracking = 0.1f)
-                    SortOrder.entries.forEach { Text(it.label, style = style, maxLines = 1, modifier = Modifier.alpha(0f).clearAndSetSemantics {}) }
-                    Text(sort.label, style = style, maxLines = 1, modifier = Modifier.testTag("sort-label"))
+                    SortOrder.entries.forEach { Text(sortLabel(it, period), style = style, maxLines = 1, modifier = Modifier.alpha(0f).clearAndSetSemantics {}) }
+                    Text(sortLabel(sort, period), style = style, maxLines = 1, modifier = Modifier.testTag("sort-label"))
                 }
             }
         }
@@ -518,7 +694,7 @@ fun HoldingCard(h: MobileHoldingDto, today: MobileTodayResponse, onOpen: (String
 
 /** The code with the weight at the right; when both do not fit (a long code at a large font scale), the weight goes under. */
 @Composable
-private fun CodeAndWeight(code: String, weight: String) {
+internal fun CodeAndWeight(code: String, weight: String) {
     val codeStyle = JoinrType.figure(size = 14.sp, color = JoinrColors.TextBright, weight = androidx.compose.ui.text.font.FontWeight.W700)
     val weightStyle = JoinrType.figure(size = 11.sp, color = JoinrColors.TextMuted)
     // A plain Layout (no SubcomposeLayout): the card row asks for intrinsic heights.
@@ -551,7 +727,7 @@ private fun CodeAndWeight(code: String, weight: String) {
 }
 
 @Composable
-private fun FirstLoadSkeleton() {
+internal fun FirstLoadSkeleton() {
     Column(Modifier.padding(16.dp).testTag("skeleton"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SkeletonBlock(64.dp)
         SkeletonBlock(64.dp)
@@ -564,6 +740,9 @@ private fun FirstLoadSkeleton() {
         }
     }
 }
+
+/** The refresh indicator: Today's refresh, and under a period also the periods fetch (Stage 10 plan section 9.4). */
+internal fun refreshIndicator(state: AppUiState): Boolean = state.refreshing || (!state.period.isDay && state.periodsLoading)
 
 /** For tests and the detail: the epoch-second time of an ISO instant. */
 internal fun epochSecond(iso: String?): Long? = iso?.let { runCatching { Instant.parse(it).epochSecond }.getOrNull() }

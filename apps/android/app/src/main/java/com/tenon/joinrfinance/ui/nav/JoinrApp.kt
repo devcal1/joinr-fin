@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tenon.joinrfinance.model.Period
 import com.tenon.joinrfinance.ui.AppActions
 import com.tenon.joinrfinance.ui.AppUiState
 import com.tenon.joinrfinance.ui.LockUi
@@ -104,6 +105,8 @@ fun JoinrApp(
 private fun Shell(state: AppUiState, actions: AppActions, openHolding: String?, onHoldingOpened: () -> Unit) {
     var destination by rememberSaveable { mutableStateOf(Destination.TODAY) }
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
+    // D169: a detail opened from a widget shows the day (1D) without changing the held period.
+    var detailFromWidget by rememberSaveable { mutableStateOf(false) }
     var licences by rememberSaveable { mutableStateOf(false) }
     val todayList = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -113,6 +116,7 @@ private fun Shell(state: AppUiState, actions: AppActions, openHolding: String?, 
             destination = Destination.TODAY
             licences = false
             detailKey = openHolding
+            detailFromWidget = true
             onHoldingOpened()
         }
     }
@@ -122,7 +126,13 @@ private fun Shell(state: AppUiState, actions: AppActions, openHolding: String?, 
         detailKey != null && today != null -> {
             BackHandler { detailKey = null }
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                DetailScreen(today, today.holdings.firstOrNull { it.key == detailKey }) { detailKey = null }
+                DetailScreen(
+                    today,
+                    today.holdings.firstOrNull { it.key == detailKey },
+                    onBack = { detailKey = null },
+                    period = if (detailFromWidget) Period.ONE_DAY else state.period,
+                    periods = state.periods,
+                )
             }
         }
         licences -> {
@@ -148,7 +158,16 @@ private fun Shell(state: AppUiState, actions: AppActions, openHolding: String?, 
             ) { padding ->
                 Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
                     when (destination) {
-                        Destination.TODAY -> TodayScreen(state, actions, onOpen = { detailKey = it }, listState = todayList, contentPadding = padding)
+                        Destination.TODAY -> TodayScreen(
+                            state,
+                            actions,
+                            onOpen = {
+                                detailFromWidget = false
+                                detailKey = it
+                            },
+                            listState = todayList,
+                            contentPadding = padding,
+                        )
                         Destination.SETTINGS -> SettingsScreen(state, actions, onLicences = { licences = true }, contentPadding = padding)
                     }
                 }

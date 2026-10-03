@@ -5,6 +5,7 @@ import type {
   DayStatus,
   MarketState,
   MobileHoldingKind,
+  PeriodStatus,
   ConsiderReason,
   CountdownState,
   DividendSuggestionStatus,
@@ -42,7 +43,7 @@ import { cashPages, dividendsPages } from './cashflow';
 import { backupNowResponses, backupsPages } from './backups';
 import { firePages } from './fire';
 import { nasCopyStates } from './nasCopy';
-import { mobileToday } from './mobile';
+import { mobilePeriods, mobileToday } from './mobile';
 import { phoneSections } from './phone';
 import { historyPages, netWorthPages, settingsPages } from './history';
 import { allInvestmentPageFixtures } from './investments';
@@ -80,7 +81,8 @@ export function fireInputSourcesOf(i: FireInputsDto): FireInputSource[] {
  * NAS-copy configuration state and reason, both lock values and the failure reasons that have a
  * fixture (stage-8.md §3.5; no heartbeat outcomes: D132); every day status, ASX market state and
  * phone holding kind in the `mobileToday` fixtures, and every store problem and cancel reason in
- * the Settings → Phone fixtures (stage-9.md §3.6).
+ * the Settings → Phone fixtures (stage-9.md §3.6); every period status in the `mobilePeriods`
+ * fixtures but `no_cost` (stage-10.md §3.6 lists no such holding; the app builds its own).
  */
 export const FIXTURE_COVERAGE: {
   priceStatuses: PriceStatus[];
@@ -125,6 +127,7 @@ export const FIXTURE_COVERAGE: {
   mobileHoldingKinds: MobileHoldingKind[];
   phoneStoreProblems: Array<PhoneSectionResponse['storeProblem']>;
   phoneCancelReasons: Array<NonNullable<PhoneSectionResponse['lastCancelled']>['reason']>;
+  periodStatuses: PeriodStatus[];
 } = {
   priceStatuses: unique(priceItems.map((i) => i.status)),
   runStatuses: unique(Object.values(importRunDetails).map((r) => r.status)),
@@ -232,6 +235,11 @@ export const FIXTURE_COVERAGE: {
   phoneCancelReasons: unique(
     Object.values(phoneSections).flatMap((p) =>
       p.lastCancelled === null ? [] : [p.lastCancelled.reason],
+    ),
+  ),
+  periodStatuses: unique(
+    Object.values(mobilePeriods).flatMap((r) =>
+      r.periods.flatMap((p) => p.figures.map((f): PeriodStatus => f.status)),
     ),
   ),
 };

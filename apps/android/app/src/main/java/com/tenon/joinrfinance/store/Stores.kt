@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.tenon.joinrfinance.model.SortOrder
 import com.tenon.joinrfinance.model.TodayTab
 import com.tenon.joinrfinance.net.ApiJson
+import com.tenon.joinrfinance.net.MobilePeriodsResponse
 import com.tenon.joinrfinance.net.MobileTodayResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -118,6 +119,49 @@ class TodayCache(private val file: File, private val box: Box) {
     }
 
     suspend fun clear() = withContext(Dispatchers.IO) {
+        file.delete()
+        File(file.parentFile, file.name + ".tmp").delete()
+    }
+}
+
+/**
+ * The last periods answer (Stage 10 plan section 9.3), sealed by the same [Box] beside [TodayCache]. Each entry records
+ * the pairing it was fetched for (origin and device id): an entry for another pairing is ignored and deleted on read.
+ */
+class PeriodsCache(private val file: File, private val box: Box) {
+    data class Entry(val periods: MobilePeriodsResponse, val fetchedAtMs: Long)
+
+    @Serializable
+    private data class Stored(val fetchedAtMs: Long, val origin: String, val deviceId: String, val periods: MobilePeriodsResponse)
+
+    /** The entry for this pairing, or null (absent, unreadable, or another pairing's: then it is deleted). */
+    suspend fun read(origin: String, deviceId: String): Entry? = withContext(Dispatchers.IO) {
+        if (!file.isFile) return@withContext null
+        val plain = runCatching { file.readText(Charsets.UTF_8) }.getOrNull()?.let(box::open)
+        val stored = plain?.let { runCatching { ApiJson.decodeFromString(Stored.serializer(), it) }.getOrNull() }
+        if (stored == null || stored.origin != origin || stored.deviceId != deviceId) {
+            deleteFiles()
+            return@withContext null
+        }
+        Entry(stored.periods, stored.fetchedAtMs)
+    }
+
+    suspend fun write(periods: MobilePeriodsResponse, fetchedAtMs: Long, origin: String, deviceId: String) = withContext(Dispatchers.IO) {
+        val plain = ApiJson.encodeToString(Stored.serializer(), Stored(fetchedAtMs, origin, deviceId, periods))
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(box.seal(plain), Charsets.UTF_8)
+        if (!tmp.renameTo(file)) {
+            file.delete()
+            tmp.renameTo(file)
+        }
+    }
+
+    suspend fun clear() = withContext(Dispatchers.IO) { deleteFiles() }
+
+    /** Whether a file is stored (for the tests). */
+    fun exists(): Boolean = file.isFile
+
+    private fun deleteFiles() {
         file.delete()
         File(file.parentFile, file.name + ".tmp").delete()
     }

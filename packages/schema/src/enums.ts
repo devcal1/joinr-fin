@@ -1,6 +1,8 @@
-// Every enum of the data model (stage-1.md §2.3, frozen). Plain tuples: no imports, so the Drizzle
-// table files (loaded by drizzle-kit) and the web bundle can both use them.
+// Every enum of the data model (stage-1.md §2.3, frozen). Plain tuples: no runtime imports (Stage 10
+// adds one type-only import, erased at build), so the Drizzle table files (loaded by drizzle-kit)
+// and the web bundle can both use them.
 // Stages 2–6 may append values; they never remove or rename one (no SQL CHECK constraints).
+import type { MOBILE_PERIODS, SERVER_PERIODS } from './mobile';
 
 export const INSTRUMENT_KINDS = ['stock', 'etf', 'managed_fund', 'crypto'] as const;
 export type InstrumentKind = (typeof INSTRUMENT_KINDS)[number];
@@ -95,7 +97,8 @@ export type JobTrigger = (typeof JOB_TRIGGERS)[number];
 /**
  * Stage 3 adds 'dividends' (the dividend-events job); Stage 5 adds 'snapshot', Stage 7 'backup',
  * Stage 8 'nas-copy' (the weekly copy to the NAS), Stage 9 'intraday' (the 5- and 15-minute ASX,
- * crypto and bullion refresh; stage-9.md §5.6). `job_runs.job` is plain text, so no migration.
+ * crypto and bullion refresh; stage-9.md §5.6), Stage 10 'closes' (the daily price history;
+ * stage-10.md §5.7). `job_runs.job` is plain text, so no migration.
  */
 export const JOB_NAMES = [
   'prices',
@@ -104,6 +107,7 @@ export const JOB_NAMES = [
   'backup',
   'nas-copy',
   'intraday',
+  'closes',
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -397,3 +401,21 @@ export type DayGranularity = (typeof DAY_GRANULARITIES)[number];
 /** Where a stored day came from (`day_quotes.source`, stage-9.md §3.1). */
 export const DAY_QUOTE_SOURCES = ['yahoo', 'coingecko', 'fake'] as const;
 export type DayQuoteSource = (typeof DAY_QUOTE_SOURCES)[number];
+
+// ─── Stage 10: the phone app's periods (stage-10.md §3.5) ──────────────────────────────────────
+
+/** The phone's periods (MOBILE_PERIODS, mobile.ts): '1D' … 'ALL'. */
+export type MobilePeriod = (typeof MOBILE_PERIODS)[number];
+/** What `GET /api/mobile/periods` answers (SERVER_PERIODS, mobile.ts): every period but '1D'. */
+export type ServerPeriod = (typeof SERVER_PERIODS)[number];
+
+/** A holding's period figure (stage-10.md §2.2, §2.3). */
+export const PERIOD_STATUSES = ['ok', 'no_start', 'split', 'unpriced', 'no_cost'] as const;
+export type PeriodStatus = (typeof PERIOD_STATUSES)[number];
+
+/**
+ * Where a stored daily close came from (`instrument_closes.source`, `series_closes.source`;
+ * stage-10.md §3.1, §3.3). `derived` and `midnight` are the AUD bullion spot only.
+ */
+export const CLOSE_SOURCES = ['yahoo', 'coingecko', 'derived', 'midnight', 'fake'] as const;
+export type CloseSource = (typeof CLOSE_SOURCES)[number];

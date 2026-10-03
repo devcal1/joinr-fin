@@ -77,6 +77,13 @@ export interface Config {
    * live kill switch if the five-minute cadence draws Yahoo 429s.
    */
   intradayRefresh: boolean;
+  /**
+   * Stage 10 (stage-10.md §5.8): `CLOSES_REFRESH` (true|false|1|0|yes|no); default on, off under
+   * NODE_ENV=test. Off means no `closes` timers (daily, start-up, follow-ups); the job stays
+   * registered, so a manual run still works. The live kill switch for the daily price history: the
+   * stored closes stay and the periods keep working from them.
+   */
+  closesRefresh: boolean;
 }
 
 export const DEFAULTS = {
@@ -96,6 +103,7 @@ export const TEST_DEFAULTS = {
   nightlyBackups: false,
   weeklyNasCopy: false,
   intradayRefresh: false,
+  closesRefresh: false,
 } as const;
 
 /** The nightly backup default outside NODE_ENV=test (stage-7.md §5.1). */
@@ -106,6 +114,9 @@ export const DEFAULT_WEEKLY_NAS_COPY = true;
 
 /** The intraday job default outside NODE_ENV=test (stage-9.md §5.7). */
 export const DEFAULT_INTRADAY_REFRESH = true;
+
+/** The closes job default outside NODE_ENV=test (stage-10.md §5.8). */
+export const DEFAULT_CLOSES_REFRESH = true;
 
 /** The largest PRICE_REFRESH_MINUTES (one day). */
 export const MAX_PRICE_REFRESH_MINUTES = 1440;
@@ -156,6 +167,7 @@ const envSchema = z.object({
   NIGHTLY_BACKUPS: booleanFlag.optional(),
   WEEKLY_NAS_COPY: booleanFlag.optional(),
   INTRADAY_REFRESH: booleanFlag.optional(),
+  CLOSES_REFRESH: booleanFlag.optional(),
   PUBLIC_PORT: z
     .string()
     .regex(/^\d{1,5}$/, { error: 'must be a whole number from 1 to 65535' })
@@ -265,5 +277,7 @@ export function loadConfig(
       e.WEEKLY_NAS_COPY ?? (isTest ? TEST_DEFAULTS.weeklyNasCopy : DEFAULT_WEEKLY_NAS_COPY),
     intradayRefresh:
       e.INTRADAY_REFRESH ?? (isTest ? TEST_DEFAULTS.intradayRefresh : DEFAULT_INTRADAY_REFRESH),
+    closesRefresh:
+      e.CLOSES_REFRESH ?? (isTest ? TEST_DEFAULTS.closesRefresh : DEFAULT_CLOSES_REFRESH),
   };
 }

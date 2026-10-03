@@ -128,3 +128,77 @@ export class FxClosesError extends Error {
     this.retryAfterMs = retryAfterMs;
   }
 }
+
+// ─── Stage 10: daily price history (stage-10.md §5.2–§5.4) ─────────────────────────────────────
+
+/** A Yahoo split event (`events.splits`), dated in the exchange's zone; ratio ≠ 1. */
+export interface SplitEvent {
+  date: IsoDate;
+  numerator: DecimalString;
+  denominator: DecimalString;
+}
+
+/** One daily close: its date in the instrument's date system and the native close (≤ 12 s.f.). */
+export interface HistoryClose {
+  date: IsoDate;
+  close: DecimalString;
+}
+
+/**
+ * A Yahoo daily history answer (§5.2): the closes after the FROZEN filter (weekday bars dated
+ * before today in the exchange's zone; nulls skipped), the split events, the exchange zone, the
+ * currency (`meta.currency`, else the symbol suffix's; null when neither: the caller falls back to
+ * the instrument's `prices.native_currency`) and the listing date (`meta.firstTradeDate` as an
+ * exchange-zone date; null when absent).
+ */
+export interface YahooHistory {
+  closes: HistoryClose[];
+  splits: SplitEvent[];
+  timeZone: string | null;
+  currency: string | null;
+  firstTradeDate: IsoDate | null;
+}
+
+/** Why a history request gave nothing: `beyond_reach` is CoinGecko's 401 past `days=365` only. */
+export type HistoryErrorKind = 'rate_limited' | 'failed' | 'skipped' | 'beyond_reach';
+
+export interface HistoryFailure {
+  ok: false;
+  kind: HistoryErrorKind;
+  /** Short, safe to store (no URL, no body). */
+  error: string;
+  retryAfterMs?: number;
+}
+
+export type YahooHistoryResult = { ok: true; history: YahooHistory } | HistoryFailure;
+
+export interface YahooHistoryRequest {
+  /** The provider symbol (`ABC.AX`, `0P…`, `AUDUSD=X`, `GC=F`). */
+  symbol: string;
+  /** `period1`: this date at 00:00 UTC; `period2` is now. */
+  from: IsoDate;
+  /** A managed fund (only the fake reads it: its NAV day differs from a listing's session). */
+  daily?: boolean;
+}
+
+/** The daily-history client of the `closes` job (live: Yahoo; fake: deterministic). Never throws. */
+export interface YahooHistoryClient {
+  id: 'yahoo' | 'fake';
+  fetchHistory(req: YahooHistoryRequest, signal: AbortSignal): Promise<YahooHistoryResult>;
+}
+
+export type CoinHistoryResult = { ok: true; prices: Array<[number, number]> } | HistoryFailure;
+
+/**
+ * CoinGecko's `market_chart` history in AUD (§5.3): `days` ≤ 90 → hourly points, more → daily
+ * points at 00:00 UTC (`daily` adds `&interval=daily`). Never throws.
+ */
+export interface CoinHistoryClient {
+  id: 'coingecko' | 'fake';
+  fetchHistory(
+    id: string,
+    days: number,
+    daily: boolean,
+    signal: AbortSignal,
+  ): Promise<CoinHistoryResult>;
+}

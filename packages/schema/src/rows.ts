@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   BUDGET_ITEM_KINDS,
   CASH_ACCOUNT_KINDS,
+  CLOSE_SOURCES,
   DAY_GRANULARITIES,
   DAY_QUOTE_SOURCES,
   FETCH_STATUSES,
@@ -610,6 +611,33 @@ export const newDayQuoteSchema = z.strictObject({
 export const newSeriesDayQuoteSchema = z.strictObject({
   seriesId: nonEmpty,
   ...dayQuoteShape,
+});
+
+// ─── Stage 10 (migration 0007; stage-10.md §3.1–§3.3) ───────────────────────────────────────────
+
+export const newInstrumentCloseSchema = z.strictObject({
+  instrumentId: z.number().int().positive(),
+  date: IsoDateSchema,
+  close: positiveDecimal,
+  currency: nonEmpty,
+  source: z.enum(CLOSE_SOURCES),
+  fetchedAt: IsoTimestampSchema,
+});
+
+export const newInstrumentSplitSchema = z.strictObject({
+  instrumentId: z.number().int().positive(),
+  date: IsoDateSchema,
+  numerator: positiveDecimal,
+  denominator: positiveDecimal,
+  fetchedAt: IsoTimestampSchema,
+});
+
+export const newSeriesCloseSchema = z.strictObject({
+  seriesId: nonEmpty,
+  date: IsoDateSchema,
+  value: positiveDecimal,
+  source: z.enum(CLOSE_SOURCES),
+  fetchedAt: IsoTimestampSchema,
 });
 
 export type NewInstrument = z.output<typeof newInstrumentSchema>;

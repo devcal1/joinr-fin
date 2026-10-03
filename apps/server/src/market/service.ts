@@ -5,7 +5,12 @@
 // Stage 9 (stage-9.md §5.6): it also registers the `intraday` job (intraday/service.ts) and arms its
 // timer when INTRADAY_REFRESH is on; `stop()` clears that timer; the `prices` job waits for an
 // in-flight intraday run before it selects its targets.
+// Stage 10 (stage-10.md §5.6, §5.7): it also registers the `closes` job (closes/index.ts; its timers
+// only with CLOSES_REFRESH), the `prices` job waits for an in-flight closes run too, `stop()` clears
+// its timers, and a real price-source change deletes the instrument's stored closes and splits.
 import {
+  CLOSES_COIN_SPACING_MS,
+  CLOSES_RUN_DEADLINE_MS,
   derivePriceSource,
   INTRADAY_RUN_DEADLINE_MS,
   type JobTrigger,
@@ -17,7 +22,9 @@ import {
 } from '@joinr/schema';
 import {
   dayQuotes,
+  instrumentCloses,
   instruments,
+  instrumentSplits,
   jobRuns,
   prices,
   priceSources,
@@ -29,13 +36,22 @@ import type { Config } from '../config';
 import { HttpError } from '../errors';
 import { SchedulerStoppedError, systemClock } from '../scheduler/index';
 import type { JobContext, JobResult, Scheduler } from '../scheduler/types';
+import { createClosesJob, type ClosesClients, type ClosesJob } from './closes/index';
 import { serverTimeZone } from './day';
 import { createIntraday, type IntradayService } from './intraday/service';
 import { listPriceItems, listSeries, priceItemFor } from './items';
 import { createCoinGeckoProvider } from './providers/coingecko';
-import { createFakeFxClosesClient, createFakeProvider } from './providers/fake';
+import {
+  createFakeFxClosesClient,
+  createFakeHistoryClients,
+  createFakeProvider,
+} from './providers/fake';
 import { clockSleep } from './providers/http';
-import { createYahooFxClosesClient, createYahooProvider } from './providers/yahoo';
+import {
+  createYahooFxClosesClient,
+  createYahooHistoryClient,
+  createYahooProvider,
+} from './providers/yahoo';
 import {
   Cooldowns,
   RUN_DEADLINE_MS,
@@ -58,9 +74,12 @@ export const NOTIFY_DELAY_MS = 5_000;
 
 export interface MarketDataServiceOptions {
   db: JoinrDb;
-  /** Stage 9: `intradayRefresh` arms the intraday timer (absent → off, as under NODE_ENV=test). */
+  /**
+   * Stage 9: `intradayRefresh` arms the intraday timer; Stage 10: `closesRefresh` the closes
+   * timers (absent → off, as under NODE_ENV=test).
+   */
   config: Pick<Config, 'marketDataMode' | 'priceRefreshMinutes'> &
-    Partial<Pick<Config, 'intradayRefresh'>>;
+    Partial<Pick<Config, 'intradayRefresh' | 'closesRefresh'>>;
   log: FastifyBaseLogger;
   scheduler: Scheduler;
   fetchImpl?: typeof fetch;
@@ -82,6 +101,32 @@ export interface MarketDataServiceOptions {
   intradayDeadlineMs?: number;
   coinChartSpacingMs?: number;
   intradayStartupDelayMs?: number;
+  /** Stage 10 test knobs: the closes job's history clients, deadline, spacing and start-up delay. */
+  closesClients?: ClosesClients;
+  closesDeadlineMs?: number;
+  closesCoinSpacingMs?: number;
+  closesStartupDelayMs?: number;
+  /** The wait of `prices` for an in-flight closes run (default CLOSES_RUN_DEADLINE_MS). */
+  closesAwaitMs?: number;
+}
+
+/** Stage 10 (§5.2–§5.4): the closes job's history clients for the mode (fake: no network). */
+function buildClosesClients(
+  mode: MarketDataMode,
+  o: MarketDataServiceOptions,
+  clock: Clock,
+  timeZone: string,
+): ClosesClients {
+  const now = () => clock.now();
+  if (mode === 'fake') {
+    const fake = createFakeHistoryClients({ now, timeZone });
+    return { yahoo: fake.yahoo, coins: fake.coins };
+  }
+  const fetchImpl: typeof fetch = o.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
+  return {
+    yahoo: createYahooHistoryClient({ fetchImpl, sleep: clockSleep(clock), now }),
+    coins: createCoinGeckoProvider({ fetchImpl, now }),
+  };
 }
 
 function buildProviders(
@@ -166,6 +211,48 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
       })
     : null;
 
+  /**
+   * Stage 10: the `closes` job (modes live and fake; its timers only with CLOSES_REFRESH). While
+   * the `prices` job waits for its run, that run never pauses for `prices` (no deadlock).
+   */
+  let pricesAwaitingCloses = false;
+  const closes: ClosesJob | null = providers
+    ? createClosesJob({
+        db,
+        scheduler,
+        clients: o.closesClients ?? buildClosesClients(mode, o, clock, timeZone),
+        cooldowns,
+        clock,
+        sleep,
+        log,
+        timeZone,
+        timerEnabled: o.config.closesRefresh === true,
+        intraday: intraday
+          ? { inFlight: () => intraday.inFlight(), slotsEnabled: o.config.intradayRefresh === true }
+          : null,
+        pricesAwaitingCloses: () => pricesAwaitingCloses,
+        runDeadlineMs: o.closesDeadlineMs,
+        coinSpacingMs: o.closesCoinSpacingMs ?? CLOSES_COIN_SPACING_MS,
+        startupDelayMs: o.closesStartupDelayMs,
+      })
+    : null;
+
+  /** Stage 10: waits (bounded) for a closes run in flight; that run stops pausing for this one. */
+  async function awaitCloses(signal: AbortSignal): Promise<void> {
+    const flight = closes?.inFlight();
+    if (!flight) return;
+    pricesAwaitingCloses = true;
+    closes?.wake();
+    const wait = new AbortController();
+    const both = AbortSignal.any([signal, wait.signal]);
+    try {
+      await Promise.race([flight, sleep(o.closesAwaitMs ?? CLOSES_RUN_DEADLINE_MS, both)]);
+    } finally {
+      pricesAwaitingCloses = false;
+      wait.abort();
+    }
+  }
+
   /** Waits (bounded) for an intraday run in flight, so two runs never fetch the same ids. */
   async function awaitIntraday(signal: AbortSignal): Promise<void> {
     const flight = intraday?.inFlight();
@@ -187,6 +274,7 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
     const options = nextRunOptions ?? {};
     nextRunOptions = null;
     if (!providers) return { status: 'failed', error: 'Market data is switched off' };
+    await awaitCloses(ctx.signal);
     await awaitIntraday(ctx.signal);
 
     const deadline = new AbortController();
@@ -427,6 +515,10 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
         // so it never merges with the new one's (Stage 9, §5.4).
         tx.update(prices).set({ asOf: null }).where(eq(prices.instrumentId, instrumentId)).run();
         tx.delete(dayQuotes).where(eq(dayQuotes.instrumentId, instrumentId)).run();
+        // Stage 10 (§5.6): the old source's daily closes and splits go too; the next closes run
+        // backfills the new symbol.
+        tx.delete(instrumentCloses).where(eq(instrumentCloses.instrumentId, instrumentId)).run();
+        tx.delete(instrumentSplits).where(eq(instrumentSplits.instrumentId, instrumentId)).run();
       });
       return itemOrThrow(instrumentId);
     },
@@ -459,8 +551,9 @@ export function createService(o: MarketDataServiceOptions): MarketDataService {
     },
 
     stop() {
-      // Stage 9 (stage-9.md §5.6): clears the intraday timer; idempotent.
+      // Stage 9 (stage-9.md §5.6): clears the intraday timer; Stage 10 the closes timers. Idempotent.
       intraday?.stop();
+      closes?.stop();
     },
   };
 }

@@ -48,6 +48,7 @@ describe('loadConfig', () => {
       publicPort: null,
       weeklyNasCopy: true,
       intradayRefresh: true,
+      closesRefresh: true,
     });
   });
 
@@ -70,6 +71,7 @@ describe('loadConfig', () => {
         PUBLIC_PORT: '4932',
         WEEKLY_NAS_COPY: '0',
         INTRADAY_REFRESH: 'no',
+        CLOSES_REFRESH: 'false',
       },
       base,
     );
@@ -92,6 +94,7 @@ describe('loadConfig', () => {
       publicPort: 4932,
       weeklyNasCopy: false,
       intradayRefresh: false,
+      closesRefresh: false,
     });
   });
 
@@ -218,6 +221,28 @@ describe('loadConfig', () => {
     expect(loadConfig({ NODE_ENV: 'production' }, base).intradayRefresh).toBe(true);
     expect(configError({ INTRADAY_REFRESH: 'often' }).issues[0]).toMatch(
       /^INTRADAY_REFRESH: must be one of true, 1, yes, false, 0, no/,
+    );
+  });
+
+  // Stage 10 (stage-10.md §5.8): the closes job's switch (the live kill switch).
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['yes', true],
+    ['false', false],
+    ['0', false],
+    ['no', false],
+    ['', true],
+  ])('reads CLOSES_REFRESH=%j (default on)', (value, expected) => {
+    expect(loadConfig({ CLOSES_REFRESH: value }, base).closesRefresh).toBe(expected);
+  });
+
+  it('turns the closes job off under NODE_ENV=test unless set', () => {
+    expect(loadConfig({ NODE_ENV: 'test' }, base).closesRefresh).toBe(false);
+    expect(loadConfig({ NODE_ENV: 'test', CLOSES_REFRESH: 'yes' }, base).closesRefresh).toBe(true);
+    expect(loadConfig({ NODE_ENV: 'production' }, base).closesRefresh).toBe(true);
+    expect(configError({ CLOSES_REFRESH: 'daily' }).issues[0]).toMatch(
+      /^CLOSES_REFRESH: must be one of true, 1, yes, false, 0, no/,
     );
   });
 

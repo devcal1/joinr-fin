@@ -10,7 +10,8 @@
 // aggregate.ts, trend.ts, recording.ts and tax.ts, and for Stage 6 (stage-6.md §2.2) fire.ts (the FIRE
 // planner: deriveFireInputs, projectFire) and fireSheet.ts (the template's FIRE tab, sheet mode), and
 // for Stage 9 (stage-9.md §2.8) dayChange.ts (the phone app's day-change rules: computeDayChange,
-// portfolioLine, downsample).
+// portfolioLine, downsample), and for Stage 10 (stage-10.md §2.8) periodChange.ts (the phone app's
+// period rules: periodStartDate, computePeriods).
 import type { IsoDate } from '@joinr/schema';
 import { aggregateSnapshots } from './aggregate';
 import { amortise } from './amortise';
@@ -19,6 +20,7 @@ import { budgetInvestInputOf, budgetInvestment, computeBudget } from './budget';
 import { cashTotals, monthlyPayCents } from './cash';
 import { compressCashflow } from './charts';
 import { computeDayChange, downsample, FUND_DAY_MAX_WEEKDAYS, portfolioLine } from './dayChange';
+import { computePeriods, PERIOD_ENGINE_VERSION, periodStartDate } from './periodChange';
 import { computeDividends } from './dividends';
 import { deriveFireInputs, projectFire } from './fire';
 import { fireSheet } from './fireSheet';
@@ -53,9 +55,13 @@ import { xirrRate } from './xirr';
 
 export type * from './types';
 export type * from './dayChange';
+export type * from './periodChange';
 
 // Stage 9 (stage-9.md §2.8): exported beside the frozen EngineApi value, not inside it.
 export { computeDayChange, downsample, FUND_DAY_MAX_WEEKDAYS, portfolioLine };
+
+// Stage 10 (stage-10.md §2.8): the period rules, likewise beside EngineApi.
+export { computePeriods, PERIOD_ENGINE_VERSION, periodStartDate };
 
 export {
   aggregateSnapshots,

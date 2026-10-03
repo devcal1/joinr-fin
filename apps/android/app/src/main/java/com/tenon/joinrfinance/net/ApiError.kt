@@ -86,7 +86,7 @@ object Sentences {
 /** The pure error mapping of plan section 9.3. Returns null when the answer is a usable success. */
 object ErrorMapping {
     /**
-     * @param path the API path called (`/api/mobile/today`, `/api/mobile/device`, `/api/mobile/pair`)
+     * @param path the API path called (`/api/mobile/today`, `/api/mobile/device`, `/api/mobile/pair`, `/api/mobile/periods`)
      * @param status the HTTP status
      * @param contentType the response's Content-Type, if any
      * @param body the response body, if any
@@ -106,13 +106,14 @@ object ErrorMapping {
         }
         if (!json) {
             // An HTML 401/403 is the Umbrel's login page, not the app.
-            return if (status == 401 || status == 403) ApiError.ProxyLogin else if (status == 404 && path.endsWith("/today")) ApiError.ServerTooOld else ApiError.ServerError
+            return if (status == 401 || status == 403) ApiError.ProxyLogin else if (status == 404 && tooOldOn404(path)) ApiError.ServerTooOld else ApiError.ServerError
         }
         val code = errorCodeOf(body)
         return when {
             status == 404 && path.endsWith("/today") -> ApiError.ServerTooOld
             status == 404 && path.endsWith("/device") -> ApiError.ServerTooOld
             status == 404 && path.endsWith("/pair") -> ApiError.ServerTooOld
+            status == 404 && path.endsWith("/periods") -> ApiError.ServerTooOld
             code == ApiError.CODE_REVOKED -> ApiError.Revoked
             code == ApiError.CODE_INVALID || code == ApiError.CODE_MISSING -> ApiError.KeyUnknown
             code == ApiError.CODE_PAIRING_INVALID || code == ApiError.CODE_PAIRING_RATE ||
@@ -121,6 +122,9 @@ object ErrorMapping {
             else -> ApiError.ServerError
         }
     }
+
+    /** An HTML 404 means "no such path on this server" for `/today` and (Stage 10) `/periods`. */
+    private fun tooOldOn404(path: String): Boolean = path.endsWith("/today") || path.endsWith("/periods")
 
     fun isJson(contentType: String?, body: String?): Boolean {
         val type = contentType?.lowercase().orEmpty()

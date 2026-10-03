@@ -1,20 +1,26 @@
 // Shared helpers for the Stage 9 phone-API suites (stage-9.md §6.10): an app on a temp DATA_DIR with
 // the REAL engine and a movable clock, a pairing shortcut, and planters for instruments, trades,
-// prices, day rows, FX previous closes, market series and bullion rows. Made-up symbols and round
+// prices, day rows, FX previous closes, market series and bullion rows; Stage 10 (stage-10.md §6.6)
+// adds the periods call and planters for stored closes, splits, series closes and bullion sales. Made-up symbols and round
 // amounts only (the repo is public); every key and code is generated at run time and never printed.
 import { join } from 'node:path';
 import {
   type MobilePairResponse,
+  type MobilePeriodsResponse,
   type MobileTodayResponse,
   type PhoneSectionResponse,
 } from '@joinr/schema';
 import {
   dayQuotes,
+  instrumentCloses,
+  instrumentSplits,
   instruments,
   marketQuotes,
+  otherAssetSales,
   otherAssets,
   prices,
   priceSources,
+  seriesCloses,
   seriesDayQuotes,
   trades,
 } from '@joinr/schema/db';
@@ -171,6 +177,15 @@ export async function getToday(app: FastifyInstance, key: string): Promise<Mobil
   return res.json<MobileTodayResponse>();
 }
 
+export async function getPeriods(
+  app: FastifyInstance,
+  key: string,
+): Promise<MobilePeriodsResponse> {
+  const res = await app.inject({ method: 'GET', url: '/api/mobile/periods', headers: bearer(key) });
+  if (res.statusCode !== 200) throw new Error(`periods: ${res.statusCode} ${res.body}`);
+  return res.json<MobilePeriodsResponse>();
+}
+
 // ─── Planters (an empty database: `seed: false`) ────────────────────────────────────────────────
 
 type Db = AppDatabase['db'];
@@ -221,10 +236,11 @@ export function plantTrade(
   date: string,
   units: string,
   price: string,
+  feeCents = 0,
 ) {
   tradeSeq += 1;
   db.insert(trades)
-    .values({ instrumentId, tradeDate: date, units, price, feeCents: 0, seq: tradeSeq })
+    .values({ instrumentId, tradeDate: date, units, price, feeCents, seq: tradeSeq })
     .run();
 }
 
@@ -394,4 +410,66 @@ export function bars(
     const p = a + ((b - a) * i) / Math.max(1, n - 1);
     return [from + i * 300, String(Number(p.toFixed(3)))] as [number, string];
   });
+}
+
+// ─── Stage 10 planters (stage-10.md §3.1–§3.3) ──────────────────────────────────────────────────
+
+/** Stored daily closes of an instrument (`instrument_closes`), replacing any on the same dates. */
+export function plantCloses(
+  db: Db,
+  instrumentId: number,
+  closes: ReadonlyArray<readonly [string, string]>,
+  currency = 'AUD',
+  source: 'yahoo' | 'coingecko' | 'fake' = 'yahoo',
+) {
+  for (const [date, close] of closes) {
+    const values = { close, currency, source, fetchedAt: '2030-01-01T00:00:00.000Z' };
+    db.insert(instrumentCloses)
+      .values({ instrumentId, date, ...values })
+      .onConflictDoUpdate({
+        target: [instrumentCloses.instrumentId, instrumentCloses.date],
+        set: values,
+      })
+      .run();
+  }
+}
+
+/** A stored split event (`instrument_splits`). */
+export function plantSplit(
+  db: Db,
+  instrumentId: number,
+  date: string,
+  numerator = '2',
+  denominator = '1',
+) {
+  db.insert(instrumentSplits)
+    .values({ instrumentId, date, numerator, denominator, fetchedAt: '2030-01-01T00:00:00.000Z' })
+    .run();
+}
+
+/** Stored daily closes of a market series (`series_closes`). */
+export function plantSeriesCloses(
+  db: Db,
+  seriesId: string,
+  closes: ReadonlyArray<readonly [string, string]>,
+  source: 'yahoo' | 'derived' | 'midnight' | 'fake' = 'yahoo',
+) {
+  for (const [date, value] of closes) {
+    const values = { value, source, fetchedAt: '2030-01-01T00:00:00.000Z' };
+    db.insert(seriesCloses)
+      .values({ seriesId, date, ...values })
+      .onConflictDoUpdate({ target: [seriesCloses.seriesId, seriesCloses.date], set: values })
+      .run();
+  }
+}
+
+/** A sale of some units of an Other Assets row. */
+export function plantAssetSale(
+  db: Db,
+  otherAssetId: number,
+  saleDate: string,
+  units: string,
+  proceedsCents: number,
+) {
+  db.insert(otherAssetSales).values({ otherAssetId, saleDate, units, proceedsCents }).run();
 }

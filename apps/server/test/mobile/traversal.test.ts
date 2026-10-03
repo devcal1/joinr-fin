@@ -70,6 +70,10 @@ const CORPUS = [
   '/api/mobile/../status',
   '/api/mobile/../phone',
   `/api/mobile/../backups/${BACKUP_NAME}`,
+  // Stage 10 (stage-10.md §6.6): the periods path.
+  '/api/mobile/periods/../backups',
+  '/api/mobile/periods%2f..%2fbackups',
+  '/api/mobile/periods/..;/status',
 ];
 
 describe('the traversal corpus over a socket (the test of record)', () => {

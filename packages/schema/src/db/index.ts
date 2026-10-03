@@ -64,7 +64,9 @@ export type JoinrDb = BetterSQLite3Database<typeof tables>;
  * overlay and the `market_quote_history` cache are not listed (stage-4.md §3.2, §3.4). Stage 5's
  * `snapshot_audit` log is not listed either: an import never deletes it (stage-5.md §3.2). Stage 9's
  * `day_quotes` and `series_day_quotes` caches follow `prices`: not listed, kept by a re-import,
- * never app data (stage-9.md §3.1, §3.1a).
+ * never app data (stage-9.md §3.1, §3.1a). Stage 10's `instrument_closes`, `instrument_splits`
+ * (both cascade with their instrument) and `series_closes` caches are not listed either: kept by a
+ * re-import, never app data, never dumped (stage-10.md §3.3).
  */
 export const DOMAIN_TABLES_DELETE_ORDER = [
   loanOffsetLinks,
