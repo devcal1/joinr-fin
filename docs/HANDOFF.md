@@ -1,22 +1,21 @@
 # Handoff
 
-_Last updated: at the Stage 10 close (2026-10-04)._
+_Last updated: after the Stage 10 demo (2026-10-04)._
 
-## Next: finish the Stage 10 demo, then the owner picks Stage 11
-No Stage 11 is planned yet. **First, next session:**
-1. **The Stage 10 demo on the phone** (`docs/stages/stage-10.md` §11 steps 11–14): each chip 1W–12M (figure, %, "Since …", line, CARDS / LIST / MOVERS; the hand-priced fund "—" NO HISTORY with the Partial note); ALL (lifetime gain = unrealised + realised; header still VAL · INVESTED · GAIN; the caption "realised +$… not drawn"; the SOLD row in LIST and MOVERS); the detail under 1W and ALL; back out keeps the period, a cold start gives 1D; widgets still daily and a widget tap opens a 1D detail; optionally Tailscale off → dimmed cached figures. Record the result as a decision (accepted, or the fixes).
-2. **Optional:** compare ALL with the web's totals. The owner downloads a backup; the coordinator restores it into a **scratch** `DATA_DIR` (never `data/`) and sums the four investment pages' unrealised + realised plus the Other Assets bullion rows.
-3. The Stage 8/9 carry-overs below (the first scheduled NAS copy, Sunday 04/10 03:00; September's auto-record).
-4. Ask the owner what Stage 11 is (PLAN.md has none). Then plan it with the stage process.
+## Next: the owner picks Stage 11
+**Stage 10 is done (D172).** No Stage 11 is planned yet (PLAN.md has none).
+1. Ask the owner what Stage 11 is, then plan it with the stage process.
+2. **Optional:** compare ALL with the web's totals. The owner downloads a backup; the coordinator restores it into a **scratch** `DATA_DIR` (never `data/`) and sums the four investment pages' unrealised + realised plus the Other Assets bullion rows. Not run at the demo.
 
-**Next step:** `/clear`, then "Finish the Stage 10 demo".
+**Next step:** `/clear`, then tell the coordinator what Stage 11 is (or "Plan Stage 11").
 
 ## Where we are
-**Stage 10 (the phone's period selector) is released (D171); its demo is not yet reported.** Joinr Finance **1.3.0** is live on the Umbrel and the owner's phone runs the signed **APK 1.1.0**.
-- Plan, review logs and close notes: `docs/stages/stage-10.md`. Decisions D160–D171. Private: `docs/private/stage-10-private.md` (owner coverage, the release record, the APK digest).
+**Stage 10 (the phone's period selector) is done: released (D171) and the owner's phone demo passed with no fixes (D172).** Joinr Finance **1.3.0** is live on the Umbrel and the owner's phone runs the signed **APK 1.1.0**.
+- Plan, review logs and close notes: `docs/stages/stage-10.md`. Decisions D160–D172. Private: `docs/private/stage-10-private.md` (owner coverage, the release and demo records, the APK digest).
 - **Server 1.3.0:** migration 0007 (`instrument_closes`, `instrument_splits`, `series_closes`; caches, never app data, never dumped); a daily **`closes` job** (16:52 Melbourne, a start-up run after 120 s, up to 6 follow-ups a day; Yahoo daily history by `period1`/`period2` with split events, CoinGecko up to 365 days, the AUD bullion spot derived from futures ÷ `AUDUSD`, exact midnight values captured from 1.3.0 on; kill switch `CLOSES_REFRESH`); **`GET /api/mobile/periods`** (all seven periods in one keyed, read-only answer; `/today` byte-identical, so older APKs keep working).
 - **Store:** `a711611` (pushed): the 1.3.0 image pin, version and notes.
 - **The phone:** APK 1.1.0 (versionCode 4): the chip row (1D on a cold start, kept while the process lives), period figures on cards, LIST, MOVERS and the detail, the Sold holdings row and line, the Partial note, the ALL caption. Widgets and the worker are unchanged.
+- **Backups with the caches:** the nightly copy is now about 1.1 MB (was about 570 KB). On the daylight-saving morning (04/10) the 02:30 nightly ran at 03:30, as designed.
 
 ## What exists (new in Stage 10)
 | Path | What it is |
@@ -99,13 +98,12 @@ Everything from Stages 1–6 still applies (`pnpm dev`, `pnpm check`, `pnpm e2e`
 - **Stray folder:** a Git Bash path slip made `C:\c\Users\…\artifacts\stage9\verifier\prod\finance.db` (a generic seed only); the owner deletes `C:\c`.
 - **Unverified:** whether a live 2-day Yahoo answer on a Monday morning carries the Sunday-evening futures bars (private §6). Only the bullion line could miss a few hours of points.
 - **Accepted limits (Stage 10):** coins held longer than 365 days are flat under ALL (CoinGecko's keyless reach); crypto and bullion closes before 1.3.0 are approximate; a split inside a period shows "—" (no split model); ex-dividend drops show as losses; the e2e suite has 17 flaky web specs on a busy PC.
-- **Not verified live (Stage 10):** the read-only count of the first `closes` run (the demo's periods show it); the APK 1.0.2 compatibility with 1.3.0 (the phone was upgraded at once; `/today` is byte-identical by test).
+- **Not verified live (Stage 10):** the read-only count of the first `closes` run (the demo's periods show it worked); the APK 1.0.2 compatibility with 1.3.0 (the phone was upgraded at once; `/today` is byte-identical by test).
 - **`smoke check --dry-run` exits 1** ("N of M checks failed"), unchanged since Stage 7; harmless, could be tidied.
 - **Accepted limits (Stage 9):** crypto may read `no_base` for up to 15 minutes after midnight; with `INTRADAY_REFRESH=false` crypto has no day figure; bullion is flat at weekends; a futures roll can show a false jump; the phone uses plain HTTP inside Tailscale.
 - **E2E and a running dev server:** stop `pnpm dev` before `pnpm e2e` (`reuseExistingServer: true`). A few read-only e2e tests can need one retry on a cold load when the PC is busy.
 - **An interrupted first start leaves a broken DB** (from Stage 8): delete the scratch `finance.db` and start again.
 - **Check with the owner:** the two loan accounts listed under Bank accounts (they count toward the emergency fund); the Stage 7 demo-day test ETF buy.
-- **Check next session:** the first scheduled NAS copy (Sunday 04/10/2026 03:00) in Settings → Backups; September's auto-record in History.
 - **Deferred:** the JSON export (D121); encryption at rest (D133); HTTPS; an in-app APK updater (D145).
 - **Data to correct in the app:** the mortgage payment and compounding (D76), undated other assets (D73), the budget rows' stale account names (D65).
 - **Uninstall deletes the database and every backup** (D113). Download a backup before any uninstall; never change the store or app ids.

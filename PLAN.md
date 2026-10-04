@@ -29,7 +29,7 @@ This project rebuilds the owner's copy of the **CompiledSanity Personal Wealth T
 | 7 | Umbrel deployment & cutover | ✅ done 2026-09-27/28 |
 | 8 | Weekly backup copy to the NAS | ✅ done 2026-09-27/28 |
 | 9 | Android app: holdings at a glance | ✅ done 2026-10-03 (server 1.2.0, APK 1.0.2) |
-| 10 | Phone app: period selector | ✅ released 2026-10-03 (server 1.3.0, APK 1.1.0; demo on the phone pending) |
+| 10 | Phone app: period selector | ✅ done 2026-10-04 (server 1.3.0, APK 1.1.0) |
 
 Every stage ends with a **demo**, a **handoff update**, a **local commit** (with the owner's OK) and a **`/clear`**. Pushes happen only when the owner asks (D10). See `docs/STAGE_PROCESS.md`.
 
